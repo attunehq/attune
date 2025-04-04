@@ -1,5 +1,5 @@
 {
-	"name": "cfworkers",
+	"name": "dataplane",
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
@@ -11,7 +11,6 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.7.5",
-		"@cloudflare/workers-types": "^4.20250327.0",
 		"typescript": "^5.5.2",
 		"vitest": "~3.0.7",
 		"wrangler": "^4.6.0"

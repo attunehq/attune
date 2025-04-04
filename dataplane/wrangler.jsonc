@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "api",
+	"name": "dataplane",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-27",
 	"observability": {
@@ -22,7 +22,7 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
-	"r2_buckets": [{ "binding": "BUCKET_ATTUNE", "bucket_name": "apt-releases-attunehq-com" }]
+	"r2_buckets": [{ "binding": "R2", "bucket_name": "armor-dev-1" }]
 
 	/**
 	 * Environment Variables

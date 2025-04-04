@@ -1,52 +1,39 @@
 # Design
 
-## Workflow
+## Signing workflow
 
-1. Set up repositories
-2. Upload package files
-   1. Provide signed package file, and flags for repository, distribution, component
-3. Database stores package files, parsed package metadata, and repository metadata
-4. On each upload, re-generate Release and Packages indexes using incremental changes
-5. Give generated indexes back to CLI for signing locally
-6. Upload signed indexes
+1. Set up a repository in the control plane database. Users cannot currently self-provision this step.
+2. Users upload package files into the repository using the CLI.
+3. Once all desired packages are uploaded, users use the CLI to generate, sign, and upload updated repository indexes.
 
 ## Architecture
 
-CLI runs in customer environment:
-- Built in Rust? Go?
-  - Probably not Haskell because we need a cross-compilation story
-  - Go can use libraries from `nfpm` and friends
-  - Rust has sane language design
-- Talk to the API for uploads and control
+Overall, the architecture consists of:
 
-API runs in Cloudflare Worker:
-- Use Hono router
-- TODO:
-  - Will need to re-deploy whenever bindings are updated, if we switch to per-tenant D1 and R2 bindings
-  - We could theoretically host this in a server, although we'd need to keep the server up and use a cheap-egress host because the server host's egress will still be billed
+1. A CLI that users run locally on their CI machines.
+2. A data plane that hosts and stores packages, running on Cloudflare.
+3. A control plane that manages repository metadata, package uploads, and index generation.
 
-D1 is used for database of metadata:
-- Put everything in one database for now
-  - Tenants
-  - For each tenant:
-    - Repositories, packages, files, etc.
-- TODO:
-  - Break out tenants into their own databases
-  - Move off of D1 onto something more scalable when we near the 10G limit
+### CLI
 
-R2 used for package storage:
-- Put everything in one bucket for now
-- TODO:
-  - Separate buckets for each tenant
+The CLI is a Go binary that users run locally on their CI machines.
 
-## Backlog
+We use Go for its dead simple cross-compilation story.
 
-- Terraform provider?
-- Webhooks?
-- Monitoring?
-  - Integration testing to make sure package signed correctly
-- Ubuntu phased updates
-- Other package managers
-- Generating the packages themselves
-- Making signing nicer, maybe using enclave or KMS for signing or auto-generating a keyring package for rotation?
-  - Add `Depends: tenant-keyring` to all packages
+### Data plane
+
+The data plane is an extremely simple Cloudflare Worker. When the worker receives an incoming request, it checks whether the corresponding object exists in R2, and if so, returns it. If not, it returns a 404.
+
+We use Cloudflare R2 and Cloudflare Workers here because they have no egress cost.
+
+### Control plane
+
+The control plane is a Haskell server and Postgres database that runs in AWS. It manages uploads, access control, and keeping the metadata database up-to-date. This metadata database allows us to quickly re-generate indexes when needed, so users can quickly add and remove packages.
+
+## Future work
+
+- Adding support for more package managers.
+- Adding support for users to set manager-specific metadata (e.g. Ubuntu phased updates).
+- Generating `keyring` packages for users to easily rotate and revoke GPG keys.
+- Package generation and signing, possibly using secure enclaves with HSMs.
+- Webhooks and API for user automation.
