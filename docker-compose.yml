@@ -1,0 +1,12 @@
+name: "armorcd"
+services:
+  postgres:
+    image: postgres:17.4-bookworm
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data

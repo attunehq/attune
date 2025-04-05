@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
@@ -9,7 +11,10 @@ export default {
 			return new Response(null, { status: 405 });
 		}
 
-		const key = `${url.hostname}${url.pathname}`;
+		// TODO: If we're going to do atomic release updates, this logic will need
+		// to be a little smarter. Maybe store the current release ID in KV, and
+		// check for the latest release ID given a hostname?
+		const key = path.join(url.hostname, url.pathname);
 		console.log({ key, msg: 'loading object' });
 		const object = await env.R2.get(key);
 		if (!object) {

@@ -6,7 +6,10 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "dataplane",
 	"main": "src/index.ts",
-	"compatibility_date": "2025-03-27",
+	"compatibility_flags": [
+		"nodejs_compat", "no_nodejs_compat_v2"
+	],
+	"compatibility_date": "2025-03-21",
 	"observability": {
 		"enabled": true
 	},
