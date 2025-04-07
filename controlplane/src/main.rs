@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Query, State},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -35,7 +37,7 @@ async fn main() {
         .expect("could not connect to database");
 
     let api = Router::new()
-        .route("/releases", post(create_release))
+        .route("/releases", get(list_releases).post(create_release))
         .route(
             "/repositories",
             get(list_repositories).post(create_repository),
@@ -114,7 +116,6 @@ async fn create_release(
             codename,
             description,
         } => {
-            let mut tx = pool.begin().await.unwrap();
             let release = sqlx::query!(
                 r#"
                 INSERT INTO debian_repository_release (repository_id, origin, label, suite, codename, description, stale)
@@ -127,10 +128,9 @@ async fn create_release(
                 codename,
                 description
             )
-            .fetch_one(&mut *tx)
+            .fetch_one(&pool)
             .await
             .unwrap();
-            tx.commit().await.unwrap();
             ReleaseSummary {
                 id: release.id,
                 origin: release.origin,
@@ -147,8 +147,50 @@ async fn create_release(
     })
 }
 
-async fn list_releases() -> Json<Vec<ReleaseSummary>> {
-    todo!()
+async fn list_releases(
+    State(pool): State<sqlx::PgPool>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Json<Vec<ReleaseSummary>> {
+    let repository_id = params.get("repository_id").unwrap().parse::<i64>().unwrap();
+
+    let releases = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_release.id,
+            debian_repository_release.origin,
+            debian_repository_release.label,
+            debian_repository_release.suite,
+            debian_repository_release.codename,
+            debian_repository_release.updated_at,
+            debian_repository_release.description,
+            (debian_repository_release.id = debian_repository.active_release_id) AS active,
+            debian_repository_release.pgp_signature IS NOT NULL AS signed,
+            debian_repository_release.stale
+        FROM debian_repository_release
+        JOIN debian_repository ON debian_repository_release.repository_id = debian_repository.id
+        WHERE debian_repository.id = $1"#,
+        repository_id,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    Json(
+        releases
+            .into_iter()
+            .map(|r| ReleaseSummary {
+                id: r.id,
+                origin: r.origin,
+                label: r.label,
+                suite: r.suite,
+                codename: r.codename,
+                date: r.updated_at.to_string(),
+                description: r.description,
+                active: r.active.unwrap_or(false),
+                signed: r.signed.unwrap_or(false),
+                stale: r.stale,
+            })
+            .collect(),
+    )
 }
 
 #[derive(Deserialize, Serialize)]

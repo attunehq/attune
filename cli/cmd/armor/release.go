@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 )
@@ -55,13 +56,13 @@ var createReleaseCmd = &cobra.Command{
 	Short:            "Create a new repository release",
 	TraverseChildren: true,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Read flags.
 		repositoryID, err := cmd.Parent().Flags().GetInt("repository-id")
 		if err != nil {
 			fmt.Printf("could not read --repository-id: %s\n", err)
 			os.Exit(1)
 		}
 
-		// Read flags.
 		var from *int
 		from = nil
 		if cmd.Flags().Changed("from") {
@@ -149,6 +150,8 @@ var createReleaseCmd = &cobra.Command{
 			fmt.Printf("could not read response body: %s\n", err)
 			os.Exit(1)
 		}
+
+		// TODO: Print the response in a nicer way.
 		fmt.Printf("%s\n", string(body))
 	},
 }
@@ -170,34 +173,51 @@ var listReleasesCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List repository releases",
 	Run: func(cmd *cobra.Command, args []string) {
-		res, err := http.Get("http://localhost:3000/api/v0/releases")
+		// Read flags.
+		repositoryID, err := cmd.Parent().Flags().GetInt("repository-id")
+		if err != nil {
+			fmt.Printf("could not read --repository-id: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Make the API call to list releases.
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:3000/api/v0/releases", nil)
+		if err != nil {
+			fmt.Printf("could not create request: %s\n", err)
+			os.Exit(1)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		q := req.URL.Query()
+		q.Set("repository_id", fmt.Sprintf("%d", repositoryID))
+		req.URL.RawQuery = q.Encode()
+
+		client := &http.Client{}
+		res, err := client.Do(req)
 		if err != nil {
 			fmt.Printf("could not list releases: %s\n", err)
 			os.Exit(1)
 		}
 		defer res.Body.Close()
 
+		// Check response.
 		if res.StatusCode != http.StatusOK {
 			fmt.Printf("could not list releases: %s\n", res.Status)
 			os.Exit(1)
 		}
 
+		// Decode response.
 		var releases []Release
 		if err := json.NewDecoder(res.Body).Decode(&releases); err != nil {
-			fmt.Printf("could not decode repositories: %s\n", err)
+			fmt.Printf("could not decode releases: %s\n", err)
 			os.Exit(1)
 		}
 
-		// w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-		// fmt.Fprint(w, "ID\tRepository ID\tActive release\n")
-		// for _, release := range releases {
-		// 	activeReleaseStr := "(none)"
-		// 	if release.ActiveReleaseID != nil {
-		// 		activeReleaseStr = fmt.Sprintf("%d", *release.ActiveReleaseID)
-		// 	}
-		// 	fmt.Fprintf(w, "%d\t%d\t%s\n", release.ID, release.RepositoryID, activeReleaseStr)
-		// }
-		// w.Flush()
+		w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+		fmt.Fprint(w, "ID\tDate\tActive\tSigned\tStale\n")
+		for _, release := range releases {
+			fmt.Fprintf(w, "%d\t%s\t%t\t%t\t%t\n", release.ID, release.Date, release.Active, release.Signed, release.Stale)
+		}
+		w.Flush()
 	},
 }
 
