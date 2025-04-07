@@ -108,6 +108,9 @@ CREATE TABLE debian_repository_package (
   architecture_id BIGINT NOT NULL REFERENCES debian_repository_architecture(id),
   component_id BIGINT NOT NULL REFERENCES debian_repository_component(id),
 
+  -- For a list of available fields, see:
+  -- 1. https://wiki.debian.org/DebianRepository/Format#A.22Packages.22_Indices
+  -- 2. https://www.debian.org/doc/debian-policy/ch-controlfields.html#debian-binary-package-control-files-debian-control
   package TEXT NOT NULL,
   version TEXT NOT NULL,
   priority TEXT,
@@ -116,8 +119,11 @@ CREATE TABLE debian_repository_package (
   maintainer TEXT NOT NULL,
   description TEXT NOT NULL,
   homepage TEXT,
-  license TEXT,
-  vendor TEXT,
+
+  -- Free-form { [key: string]: string } containing all control file fields.
+  -- This encapsulates the presences of extra fields sometimes, like `License`
+  -- or `Vendor`.
+  paragraph JSONB NOT NULL,
 
   depends TEXT,
   recommends TEXT,

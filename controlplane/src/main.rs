@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{DefaultBodyLimit, Multipart, Query, State},
+    handler::Handler,
     routing::{get, post},
 };
+use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader};
 use serde::{Deserialize, Serialize};
 use tower_http::trace::TraceLayer;
-use tracing::debug;
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
@@ -37,10 +38,14 @@ async fn main() {
         .expect("could not connect to database");
 
     let api = Router::new()
-        .route("/releases", get(list_releases).post(create_release))
         .route(
             "/repositories",
             get(list_repositories).post(create_repository),
+        )
+        .route("/releases", get(list_releases).post(create_release))
+        .route(
+            "/packages",
+            post(add_package.layer(DefaultBodyLimit::disable())),
         );
     let app = Router::new()
         .nest("/api/v0", api)
@@ -193,26 +198,6 @@ async fn list_releases(
     )
 }
 
-#[derive(Deserialize, Serialize)]
-struct Release {
-    // Include the summary, but also include details like components and packages
-
-    // id: i64,
-    // origin: String,
-    // label: String,
-    // suite: String,
-    // codename: String,
-    // date: String,
-    // description: String,
-    // active: bool,
-    // signed: bool,
-    // stale: bool,
-}
-
-async fn get_release() -> Json<Release> {
-    todo!()
-}
-
 async fn create_repository() -> Json<Repository> {
     todo!()
 }
@@ -242,4 +227,58 @@ async fn list_repositories(State(pool): State<sqlx::PgPool>) -> Json<Vec<Reposit
             })
             .collect(),
     )
+}
+
+#[derive(Deserialize, Serialize)]
+struct AddPackageResponse {}
+
+#[axum::debug_handler]
+async fn add_package(
+    State(pool): State<sqlx::PgPool>,
+    Query(params): Query<HashMap<String, String>>,
+    mut multipart: Multipart,
+) -> Json<AddPackageResponse> {
+    // Parse request.
+    let release_id = params.get("release_id").unwrap().parse::<i64>().unwrap();
+    let component = params.get("component").unwrap().to_string();
+
+    // Parse uploaded body file.
+    let Some(field) = multipart.next_field().await.unwrap() else {
+        panic!("expected a file");
+    };
+    let name = field.name().unwrap().to_string();
+    if name != "file" {
+        panic!("unexpected field name: {}", name);
+    }
+
+    // Parse Debian package for control fields.
+    let value = field.bytes().await.unwrap();
+    let mut reader = BinaryPackageReader::new(value.as_ref()).unwrap();
+    {
+        let header_entry = reader.next_entry().unwrap().unwrap();
+        let BinaryPackageEntry::DebianBinary { .. } = header_entry else {
+            panic!("expected a Debian binary package")
+        };
+        let control_entry = reader.next_entry().unwrap().unwrap();
+        let BinaryPackageEntry::Control { .. } = control_entry else {
+            panic!("expected a control file")
+        };
+        let data_entry = reader.next_entry().unwrap().unwrap();
+        let BinaryPackageEntry::Data { .. } = data_entry else {
+            panic!("expected a data file")
+        };
+    }
+
+    // Now that we're sure it's a valid Debian package, upload it to R2 into the
+    // pool of the release under its SHA256 content address.
+
+    // Once the upload is complete, add a record to the database.
+
+    println!("{}: {}", name, value.len());
+
+    let None = multipart.next_field().await.unwrap() else {
+        panic!("expected no more fields");
+    };
+
+    Json(AddPackageResponse {})
 }

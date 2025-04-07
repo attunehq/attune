@@ -37,7 +37,7 @@ func releaseCmd() *cobra.Command {
 	createReleaseCmd.Flags().StringP("set-codename", "c", "", "Value to set in the \"codename\" field for the new release")
 	createReleaseCmd.Flags().StringP("set-description", "d", "", "Value to set in the \"description\" field for the new release")
 
-	cmd.AddCommand(createReleaseCmd, listReleasesCmd, activateReleaseCmd)
+	cmd.AddCommand(createReleaseCmd, listReleasesCmd, promoteReleaseCmd)
 	return cmd
 }
 
@@ -57,6 +57,11 @@ var createReleaseCmd = &cobra.Command{
 	TraverseChildren: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Read flags.
+		if !cmd.Parent().Flags().Changed("repository-id") {
+			// NOTE: (*cobra.Command).MarkFlagRequired does not work on parent flags.
+			fmt.Println("error: --repository-id must be set")
+			os.Exit(1)
+		}
 		repositoryID, err := cmd.Parent().Flags().GetInt("repository-id")
 		if err != nil {
 			fmt.Printf("could not read --repository-id: %s\n", err)
@@ -174,6 +179,11 @@ var listReleasesCmd = &cobra.Command{
 	Short: "List repository releases",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Read flags.
+		if !cmd.Parent().Flags().Changed("repository-id") {
+			// NOTE: (*cobra.Command).MarkFlagRequired does not work on parent flags.
+			fmt.Println("error: --repository-id must be set")
+			os.Exit(1)
+		}
 		repositoryID, err := cmd.Parent().Flags().GetInt("repository-id")
 		if err != nil {
 			fmt.Printf("could not read --repository-id: %s\n", err)
@@ -221,9 +231,9 @@ var listReleasesCmd = &cobra.Command{
 	},
 }
 
-var activateReleaseCmd = &cobra.Command{
-	Use:   "activate",
-	Short: "Sign a release and mark it as active",
+var promoteReleaseCmd = &cobra.Command{
+	Use:   "promote",
+	Short: "Sign a release and promote it to active",
 	Run: func(cmd *cobra.Command, args []string) {
 		panic("not implemented")
 	},
