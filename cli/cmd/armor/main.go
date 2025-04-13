@@ -17,11 +17,7 @@ func main() {
 }
 
 var root = &cobra.Command{
-	Use:              "armor",
-	Short:            "ArmorCD is a secure software delivery system for Linux packages",
-	TraverseChildren: true,
-	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
-	},
+	Use:               "armor",
+	Short:             "ArmorCD is a secure software delivery system for Linux packages",
 	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 }

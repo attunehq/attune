@@ -12,7 +12,7 @@ use md5::Md5;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use sqlx::types::JsonValue;
+use sqlx::types::{JsonValue, time::OffsetDateTime};
 use tower_http::trace::TraceLayer;
 use tracing::{Instrument, debug_span, instrument};
 use tracing_subscriber::{
@@ -79,7 +79,7 @@ async fn main() {
 }
 
 #[derive(Serialize)]
-struct RepositoryResponse {
+struct Repository {
     id: i64,
     uri: String,
     distribution: String,
@@ -96,10 +96,12 @@ struct CreateRepositoryRequest {
     description: String,
 }
 
+#[axum::debug_handler]
+#[instrument(skip(state))]
 async fn create_repository(
     State(state): State<ServerState>,
     Json(payload): Json<CreateRepositoryRequest>,
-) -> Json<RepositoryResponse> {
+) -> Json<Repository> {
     let created = sqlx::query!(
         r#"
         INSERT INTO debian_repository (
@@ -125,14 +127,16 @@ async fn create_repository(
     .fetch_one(&state.db)
     .await
     .unwrap();
-    Json(RepositoryResponse {
+    Json(Repository {
         id: created.id,
         uri: payload.uri,
         distribution: payload.distribution,
     })
 }
 
-async fn list_repositories(State(state): State<ServerState>) -> Json<Vec<RepositoryResponse>> {
+#[axum::debug_handler]
+#[instrument(skip(state))]
+async fn list_repositories(State(state): State<ServerState>) -> Json<Vec<Repository>> {
     let repositories = sqlx::query!("SELECT id, uri, distribution FROM debian_repository")
         .fetch_all(&state.db)
         .await
@@ -140,7 +144,7 @@ async fn list_repositories(State(state): State<ServerState>) -> Json<Vec<Reposit
     Json(
         repositories
             .into_iter()
-            .map(|r| RepositoryResponse {
+            .map(|r| Repository {
                 id: r.id,
                 uri: r.uri,
                 distribution: r.distribution,
@@ -149,25 +153,83 @@ async fn list_repositories(State(state): State<ServerState>) -> Json<Vec<Reposit
     )
 }
 
-async fn repository_status() -> Json<RepositoryResponse> {
-    todo!()
+#[derive(Debug, Serialize)]
+struct RepositoryStatus {
+    changes: Vec<RepositoryChange>,
 }
 
-async fn sync_repository() -> Json<RepositoryResponse> {
+#[derive(Debug, Serialize)]
+struct RepositoryChange {
+    package_id: i64,
+    component: String,
+    package: String,
+    version: String,
+    architecture: String,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+    change: DebianRepositoryPackageStagingStatus,
+}
+
+#[axum::debug_handler]
+#[instrument(skip(state))]
+async fn repository_status(
+    State(state): State<ServerState>,
+    Path(repository_id): Path<u64>,
+) -> Json<RepositoryStatus> {
+    let changes = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_package.id,
+            debian_repository_package.repository_id,
+            debian_repository_component.name AS component,
+            debian_repository_package.package,
+            debian_repository_package.version,
+            debian_repository_architecture.name AS architecture,
+            debian_repository_package.staging_status AS "staging_status!: DebianRepositoryPackageStagingStatus",
+            debian_repository_package.updated_at
+        FROM debian_repository_package
+        JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_package.architecture_id
+        JOIN debian_repository_component ON debian_repository_component.id = debian_repository_package.component_id
+        WHERE
+            staging_status IS NOT NULL
+            AND debian_repository_package.repository_id = $1
+        "#,
+        repository_id as i64,
+    )
+    .map(|row| RepositoryChange {
+        package_id: row.id,
+        component: row.component,
+        package: row.package,
+        version: row.version,
+        architecture: row.architecture,
+        updated_at: row.updated_at,
+        change: row.staging_status
+    })
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+    Json(RepositoryStatus { changes })
+}
+
+#[axum::debug_handler]
+#[instrument(skip(state))]
+async fn sync_repository(State(state): State<ServerState>) -> Json<Repository> {
     todo!()
 }
 
 #[derive(Deserialize, Serialize)]
-struct PackageResponse {
+struct Package {
     id: i64,
     package: String,
     version: String,
     architecture: String,
 }
 
-#[derive(sqlx::Type)]
-#[sqlx(type_name = "debian_repository_package_staging_status")]
-#[sqlx(rename_all = "lowercase")]
+#[derive(Debug, Serialize, sqlx::Type)]
+#[sqlx(
+    type_name = "debian_repository_package_staging_status",
+    rename_all = "lowercase"
+)]
 enum DebianRepositoryPackageStagingStatus {
     Add,
     Remove,
@@ -180,7 +242,7 @@ async fn add_package(
     Path(repository_id): Path<u64>,
     Query(params): Query<HashMap<String, String>>,
     mut multipart: Multipart,
-) -> Json<PackageResponse> {
+) -> Json<Package> {
     // Parse request.
     let component = params.get("component").unwrap().to_string();
 
@@ -223,6 +285,7 @@ async fn add_package(
                 _ => {}
             }
         };
+        // TODO: Parse file paths for building Contents index.
         let data_entry = reader.next_entry().unwrap().unwrap();
         let BinaryPackageEntry::Data(_) = data_entry else {
             panic!("expected a data file")
@@ -251,7 +314,7 @@ async fn add_package(
     );
 
     let span = debug_span!("upload_to_pool");
-    let key = format!("armor-dev-1/{pool_filename}");
+    let key = format!("armor-dev-1/staging/{pool_filename}");
     async {
         state
             .s3
@@ -393,7 +456,7 @@ async fn add_package(
         panic!("expected no more fields");
     };
 
-    Json(PackageResponse {
+    Json(Package {
         id: package_row.id,
         package: package_name.to_string(),
         version,
@@ -401,10 +464,14 @@ async fn add_package(
     })
 }
 
-async fn list_packages() -> Json<Vec<PackageResponse>> {
+#[axum::debug_handler]
+#[instrument]
+async fn list_packages() -> Json<Vec<Package>> {
     todo!()
 }
 
-async fn remove_package() -> Json<PackageResponse> {
+#[axum::debug_handler]
+#[instrument]
+async fn remove_package() -> Json<Package> {
     todo!()
 }

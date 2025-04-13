@@ -18,9 +18,6 @@ func repoPkgCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pkg",
 		Short: "Manage packages",
-		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Help()
-		},
 	}
 	cmd.PersistentFlags().IntP("repo-id", "r", 0, "ID of repository to change")
 	cmd.MarkPersistentFlagRequired("repo-id")
@@ -152,6 +149,6 @@ var removePkgsCmd = &cobra.Command{
 	Use:   "rm",
 	Short: "Remove a package",
 	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
+		panic("not implemented")
 	},
 }

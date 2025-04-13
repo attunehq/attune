@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -34,6 +35,9 @@ func repoCmd() *cobra.Command {
 	createRepositoryCmd.MarkFlagRequired("codename")
 	createRepositoryCmd.Flags().StringP("description", "e", "", "Description of the repository")
 	createRepositoryCmd.MarkFlagRequired("description")
+
+	statusRepositoryCmd.Flags().IntP("repo-id", "r", 0, "ID of the repository")
+	statusRepositoryCmd.MarkFlagRequired("repo-id")
 
 	cmd.AddCommand(createRepositoryCmd, listRepositoriesCmd, statusRepositoryCmd, syncRepositoryCmd, repoPkgCmd())
 	return cmd
@@ -124,16 +128,70 @@ var listRepositoriesCmd = &cobra.Command{
 	},
 }
 
+type RepositoryStatus struct {
+	Changes []RepositoryChange
+}
+
+type RepositoryChange struct {
+	PackageID    int64     `json:"package_id"`
+	Component    string    `json:"component"`
+	Package      string    `json:"package"`
+	Version      string    `json:"version"`
+	Architecture string    `json:"architecture"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Change       string    `json:"change"`
+}
+
 var statusRepositoryCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show status of a repository",
 	Run: func(cmd *cobra.Command, args []string) {
-		panic("not implemented")
+		repoID, err := cmd.Flags().GetInt("repo-id")
+		if err != nil {
+			fmt.Printf("could not read --repo-id: %s\n", err)
+			os.Exit(1)
+		}
+
+		res, err := http.Get(fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d", repoID))
+		if err != nil {
+			fmt.Printf("could not get repository status: %s\n", err)
+			os.Exit(1)
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			fmt.Printf("could not get repository status: %s\n", res.Status)
+			os.Exit(1)
+		}
+
+		var status RepositoryStatus
+		if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
+			fmt.Printf("could not decode repository: %s\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Repository status:")
+		w := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+		fmt.Fprint(w, "ID\tAction\tComponent\tPackage\tVersion\tArchitecture\tUpdated At\n")
+		for _, change := range status.Changes {
+			fmt.Fprintf(
+				w,
+				"%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				change.PackageID,
+				change.Change,
+				change.Component,
+				change.Package,
+				change.Version,
+				change.Architecture,
+				change.UpdatedAt,
+			)
+		}
+		w.Flush()
 	},
 }
 
 var syncRepositoryCmd = &cobra.Command{
-	// Other names: "commit", "deploy", "update", "push"?
+	// Other potential names: "commit", "deploy", "update", "push"?
 	Use:   "sync",
 	Short: "Synchronize unsaved changes to repository",
 	Run: func(cmd *cobra.Command, args []string) {
