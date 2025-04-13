@@ -71,21 +71,34 @@ var createPkgsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		var progress *progressbar.ProgressBar
 		r, w := io.Pipe()
 		writer := multipart.NewWriter(w)
 		go func() {
+			defer w.Close()
 			defer writer.Close()
 			part, err := writer.CreateFormFile("file", filepath.Base(args[0]))
 			if err != nil {
 				fmt.Printf("could not create form file: %s\n", err)
 				os.Exit(1)
 			}
-			progress := progressbar.DefaultBytes(debStat.Size(), "uploading")
+			progress = progressbar.DefaultBytes(debStat.Size(), "Uploading package:")
 			_, err = io.Copy(io.MultiWriter(part, progress), deb)
 			if err != nil {
 				fmt.Printf("could not copy package file: %s\n", err)
 				os.Exit(1)
 			}
+			progress = progressbar.NewOptions(
+				-1,
+				progressbar.OptionSetDescription("Processing package..."),
+				progressbar.OptionSetWriter(os.Stderr),
+				progressbar.OptionOnCompletion(func() {
+					fmt.Fprintf(os.Stderr, "\n")
+				}),
+				progressbar.OptionSpinnerType(14),
+				progressbar.OptionFullWidth(),
+				progressbar.OptionSetRenderBlankState(true),
+			)
 		}()
 
 		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/packages", repoID), r)
@@ -104,6 +117,11 @@ var createPkgsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		defer res.Body.Close()
+
+		// Complete progress spinner.
+		if progress != nil {
+			progress.Finish()
+		}
 
 		// Check response.
 		if res.StatusCode != http.StatusOK {
