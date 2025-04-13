@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	root.AddCommand(releaseCmd(), pkgsCmd(), repositoryCmd())
+	root.AddCommand(repoCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Println(err)

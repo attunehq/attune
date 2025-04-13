@@ -1,60 +1,53 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"text/tabwriter"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
-func pkgsCmd() *cobra.Command {
+func repoPkgCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pkgs",
-		Short: "Manage packages in a release",
+		Use:   "pkg",
+		Short: "Manage packages",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Help()
 		},
 	}
-	cmd.Flags().IntP("release-id", "r", 0, "ID of release to operate on")
+	cmd.PersistentFlags().IntP("repo-id", "r", 0, "ID of repository to change")
+	cmd.MarkPersistentFlagRequired("repo-id")
 
 	createPkgsCmd.Flags().StringP("component", "c", "", "Component to add the package to")
 	createPkgsCmd.MarkFlagRequired("component")
 
-	cmd.AddCommand(createPkgsCmd, removePkgsCmd, listPkgsCmd)
+	cmd.AddCommand(createPkgsCmd, removePkgsCmd)
 	return cmd
 }
 
-// type AddPackageRequest struct {
-// 	ReleaseID int    `json:"release_id"`
-// 	Component string `json:"component"`
-// 	// This is the raw control file contents, which will be parsed in the backend.
-// 	Control   string `json:"control"`
-// 	MD5Sum    string `json:"md5sum"`
-// 	SHA512Sum string `json:"sha512sum"`
-// }
-
-// type AddPackageResponse struct {
-// 	UploadURL string `json:"upload_url"`
-// }
+type PackageResponse struct {
+	ID           int
+	Package      string
+	Version      string
+	Architecture string
+}
 
 var createPkgsCmd = &cobra.Command{
 	Use:   "add <filename>",
-	Short: "Add a package to a release",
+	Short: "Add a package",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		// Read flags.
-		if !cmd.Parent().Flags().Changed("release-id") {
-			// NOTE: (*cobra.Command).MarkFlagRequired does not work on parent flags.
-			fmt.Println("error: --release-id must be set")
-			os.Exit(1)
-		}
-		releaseID, err := cmd.Parent().Flags().GetInt("release-id")
+		repoID, err := cmd.Parent().Flags().GetInt("repo-id")
 		if err != nil {
-			fmt.Printf("could not read --release-id: %s\n", err)
+			fmt.Printf("could not read --repo-id: %s\n", err)
 			os.Exit(1)
 		}
 
@@ -72,6 +65,12 @@ var createPkgsCmd = &cobra.Command{
 		}
 		defer deb.Close()
 
+		debStat, err := deb.Stat()
+		if err != nil {
+			fmt.Printf("could not get package file info: %s\n", err)
+			os.Exit(1)
+		}
+
 		r, w := io.Pipe()
 		writer := multipart.NewWriter(w)
 		go func() {
@@ -81,21 +80,21 @@ var createPkgsCmd = &cobra.Command{
 				fmt.Printf("could not create form file: %s\n", err)
 				os.Exit(1)
 			}
-			_, err = io.Copy(part, deb)
+			progress := progressbar.DefaultBytes(debStat.Size(), "uploading")
+			_, err = io.Copy(io.MultiWriter(part, progress), deb)
 			if err != nil {
 				fmt.Printf("could not copy package file: %s\n", err)
 				os.Exit(1)
 			}
 		}()
 
-		req, err := http.NewRequest(http.MethodPost, "http://localhost:3000/api/v0/packages", r)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/packages", repoID), r)
 		if err != nil {
 			fmt.Printf("could not create request: %s\n", err)
 			os.Exit(1)
 		}
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		q := req.URL.Query()
-		q.Set("release_id", fmt.Sprintf("%d", releaseID))
 		q.Set("component", component)
 		req.URL.RawQuery = q.Encode()
 		client := &http.Client{}
@@ -117,22 +116,23 @@ var createPkgsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// TODO: Print the response in a nicer way.
-		fmt.Printf("%s\n", string(body))
+		var pkg PackageResponse
+		if err := json.Unmarshal(body, &pkg); err != nil {
+			fmt.Printf("could not decode package: %s\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Added new package:")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\n")
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture)
+		tw.Flush()
 	},
 }
 
 var removePkgsCmd = &cobra.Command{
 	Use:   "rm",
-	Short: "Remove a package from a release",
-	Run: func(cmd *cobra.Command, args []string) {
-		cmd.Help()
-	},
-}
-
-var listPkgsCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List packages in a release",
+	Short: "Remove a package",
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},

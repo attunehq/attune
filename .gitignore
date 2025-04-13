@@ -1,2 +1,3 @@
 .env
 postgres-data/
+minio-data/
