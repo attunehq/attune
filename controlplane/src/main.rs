@@ -452,6 +452,22 @@ Description: {}
     md5writer.flush().unwrap();
     release_index = release_index + &String::from_utf8(md5writer.into_inner().unwrap()).unwrap();
 
+    release_index = release_index + "SHA256:\n";
+    let mut sha256writer = TabWriter::new(vec![]);
+    for index in &indexes {
+        // TODO: Handle compressed indexes.
+        write!(
+            &mut sha256writer,
+            " {}\t{} {}\n",
+            index.sha256sum,
+            index.size,
+            format!("{}/binary-{}/Packages", index.component, index.architecture)
+        )
+        .unwrap();
+    }
+    sha256writer.flush().unwrap();
+    release_index = release_index + &String::from_utf8(sha256writer.into_inner().unwrap()).unwrap();
+
     // Save index to database.
     sqlx::query!(
         r#"
