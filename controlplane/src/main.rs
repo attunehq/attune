@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+};
 
 use aws_sdk_s3::config::BehaviorVersion;
 use axum::{
@@ -13,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use sqlx::types::{JsonValue, time::OffsetDateTime};
+use tabwriter::TabWriter;
+use time::format_description::well_known::Rfc2822;
 use tower_http::trace::TraceLayer;
 use tracing::{Instrument, debug_span, instrument};
 use tracing_subscriber::{
@@ -60,6 +65,10 @@ async fn main() {
             get(list_repositories).post(create_repository),
         )
         .route("/repositories/{repository_id}", get(repository_status))
+        .route(
+            "/repositories/{repository_id}/indexes",
+            get(generate_indexes),
+        )
         .route("/repositories/{repository_id}/sync", post(sync_repository))
         .route(
             "/repositories/{repository_id}/packages",
@@ -167,7 +176,7 @@ struct RepositoryChange {
     architecture: String,
     #[serde(with = "time::serde::rfc3339")]
     updated_at: OffsetDateTime,
-    change: DebianRepositoryPackageStagingStatus,
+    change: String,
 }
 
 #[axum::debug_handler]
@@ -185,7 +194,7 @@ async fn repository_status(
             debian_repository_package.package,
             debian_repository_package.version,
             debian_repository_architecture.name AS architecture,
-            debian_repository_package.staging_status AS "staging_status!: DebianRepositoryPackageStagingStatus",
+            debian_repository_package.staging_status::TEXT AS "staging_status!: String",
             debian_repository_package.updated_at
         FROM debian_repository_package
         JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_package.architecture_id
@@ -211,10 +220,450 @@ async fn repository_status(
     Json(RepositoryStatus { changes })
 }
 
+#[derive(Debug, Serialize)]
+struct RepositoryIndexes {
+    release: String,
+}
+
 #[axum::debug_handler]
 #[instrument(skip(state))]
-async fn sync_repository(State(state): State<ServerState>) -> Json<Repository> {
-    todo!()
+async fn generate_indexes(
+    State(state): State<ServerState>,
+    Path(repository_id): Path<u64>,
+) -> Json<RepositoryIndexes> {
+    // TODO: Do some optimization to check for staleness to avoid regenerating
+    // indexes every call if packages haven't changed.
+
+    let mut tx = state.db.begin().await.unwrap();
+    sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let repo = sqlx::query!(
+        r#"
+        SELECT
+            distribution,
+            origin,
+            label,
+            suite,
+            codename,
+            description
+        FROM debian_repository
+        WHERE id = $1
+        "#,
+        repository_id as i64
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    // Generate package indexes, save to database, and upload to staging.
+    let package_indexes = sqlx::query!(r#"
+        SELECT DISTINCT
+            debian_repository_package.component_id,
+            debian_repository_package.architecture_id,
+            debian_repository_component.name AS component,
+            debian_repository_architecture.name AS architecture
+        FROM debian_repository_package
+        JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_package.architecture_id
+        JOIN debian_repository_component ON debian_repository_component.id = debian_repository_package.component_id
+        WHERE debian_repository_package.repository_id = $1
+    "#, repository_id as i64
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    for package_index in &package_indexes {
+        // For each package index file, generate the index.
+        let pkgs = sqlx::query!(
+            r#"
+            SELECT
+                paragraph,
+                filename,
+                size,
+                md5sum,
+                sha1sum,
+                sha256sum
+            FROM debian_repository_package
+            WHERE
+                repository_id = $1
+                AND component_id = $2
+                AND architecture_id = $3
+        "#,
+            repository_id as i64,
+            package_index.component_id,
+            package_index.architecture_id
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+
+        let index = pkgs.into_iter().fold(String::new(), |acc_index, mut pkg| {
+            let fields = pkg
+                .paragraph
+                .as_object_mut()
+                .unwrap()
+                .into_iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+                .chain(
+                    vec![
+                        ("Filename".to_string(), pkg.filename),
+                        ("Size".to_string(), pkg.size.to_string()),
+                        ("MD5sum".to_string(), pkg.md5sum),
+                        ("SHA1".to_string(), pkg.sha1sum),
+                        ("SHA256".to_string(), pkg.sha256sum),
+                    ]
+                    .into_iter(),
+                )
+                .fold(String::new(), |acc_fields, (k, v)| {
+                    acc_fields + &k + ": " + &v + "\n"
+                });
+            acc_index + &fields + "\n"
+        });
+
+        // Compute hashes.
+        let sha256sum = hex::encode(Sha256::digest(&index));
+        let sha1sum = hex::encode(Sha1::digest(&index));
+        let md5sum = hex::encode(Md5::digest(&index));
+        let size = index.len() as i64;
+
+        // Save index to database.
+        sqlx::query!(
+            r#"
+            INSERT INTO debian_repository_index_packages (
+                repository_id,
+                component_id,
+                architecture_id,
+                compression,
+                size,
+                contents,
+                md5sum,
+                sha1sum,
+                sha256sum
+            ) VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8)
+            ON CONFLICT (repository_id, component_id, architecture_id)
+            DO UPDATE SET
+                repository_id = $1,
+                component_id = $2,
+                architecture_id = $3,
+                compression = NULL,
+                size = $4,
+                contents = $5,
+                md5sum = $6,
+                sha1sum = $7,
+                sha256sum = $8
+            "#,
+            repository_id as i64,
+            package_index.component_id,
+            package_index.architecture_id,
+            size,
+            index.as_bytes(),
+            md5sum,
+            sha1sum,
+            sha256sum
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        // Upload index to staging.
+        state
+            .s3
+            .put_object()
+            .bucket("armor-dev-1")
+            .key(format!(
+                "armor-dev-1/staging/dists/{}/{}/binary-{}/Packages",
+                repo.distribution, package_index.component, package_index.architecture
+            ))
+            .body(axum::body::Bytes::from_owner(index).into())
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Generate release index, save to database, and upload to staging.
+    //
+    // Note that the date format is RFC 2822. _Technically_, the Debian spec
+    // says it should be the date format of `date -R -u`, which technically is
+    // RFC 5322, but these formats are compatible. 5322 is a later revision of
+    // 2822 that retains backwards compatibility.
+    let date = OffsetDateTime::now_utc().format(&Rfc2822).unwrap();
+    let mut arch_set = HashSet::new();
+    let mut comp_set = HashSet::new();
+    for p in package_indexes {
+        arch_set.insert(p.architecture);
+        comp_set.insert(p.component);
+    }
+    let archs = arch_set
+        .into_iter()
+        .fold(String::new(), |acc_archs, arch| acc_archs + " " + &arch);
+    let comps = comp_set
+        .into_iter()
+        .fold(String::new(), |acc_comps, comp| acc_comps + " " + &comp);
+    let mut release_index = format!(
+        r#"Origin: {}
+Label: {}
+Suite: {}
+Codename: {}
+Date: {date}
+Architectures:{archs}
+Components:{comps}
+Description: {}
+"#,
+        repo.origin, repo.label, repo.suite, repo.codename, repo.description
+    )
+    .to_string();
+
+    let indexes = sqlx::query!(r#"
+        SELECT
+            debian_repository_component.name AS component,
+            debian_repository_architecture.name AS architecture,
+            debian_repository_index_packages.size,
+            debian_repository_index_packages.md5sum,
+            debian_repository_index_packages.sha1sum,
+            debian_repository_index_packages.sha256sum
+        FROM debian_repository_index_packages
+        JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_index_packages.architecture_id
+        JOIN debian_repository_component ON debian_repository_component.id = debian_repository_index_packages.component_id
+        WHERE
+            debian_repository_index_packages.compression IS NULL
+            AND debian_repository_index_packages.repository_id = $1
+        "#,
+        repository_id as i64
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+
+    release_index = release_index + "MD5Sum:\n";
+    let mut md5writer = TabWriter::new(vec![]);
+    for index in &indexes {
+        // TODO: Handle compressed indexes.
+        write!(
+            &mut md5writer,
+            " {}\t{} {}\n",
+            index.md5sum,
+            index.size,
+            format!("{}/binary-{}/Packages", index.component, index.architecture)
+        )
+        .unwrap();
+    }
+    md5writer.flush().unwrap();
+    release_index = release_index + &String::from_utf8(md5writer.into_inner().unwrap()).unwrap();
+
+    // Save index to database.
+    sqlx::query!(
+        r#"
+        INSERT INTO debian_repository_index_release (
+            repository_id,
+            origin,
+            label,
+            suite,
+            codename,
+            description,
+            contents
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (repository_id)
+        DO UPDATE SET
+            repository_id = $1,
+            origin = $2,
+            label = $3,
+            suite = $4,
+            codename = $5,
+            description = $6,
+            contents = $7
+        "#,
+        repository_id as i64,
+        repo.origin,
+        repo.label,
+        repo.suite,
+        repo.codename,
+        repo.description,
+        release_index
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
+    // Upload index to staging.
+    state
+        .s3
+        .put_object()
+        .bucket("armor-dev-1")
+        .key(format!(
+            "armor-dev-1/staging/dists/{}/Release",
+            repo.distribution
+        ))
+        .body(axum::body::Bytes::from_owner(release_index.clone()).into())
+        .send()
+        .await
+        .unwrap();
+
+    tx.commit().await.unwrap();
+
+    // Return generated release index.
+    Json(RepositoryIndexes {
+        release: release_index,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct SyncRepositoryRequest {
+    clearsigned: String,
+    detached: String,
+}
+
+#[axum::debug_handler]
+#[instrument(skip(state))]
+async fn sync_repository(
+    State(state): State<ServerState>,
+    Path(repository_id): Path<u64>,
+    Json(payload): Json<SyncRepositoryRequest>,
+) -> () {
+    // TODO: Add locking to make sure this can't happen simultaneously.
+
+    // TODO: Check that signatures and checksums are actually valid and
+    // up-to-date?
+
+    // Save signatures to database.
+    let mut tx = state.db.begin().await.unwrap();
+    sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let repo = sqlx::query!(
+        "SELECT distribution FROM debian_repository WHERE id = $1",
+        repository_id as i64
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    let release_index = sqlx::query!(
+        r#"
+        UPDATE debian_repository_index_release
+        SET clearsigned = $1, detached = $2
+        WHERE repository_id = $3
+        RETURNING contents
+    "#,
+        payload.clearsigned,
+        payload.detached,
+        repository_id as i64,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+
+    // Copy new package files from staging to active.
+    let added_packages = sqlx::query!(
+        r#"
+        SELECT filename
+        FROM debian_repository_package
+        WHERE
+            staging_status = 'add'
+            AND repository_id = $1
+        "#,
+        repository_id as i64
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    for added in added_packages {
+        state
+            .s3
+            .copy_object()
+            .bucket("armor-dev-1")
+            .copy_source(format!("armor-dev-1/staging/{}", added.filename))
+            .key(format!("armor-dev-1/{}", added.filename))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Copy package indexes from staging to active.
+    let package_indexes = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_component.name AS component,
+            debian_repository_architecture.name AS architecture
+        FROM debian_repository_index_packages
+        JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_index_packages.architecture_id
+        JOIN debian_repository_component ON debian_repository_component.id = debian_repository_index_packages.component_id
+        WHERE
+            debian_repository_index_packages.compression IS NULL
+            AND debian_repository_index_packages.repository_id = $1
+        "#,
+        repository_id as i64
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    for index in package_indexes {
+        state
+            .s3
+            .copy_object()
+            .bucket("armor-dev-1")
+            .copy_source(format!(
+                "armor-dev-1/staging/dists/{}/{}/binary-{}/Packages",
+                repo.distribution, index.component, index.architecture
+            ))
+            .key(format!(
+                "armor-dev-1/dists/{}/{}/binary-{}/Packages",
+                repo.distribution, index.component, index.architecture
+            ))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Save release indexes.
+    state
+        .s3
+        .put_object()
+        .bucket("armor-dev-1")
+        .key(format!("armor-dev-1/dists/{}/Release", repo.distribution))
+        .body(axum::body::Bytes::from_owner(release_index.contents).into())
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket("armor-dev-1")
+        .key(format!(
+            "armor-dev-1/dists/{}/Release.gpg",
+            repo.distribution,
+        ))
+        .body(axum::body::Bytes::from_owner(payload.detached).into())
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket("armor-dev-1")
+        .key(format!("armor-dev-1/dists/{}/InRelease", repo.distribution))
+        .body(axum::body::Bytes::from_owner(payload.clearsigned).into())
+        .send()
+        .await
+        .unwrap();
+
+    // TODO: Delete removed package files from active.
+
+    // Update staging statuses for all packages.
+    sqlx::query!(
+        "UPDATE debian_repository_package SET staging_status = NULL WHERE repository_id = $1",
+        repository_id as i64
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    // TODO: Clean up staging.
+
+    return;
 }
 
 #[derive(Deserialize, Serialize)]
@@ -223,16 +672,6 @@ struct Package {
     package: String,
     version: String,
     architecture: String,
-}
-
-#[derive(Debug, Serialize, sqlx::Type)]
-#[sqlx(
-    type_name = "debian_repository_package_staging_status",
-    rename_all = "lowercase"
-)]
-enum DebianRepositoryPackageStagingStatus {
-    Add,
-    Remove,
 }
 
 #[axum::debug_handler]
@@ -333,9 +772,11 @@ async fn add_package(
     let span = debug_span!("add_to_database");
     let package_row = async {
         let mut tx = state.db.begin().await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
         let arch_row = sqlx::query!(
-            "SELECT id FROM debian_repository_architecture WHERE name = $1",
-            architecture
+            "SELECT id FROM debian_repository_architecture WHERE name = $1 AND repository_id = $2",
+            architecture,
+            repository_id as i64
         )
         .fetch_optional(&mut *tx)
         .await
@@ -355,8 +796,9 @@ async fn add_package(
             }
         };
         let component_row = sqlx::query!(
-            "SELECT id FROM debian_repository_component WHERE name = $1",
-            component
+            "SELECT id FROM debian_repository_component WHERE name = $1 AND repository_id = $2",
+            component,
+            repository_id as i64
         )
         .fetch_optional(&mut *tx)
         .await
@@ -414,15 +856,13 @@ async fn add_package(
                 sha1sum,
                 sha256sum
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+            VALUES ($1, $2, $3, $4::debian_repository_package_staging_status, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
             RETURNING id
             "#,
             repository_id as i64,
             arch_id,
             component_id,
-            DebianRepositoryPackageStagingStatus::Add as DebianRepositoryPackageStagingStatus,
-            // DebianRepositoryPackageStagingStatus::Add as _,
-            // "add" as _,
+            "add" as _,
             package_name,
             &version,
             control_file.priority(),

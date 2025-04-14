@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
+	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 func repoCmd() *cobra.Command {
@@ -39,27 +43,42 @@ func repoCmd() *cobra.Command {
 	statusRepositoryCmd.Flags().IntP("repo-id", "r", 0, "ID of the repository")
 	statusRepositoryCmd.MarkFlagRequired("repo-id")
 
+	syncRepositoryCmd.Flags().IntP("repo-id", "r", 0, "ID of the repository")
+	syncRepositoryCmd.MarkFlagRequired("repo-id")
+	syncRepositoryCmd.Flags().StringP("signing-key-file", "k", "", "File containing armored GPG private key for signing")
+	syncRepositoryCmd.MarkFlagRequired("signing-key-file")
+
 	cmd.AddCommand(createRepositoryCmd, listRepositoriesCmd, statusRepositoryCmd, syncRepositoryCmd, repoPkgCmd())
 	return cmd
+}
+
+type CreateRepositoryRequest struct {
+	URI          string `json:"uri"`
+	Distribution string `json:"distribution"`
+	Origin       string `json:"origin"`
+	Label        string `json:"label"`
+	Suite        string `json:"suite"`
+	Codename     string `json:"codename"`
+	Description  string `json:"description"`
 }
 
 var createRepositoryCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new repository",
 	Run: func(cmd *cobra.Command, args []string) {
-		reqBody := map[string]string{
-			"uri":          cmd.Flag("uri").Value.String(),
-			"distribution": cmd.Flag("distribution").Value.String(),
-			"origin":       cmd.Flag("origin").Value.String(),
-			"label":        cmd.Flag("label").Value.String(),
-			"suite":        cmd.Flag("suite").Value.String(),
-			"codename":     cmd.Flag("codename").Value.String(),
-			"description":  cmd.Flag("description").Value.String(),
+		reqBody := CreateRepositoryRequest{
+			URI:          cmd.Flag("uri").Value.String(),
+			Distribution: cmd.Flag("distribution").Value.String(),
+			Origin:       cmd.Flag("origin").Value.String(),
+			Label:        cmd.Flag("label").Value.String(),
+			Suite:        cmd.Flag("suite").Value.String(),
+			Codename:     cmd.Flag("codename").Value.String(),
+			Description:  cmd.Flag("description").Value.String(),
 		}
 
 		jsonBody, err := json.Marshal(reqBody)
 		if err != nil {
-			fmt.Printf("could not marshal repository request: %s\n", err)
+			fmt.Printf("could not marshal CreateRepositoryRequest: %s\n", err)
 			os.Exit(1)
 		}
 
@@ -190,11 +209,134 @@ var statusRepositoryCmd = &cobra.Command{
 	},
 }
 
+type RepositoryIndexes struct {
+	Release string
+}
+
+type SyncRepositoryRequest struct {
+	Clearsigned string `json:"clearsigned"`
+	Detached    string `json:"detached"`
+}
+
 var syncRepositoryCmd = &cobra.Command{
 	// Other potential names: "commit", "deploy", "update", "push"?
 	Use:   "sync",
 	Short: "Synchronize unsaved changes to repository",
 	Run: func(cmd *cobra.Command, args []string) {
-		panic("not implemented")
+		repoID, err := cmd.Flags().GetInt("repo-id")
+		if err != nil {
+			fmt.Printf("could not read --repo-id: %s\n", err)
+			os.Exit(1)
+		}
+		signingKeyFile, err := cmd.Flags().GetString("signing-key-file")
+		if err != nil {
+			fmt.Printf("could not read --signing-key-file: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Load release index for signing.
+		res, err := http.Get(fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/indexes", repoID))
+		if err != nil {
+			fmt.Printf("could not get repository indexes: %s\n", err)
+			os.Exit(1)
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			fmt.Printf("could not get repository indexes: %s\n", res.Status)
+			os.Exit(1)
+		}
+
+		var indexes RepositoryIndexes
+		if err := json.NewDecoder(res.Body).Decode(&indexes); err != nil {
+			fmt.Printf("could not decode repository indexes: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Sign release index.
+		keyFd, err := os.Open(signingKeyFile)
+		if err != nil {
+			fmt.Printf("could not open key file: %s\n", err)
+			os.Exit(1)
+		}
+		defer keyFd.Close()
+
+		key, err := crypto.NewKeyFromReader(keyFd)
+		if err != nil {
+			fmt.Printf("could not parse key file: %s\n", err)
+			os.Exit(1)
+		}
+		locked, err := key.IsLocked()
+		if err != nil {
+			fmt.Printf("could not determine whether key is locked: %s\n", err)
+			os.Exit(1)
+		}
+		if locked {
+			fmt.Printf("Key is locked. Please enter passphrase: ")
+			var passphrase []byte
+			passphrase, err = term.ReadPassword(int(syscall.Stdin))
+			if err != nil {
+				fmt.Printf("could not read passphrase: %s\n", err)
+				os.Exit(1)
+			}
+			key, err = key.Unlock(passphrase)
+			if err != nil {
+				fmt.Printf("could not unlock key: %s\n", err)
+				os.Exit(1)
+			}
+			fmt.Println()
+		}
+
+		pgp := crypto.PGP()
+		signer, err := pgp.Sign().SigningKey(key).New()
+		if err != nil {
+			fmt.Printf("could not create signer: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Notice the trimmed newline. This is apparently a long-standing
+		// compatibility bug in GPG cleartext signing. See:
+		// - https://lists.gnupg.org/pipermail/gnupg-devel/1999-September/016016.html
+		// - https://dev.gnupg.org/T7106
+		clearsigned, err := signer.SignCleartext([]byte(strings.TrimSuffix(indexes.Release, "\n")))
+		if err != nil {
+			fmt.Printf("could not clearsign release index: %s\n", err)
+			os.Exit(1)
+		}
+		detached, err := signer.Sign([]byte(indexes.Release), crypto.Armor)
+		if err != nil {
+			fmt.Printf("could not detached sign release index: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Start synchronization.
+		reqBody := SyncRepositoryRequest{
+			Clearsigned: string(clearsigned),
+			Detached:    string(detached),
+		}
+
+		jsonBody, err := json.Marshal(reqBody)
+		if err != nil {
+			fmt.Printf("could not marshal SyncRepositoryRequest: %s\n", err)
+			os.Exit(1)
+		}
+
+		res, err = http.Post(
+			fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/sync", repoID),
+			"application/json",
+			bytes.NewReader(jsonBody),
+		)
+		if err != nil {
+			fmt.Printf("could not start synchronization: %s\n", err)
+			os.Exit(1)
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			fmt.Printf("could not start synchronization: %s\n", res.Status)
+			os.Exit(1)
+		}
+
+		fmt.Println("Synchronization completed!")
 	},
 }
