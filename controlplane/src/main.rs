@@ -55,8 +55,13 @@ async fn main() {
         .connect(&db_url)
         .await
         .expect("could not connect to database");
-    let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-    let s3 = aws_sdk_s3::Client::new(&config);
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .load()
+        .await;
+    let config = aws_sdk_s3::config::Builder::from(&config)
+        .force_path_style(true)
+        .build();
+    let s3 = aws_sdk_s3::Client::from_conf(config);
 
     // Configure routes.
     let api = Router::new()
@@ -590,7 +595,7 @@ async fn sync_repository(
             .s3
             .copy_object()
             .bucket("armor-dev-1")
-            .copy_source(format!("armor-dev-1/staging/{}", added.filename))
+            .copy_source(format!("armor-dev-1/armor-dev-1/staging/{}", added.filename))
             .key(format!("armor-dev-1/{}", added.filename))
             .send()
             .await
@@ -621,7 +626,7 @@ async fn sync_repository(
             .copy_object()
             .bucket("armor-dev-1")
             .copy_source(format!(
-                "armor-dev-1/staging/dists/{}/{}/binary-{}/Packages",
+                "armor-dev-1/armor-dev-1/staging/dists/{}/{}/binary-{}/Packages",
                 repo.distribution, index.component, index.architecture
             ))
             .key(format!(
