@@ -17,7 +17,7 @@ func main() {
 }
 
 var root = &cobra.Command{
-	Use:               "armor",
-	Short:             "ArmorCD is a secure software delivery system for Linux packages",
+	Use:               "attune",
+	Short:             "Attune is a secure software delivery system for Linux packages",
 	CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 }

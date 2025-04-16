@@ -1,4 +1,4 @@
-name: "armorcd"
+name: "attune"
 services:
   postgres:
     image: postgres:17.4-bookworm

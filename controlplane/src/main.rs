@@ -376,9 +376,9 @@ async fn generate_indexes(
         state
             .s3
             .put_object()
-            .bucket("armor-dev-1")
+            .bucket("attune-dev-1")
             .key(format!(
-                "armor-dev-1/staging/dists/{}/{}/binary-{}/Packages",
+                "attune-dev-1/staging/dists/{}/{}/binary-{}/Packages",
                 repo.distribution, package_index.component, package_index.architecture
             ))
             .body(axum::body::Bytes::from_owner(index).into())
@@ -511,9 +511,9 @@ Description: {}
     state
         .s3
         .put_object()
-        .bucket("armor-dev-1")
+        .bucket("attune-dev-1")
         .key(format!(
-            "armor-dev-1/staging/dists/{}/Release",
+            "attune-dev-1/staging/dists/{}/Release",
             repo.distribution
         ))
         .body(axum::body::Bytes::from_owner(release_index.clone()).into())
@@ -594,9 +594,9 @@ async fn sync_repository(
         state
             .s3
             .copy_object()
-            .bucket("armor-dev-1")
-            .copy_source(format!("armor-dev-1/armor-dev-1/staging/{}", added.filename))
-            .key(format!("armor-dev-1/{}", added.filename))
+            .bucket("attune-dev-1")
+            .copy_source(format!("attune-dev-1/attune-dev-1/staging/{}", added.filename))
+            .key(format!("attune-dev-1/{}", added.filename))
             .send()
             .await
             .unwrap();
@@ -624,13 +624,13 @@ async fn sync_repository(
         state
             .s3
             .copy_object()
-            .bucket("armor-dev-1")
+            .bucket("attune-dev-1")
             .copy_source(format!(
-                "armor-dev-1/armor-dev-1/staging/dists/{}/{}/binary-{}/Packages",
+                "attune-dev-1/attune-dev-1/staging/dists/{}/{}/binary-{}/Packages",
                 repo.distribution, index.component, index.architecture
             ))
             .key(format!(
-                "armor-dev-1/dists/{}/{}/binary-{}/Packages",
+                "attune-dev-1/dists/{}/{}/binary-{}/Packages",
                 repo.distribution, index.component, index.architecture
             ))
             .send()
@@ -642,8 +642,8 @@ async fn sync_repository(
     state
         .s3
         .put_object()
-        .bucket("armor-dev-1")
-        .key(format!("armor-dev-1/dists/{}/Release", repo.distribution))
+        .bucket("attune-dev-1")
+        .key(format!("attune-dev-1/dists/{}/Release", repo.distribution))
         .body(axum::body::Bytes::from_owner(release_index.contents).into())
         .send()
         .await
@@ -651,9 +651,9 @@ async fn sync_repository(
     state
         .s3
         .put_object()
-        .bucket("armor-dev-1")
+        .bucket("attune-dev-1")
         .key(format!(
-            "armor-dev-1/dists/{}/Release.gpg",
+            "attune-dev-1/dists/{}/Release.gpg",
             repo.distribution,
         ))
         .body(axum::body::Bytes::from_owner(payload.detached).into())
@@ -663,8 +663,8 @@ async fn sync_repository(
     state
         .s3
         .put_object()
-        .bucket("armor-dev-1")
-        .key(format!("armor-dev-1/dists/{}/InRelease", repo.distribution))
+        .bucket("attune-dev-1")
+        .key(format!("attune-dev-1/dists/{}/InRelease", repo.distribution))
         .body(axum::body::Bytes::from_owner(payload.clearsigned).into())
         .send()
         .await
@@ -774,12 +774,12 @@ async fn add_package(
     );
 
     let span = debug_span!("upload_to_pool");
-    let key = format!("armor-dev-1/staging/{pool_filename}");
+    let key = format!("attune-dev-1/staging/{pool_filename}");
     async {
         state
             .s3
             .put_object()
-            .bucket("armor-dev-1")
+            .bucket("attune-dev-1")
             .key(key)
             .body(value.into())
             .send()

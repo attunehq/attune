@@ -1,12 +1,12 @@
 # Design
 
-ArmorCD is a secure, fast publishing tool for Debian packages.
+Attune is a secure, fast publishing tool for Debian packages.
 
 ## Definitions
 
 In this document, there are two kinds of users:
 
-1. **Developers** are users of Armor, who develop and distribute packages using Armor.
+1. **Developers** are users of Attune, who develop and distribute packages using Attune.
 2. **Consumers** are users of developers' repositories, who install packages from developers' repositories.
 
 ## Requirements
@@ -35,7 +35,7 @@ Releases contain packages. Developers are responsible for building and signing p
 
 ## Architecture overview
 
-Armor is composed of three pieces:
+Attune is composed of three pieces:
 
 1. A CLI that runs in developer environments (like the developer's CI or their developers' laptops).
 2. A control plane that manages repository metadata, package uploads, and index generation.
@@ -59,22 +59,22 @@ The data plane is served by an object storage provider behind a CDN. We currentl
 
 1. Create a repository with the subdomain you created during onboarding.
    ```
-   armor repo create --uri https://apt.releases.example.com --distribution bookworm
+   attune repo create --uri https://apt.releases.example.com --distribution bookworm
    ```
 
 3. Add packages to the staging area of the repository:
    ```
-   armor repo pkg add --repo-id 123 add --component main ./your_package.deb
+   attune repo pkg add --repo-id 123 add --component main ./your_package.deb
    ```
 
 4. Review your changes to make sure everything looks correct:
    ```
-   armor repo status --repo-id 123
+   attune repo status --repo-id 123
    ```
 
 5. If everything looks right, commit the changes:
    ```
-   armor repo sync --repo-id 123 --signing-key-file=/tmp/signing.asc
+   attune repo sync --repo-id 123 --signing-key-file=/tmp/signing.asc
    ```
    During the signing workflow, the backend generates indexes and sends them to the CLI for signing. The CLI then signs these indexes locally and sends the signed indexes back up to the backend. The signing key never leaves the developer environment.
 

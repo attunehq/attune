@@ -1,4 +1,4 @@
-module github.com/attunehq/armorcd/cli
+module github.com/attunehq/attune/cli
 
 go 1.24.1
 

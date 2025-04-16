@@ -387,6 +387,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "attune-controlplane"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
+ "axum",
+ "clap",
+ "debian-packaging",
+ "hex",
+ "md-5 0.10.6",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.8",
+ "sqlx",
+ "tabwriter",
+ "time",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1314,30 +1338,6 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
-
-[[package]]
-name = "controlplane"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-s3",
- "axum",
- "clap",
- "debian-packaging",
- "hex",
- "md-5 0.10.6",
- "serde",
- "serde_json",
- "sha1",
- "sha2 0.10.8",
- "sqlx",
- "tabwriter",
- "time",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "core-foundation"
