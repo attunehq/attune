@@ -53,64 +53,30 @@ The control plane is a Rust server and Postgres database. It manages uploads, ac
 
 ### Data plane
 
-The data plane is served by a pluggable CDN and object storage provider. We currently support two configurations:
-
-1. Cloudflare Workers and R2 in a cloud configuration (your packages will be hosted in Armor's cloud).
-2. S3 and CloudFront in a self-hosted configuration (your packages will be hosted on your own infrastructure).
-
-#### Cloudflare (cloud)
-
-:rotating_light: TODO: This needs to be updated after implementation.
-
-The data plane is a Cloudflare Worker handling custom hostnames using Cloudflare for Platforms.
-
-Developers can serve packages on their own domain by adding a `CNAME` record from their desired domain to `package-cdn.armorcd.dev` and a `TXT` record for ACME certification issuance (see [here](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/start/getting-started/#3-have-customer-create-cname-record)).
-
-When the Worker receives an incoming request, it checks Cloudflare D1 to see whether that request is for a known developer repository. If so, it looks up the correct developer, repository, and release for the request using its URL, and then uses that information to serve the appropriate object from R2.
-
-We use Cloudflare R2 and Cloudflare Workers because they have no egress cost.
-
-#### S3 (self-hosted)
-
-:construction: TODO: Finish design here.
-
-#### Determining which configuration to use
-
-:construction: TODO: Finish.
-
-<!-- Main differences are cost, self-hosting, egress, AWS committed spend, etc. -->
-
-## Getting started
-
-To set up an account with Armor:
-
-1. We will provision an account for you. This step is not currently self-serviceable.
-
-If you are using the cloud configuration:
-
-2. Serve packages on your own subdomain by adding a `CNAME` record from your desired subdomain to `package-cdn.armorcd.dev` and a `TXT` record for ACME certification issuance (see [here](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/start/getting-started/#3-have-customer-create-cname-record)).
+The data plane is served by an object storage provider behind a CDN. We currently publish to any S3-compatible object storage provider. For users doing a self-hosted deployment, we recommend [Minio](https://min.io/).
 
 ## Signing workflow
 
 1. Create a repository with the subdomain you created during onboarding.
    ```
-   armor repositories create --uri https://apt.releases.example.com --distribution bookworm
+   armor repo create --uri https://apt.releases.example.com --distribution bookworm
    ```
 
 3. Add packages to the staging area of the repository:
    ```
-   armor pkgs --repository-id 123 add --component main ./your_package.deb
+   armor repo pkg add --repo-id 123 add --component main ./your_package.deb
    ```
 
 4. Review your changes to make sure everything looks correct:
    ```
-   armor repositories --repository-id 123 status
+   armor repo status --repo-id 123
    ```
 
 5. If everything looks right, commit the changes:
    ```
-   armor repositories --repository-id 123 sync --index-signing-key=ABC123
+   armor repo sync --repo-id 123 --signing-key-file=/tmp/signing.asc
    ```
+   During the signing workflow, the backend generates indexes and sends them to the CLI for signing. The CLI then signs these indexes locally and sends the signed indexes back up to the backend. The signing key never leaves the developer environment.
 
 ## Future work
 

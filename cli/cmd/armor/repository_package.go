@@ -25,7 +25,7 @@ func repoPkgCmd() *cobra.Command {
 	createPkgsCmd.Flags().StringP("component", "c", "", "Component to add the package to")
 	createPkgsCmd.MarkFlagRequired("component")
 
-	cmd.AddCommand(createPkgsCmd, removePkgsCmd)
+	cmd.AddCommand(createPkgsCmd)
 	return cmd
 }
 
@@ -142,13 +142,5 @@ var createPkgsCmd = &cobra.Command{
 		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\n")
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture)
 		tw.Flush()
-	},
-}
-
-var removePkgsCmd = &cobra.Command{
-	Use:   "rm",
-	Short: "Remove a package",
-	Run: func(cmd *cobra.Command, args []string) {
-		panic("not implemented")
 	},
 }
