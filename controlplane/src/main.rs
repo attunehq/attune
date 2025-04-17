@@ -28,6 +28,7 @@ use tracing_subscriber::{
 struct ServerState {
     db: sqlx::PgPool,
     s3: aws_sdk_s3::Client,
+    s3_bucket_name: String,
 }
 
 #[tokio::main]
@@ -56,11 +57,11 @@ async fn main() {
         .await
         .expect("could not connect to database");
     let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-    let config = aws_sdk_s3::config::Builder::from(&config)
-        .force_path_style(true)
-        .build();
+    let config = aws_sdk_s3::config::Builder::from(&config).build();
     let s3 = aws_sdk_s3::Client::from_conf(config);
     let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
+    let s3_bucket_name =
+        std::env::var("ATTUNE_S3_BUCKET_NAME").unwrap_or("attune-dev-0".to_string());
 
     // Configure routes.
     let api = Router::new()
@@ -84,7 +85,11 @@ async fn main() {
         .nest("/api/v0", api)
         .layer(AddAuthorizationLayer::basic("attune", &secret))
         .layer(TraceLayer::new_for_http())
-        .with_state(ServerState { db, s3 });
+        .with_state(ServerState {
+            db,
+            s3,
+            s3_bucket_name,
+        });
 
     // Start server.
     println!("Listening on http://0.0.0.0:3000");
@@ -376,9 +381,9 @@ async fn generate_indexes(
         state
             .s3
             .put_object()
-            .bucket("attune-dev-1")
+            .bucket(&state.s3_bucket_name)
             .key(format!(
-                "attune-dev-1/staging/dists/{}/{}/binary-{}/Packages",
+                "staging/dists/{}/{}/binary-{}/Packages",
                 repo.distribution, package_index.component, package_index.architecture
             ))
             .body(axum::body::Bytes::from_owner(index).into())
@@ -511,11 +516,8 @@ Description: {}
     state
         .s3
         .put_object()
-        .bucket("attune-dev-1")
-        .key(format!(
-            "attune-dev-1/staging/dists/{}/Release",
-            repo.distribution
-        ))
+        .bucket(&state.s3_bucket_name)
+        .key(format!("staging/dists/{}/Release", repo.distribution))
         .body(axum::body::Bytes::from_owner(release_index.clone()).into())
         .send()
         .await
@@ -594,12 +596,12 @@ async fn sync_repository(
         state
             .s3
             .copy_object()
-            .bucket("attune-dev-1")
             .copy_source(format!(
-                "attune-dev-1/attune-dev-1/staging/{}",
-                added.filename
+                "{}/staging/{}",
+                state.s3_bucket_name, added.filename
             ))
-            .key(format!("attune-dev-1/{}", added.filename))
+            .bucket(&state.s3_bucket_name)
+            .key(added.filename)
             .send()
             .await
             .unwrap();
@@ -627,13 +629,13 @@ async fn sync_repository(
         state
             .s3
             .copy_object()
-            .bucket("attune-dev-1")
             .copy_source(format!(
-                "attune-dev-1/attune-dev-1/staging/dists/{}/{}/binary-{}/Packages",
-                repo.distribution, index.component, index.architecture
+                "{}/staging/dists/{}/{}/binary-{}/Packages",
+                state.s3_bucket_name, repo.distribution, index.component, index.architecture
             ))
+            .bucket(&state.s3_bucket_name)
             .key(format!(
-                "attune-dev-1/dists/{}/{}/binary-{}/Packages",
+                "dists/{}/{}/binary-{}/Packages",
                 repo.distribution, index.component, index.architecture
             ))
             .send()
@@ -645,8 +647,8 @@ async fn sync_repository(
     state
         .s3
         .put_object()
-        .bucket("attune-dev-1")
-        .key(format!("attune-dev-1/dists/{}/Release", repo.distribution))
+        .bucket(&state.s3_bucket_name)
+        .key(format!("dists/{}/Release", repo.distribution))
         .body(axum::body::Bytes::from_owner(release_index.contents).into())
         .send()
         .await
@@ -654,11 +656,8 @@ async fn sync_repository(
     state
         .s3
         .put_object()
-        .bucket("attune-dev-1")
-        .key(format!(
-            "attune-dev-1/dists/{}/Release.gpg",
-            repo.distribution,
-        ))
+        .bucket(&state.s3_bucket_name)
+        .key(format!("dists/{}/Release.gpg", repo.distribution,))
         .body(axum::body::Bytes::from_owner(payload.detached).into())
         .send()
         .await
@@ -666,11 +665,8 @@ async fn sync_repository(
     state
         .s3
         .put_object()
-        .bucket("attune-dev-1")
-        .key(format!(
-            "attune-dev-1/dists/{}/InRelease",
-            repo.distribution
-        ))
+        .bucket(&state.s3_bucket_name)
+        .key(format!("dists/{}/InRelease", repo.distribution))
         .body(axum::body::Bytes::from_owner(payload.clearsigned).into())
         .send()
         .await
@@ -782,12 +778,12 @@ async fn add_package(
     );
 
     let span = debug_span!("upload_to_pool");
-    let key = format!("attune-dev-1/staging/{pool_filename}");
+    let key = format!("staging/{pool_filename}");
     async {
         state
             .s3
             .put_object()
-            .bucket("attune-dev-1")
+            .bucket(&state.s3_bucket_name)
             .key(key)
             .body(value.into())
             .send()
