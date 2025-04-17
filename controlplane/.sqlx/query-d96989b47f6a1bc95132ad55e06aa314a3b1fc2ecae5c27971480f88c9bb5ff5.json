@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE debian_repository_package SET staging_status = NULL WHERE repository_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d96989b47f6a1bc95132ad55e06aa314a3b1fc2ecae5c27971480f88c9bb5ff5"
+}

@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                paragraph,\n                filename,\n                size,\n                md5sum,\n                sha1sum,\n                sha256sum\n            FROM debian_repository_package\n            WHERE\n                repository_id = $1\n                AND component_id = $2\n                AND architecture_id = $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "paragraph",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "filename",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "md5sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sha1sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bd659577635166986dc4b7714beff2f1a826243e1c857ae1ce1e83ea05866c2d"
+}

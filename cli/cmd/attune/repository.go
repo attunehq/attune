@@ -120,7 +120,12 @@ var listRepositoriesCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List repositories",
 	Run: func(cmd *cobra.Command, args []string) {
-		res, err := http.Get("http://localhost:3000/api/v0/repositories")
+		req, err := http.NewRequest(http.MethodGet, "/api/v0/repositories", nil)
+		if err != nil {
+			fmt.Printf("could not create request for listing repositories: %s\n", err)
+			os.Exit(1)
+		}
+		res, err := API(req)
 		if err != nil {
 			fmt.Printf("could not list repositories: %s\n", err)
 			os.Exit(1)
@@ -171,7 +176,12 @@ var statusRepositoryCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		res, err := http.Get(fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d", repoID))
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v0/repositories/%d", repoID), nil)
+		if err != nil {
+			fmt.Printf("could not create request for repository status: %s\n", err)
+			os.Exit(1)
+		}
+		res, err := API(req)
 		if err != nil {
 			fmt.Printf("could not get repository status: %s\n", err)
 			os.Exit(1)
@@ -235,7 +245,12 @@ var syncRepositoryCmd = &cobra.Command{
 		}
 
 		// Load release index for signing.
-		res, err := http.Get(fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/indexes", repoID))
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v0/repositories/%d/indexes", repoID), nil)
+		if err != nil {
+			fmt.Printf("could not create request to get repository indexes: %s\n", err)
+			os.Exit(1)
+		}
+		res, err := API(req)
 		if err != nil {
 			fmt.Printf("could not get repository indexes: %s\n", err)
 			os.Exit(1)
@@ -321,11 +336,17 @@ var syncRepositoryCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		res, err = http.Post(
-			fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/sync", repoID),
-			"application/json",
+		req, err = http.NewRequest(
+			http.MethodPost,
+			fmt.Sprintf("/api/v0/repositories/%d/sync", repoID),
 			bytes.NewReader(jsonBody),
 		)
+		if err != nil {
+			fmt.Printf("could not create request for starting synchronization: %s\n", err)
+			os.Exit(1)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		res, err = API(req)
 		if err != nil {
 			fmt.Printf("could not start synchronization: %s\n", err)
 			os.Exit(1)

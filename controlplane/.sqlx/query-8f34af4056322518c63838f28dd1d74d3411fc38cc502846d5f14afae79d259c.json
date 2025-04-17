@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            debian_repository_package.id,\n            debian_repository_package.repository_id,\n            debian_repository_component.name AS component,\n            debian_repository_package.package,\n            debian_repository_package.version,\n            debian_repository_architecture.name AS architecture,\n            debian_repository_package.staging_status::TEXT AS \"staging_status!: String\",\n            debian_repository_package.updated_at\n        FROM debian_repository_package\n        JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_package.architecture_id\n        JOIN debian_repository_component ON debian_repository_component.id = debian_repository_package.component_id\n        WHERE\n            staging_status IS NOT NULL\n            AND debian_repository_package.repository_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "repository_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "component",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "package",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "architecture",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "staging_status!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "8f34af4056322518c63838f28dd1d74d3411fc38cc502846d5f14afae79d259c"
+}

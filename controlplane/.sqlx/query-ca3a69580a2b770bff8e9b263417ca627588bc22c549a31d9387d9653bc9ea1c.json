@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            distribution,\n            origin,\n            label,\n            suite,\n            codename,\n            description\n        FROM debian_repository\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distribution",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "suite",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "codename",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "description",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ca3a69580a2b770bff8e9b263417ca627588bc22c549a31d9387d9653bc9ea1c"
+}

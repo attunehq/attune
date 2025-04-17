@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use sqlx::types::{JsonValue, time::OffsetDateTime};
 use tabwriter::TabWriter;
 use time::format_description::well_known::Rfc2822;
-use tower_http::trace::TraceLayer;
+use tower_http::{auth::AddAuthorizationLayer, trace::TraceLayer};
 use tracing::{Instrument, debug_span, instrument};
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
@@ -49,19 +49,18 @@ async fn main() {
         .init();
 
     // Initialize upstream dependencies.
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not set");
+    let db_url = std::env::var("ATTUNE_DATABASE_URL").expect("ATTUNE_DATABASE_URL not set");
     let db = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
         .expect("could not connect to database");
-    let config = aws_config::defaults(BehaviorVersion::latest())
-        .load()
-        .await;
+    let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let config = aws_sdk_s3::config::Builder::from(&config)
         .force_path_style(true)
         .build();
     let s3 = aws_sdk_s3::Client::from_conf(config);
+    let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
 
     // Configure routes.
     let api = Router::new()
@@ -83,6 +82,7 @@ async fn main() {
         );
     let app = Router::new()
         .nest("/api/v0", api)
+        .layer(AddAuthorizationLayer::basic("attune", &secret))
         .layer(TraceLayer::new_for_http())
         .with_state(ServerState { db, s3 });
 
@@ -595,7 +595,10 @@ async fn sync_repository(
             .s3
             .copy_object()
             .bucket("attune-dev-1")
-            .copy_source(format!("attune-dev-1/attune-dev-1/staging/{}", added.filename))
+            .copy_source(format!(
+                "attune-dev-1/attune-dev-1/staging/{}",
+                added.filename
+            ))
             .key(format!("attune-dev-1/{}", added.filename))
             .send()
             .await
@@ -664,7 +667,10 @@ async fn sync_repository(
         .s3
         .put_object()
         .bucket("attune-dev-1")
-        .key(format!("attune-dev-1/dists/{}/InRelease", repo.distribution))
+        .key(format!(
+            "attune-dev-1/dists/{}/InRelease",
+            repo.distribution
+        ))
         .body(axum::body::Bytes::from_owner(payload.clearsigned).into())
         .send()
         .await
@@ -707,12 +713,14 @@ async fn add_package(
     let component = params.get("component").unwrap().to_string();
 
     // Parse uploaded body file.
-    let Some(field) = multipart.next_field().await.unwrap() else {
-        panic!("expected a file");
-    };
+    let field = multipart
+        .next_field()
+        .await
+        .unwrap()
+        .expect("expected a file");
     let name = field.name().unwrap().to_string();
     if name != "file" {
-        panic!("unexpected field name: {}", name);
+        panic!("unexpected field name: expected \"file\", got {}", name);
     }
 
     // TODO: Is there a way to implement this function body with streaming
