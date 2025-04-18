@@ -1,5 +1,5 @@
 # Attune
-[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/attunehq/attune/blob/main/LICENSE)
+[![GitHub license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/attunehq/attune/blob/main/LICENSE)
 
 Attune is a tool for securely publishing and hosting Linux packages.
 
