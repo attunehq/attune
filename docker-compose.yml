@@ -1,24 +1,68 @@
 name: "attune"
 services:
+  controlplane:
+    build: ./controlplane
+    ports:
+      - "3000:3000"
+    env_file: ./.env
+    environment:
+      - ATTUNE_DATABASE_URL=postgres://attune:attune@postgres:5432/attune
+      - AWS_ENDPOINT_URL_S3=http://minio:9000
+    depends_on:
+      - postgres
+      - minio
+    networks:
+      - attune_dev
   postgres:
     image: postgres:17.4-bookworm
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - POSTGRES_USER=attune
+      - POSTGRES_PASSWORD=attune
+      - POSTGRES_DB=attune
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
+      - ./controlplane/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - attune_dev
   minio:
     image: minio/minio:RELEASE.2025-04-08T15-41-24Z-cpuv1
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-localpassword}
-      - MINIO_DOMAIN=${MINIO_DOMAIN:-localhost:9000}
+      - MINIO_ROOT_USER=attuneminio
+      - MINIO_ROOT_PASSWORD=attuneminio
+      - MINIO_DOMAIN=minio
     volumes:
       - ./minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 1s
+      retries: 3
     command: server /data --console-address ":9001"
+    networks:
+      attune_dev:
+        aliases:
+          # By default, subdomains are not resolved to the service. Here, we
+          # explicitly add the subdomain of the S3 bucket because we're using
+          # vhost-style S3 requests.
+          - attune-dev-0.minio
+  minio-setup:
+    image: minio/minio:RELEASE.2025-04-08T15-41-24Z-cpuv1
+    restart: no
+    entrypoint: |
+      sh -c "
+      mc alias set myminio http://minio:9000 attuneminio attuneminio;
+      mc mb myminio/attune-dev-0;
+      "
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - attune_dev
+
+networks:
+  attune_dev:

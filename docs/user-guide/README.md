@@ -2,8 +2,6 @@
 
 Attune is a tool for securely publishing and hosting Linux packages.
 
-> :construction: This project is under early construction. There are a bunch of rough edges right now which we plan to implement soon (e.g. Docker-based deployment).
-
 ## Setting up Attune
 
 To run Attune, you'll need to configure three pieces:
@@ -12,34 +10,27 @@ To run Attune, you'll need to configure three pieces:
 2. The **control plane** ([`attune-controlplane`](../../controlplane)), which runs a service that manages repository operations.
 3. The **data plane**, which actually serves the repository packages.
 
-### Setting up the control plane
+### Setting up the Attune service
 
-To start, we'll set up the control plane.
+#### Quick start
 
-1. Set up a Postgres instance. If you're self-hosting, you can use our provided [`docker-compose.yml`](../../docker-compose.yml) file, which will start a local Postgres instance inside of a Docker container. Once the Postgres database is up, you'll need to run initial migrations using [`sqlx migrate run`](https://github.com/launchbadge/sqlx/blob/main/sqlx-cli/README.md).
-2. Set up an S3-compatible object storage bucket. If you're self-hosting, you can use our provided [`docker-compose.yml`](../../docker-compose.yml) file, which will start a local Minio instance inside of a Docker container.
-3. Once these are available, you'll want to set up environment variables for the control plane server. For a list of variables, see [`.env.example`](../../.env.example).
-4. Once the environment variables are configured, you can build Attune using `cargo build --release` in the `controlplane` folder. If you don't have Rust installed, you can download it using [`rustup`](https://rustup.rs).
-5. You can now deploy the built binary with the environment variables in any environment. The server will listen on `0.0.0.0:3000`.
+1. Create a `.env` file containing the environment variables you've configured. Use [`.env.example`](../../.env.example) as a template and reference for the available variables. **You should set `ATTUNE_SECRET` to your own secret API token.**
+2. Run `docker compose up` in the root directory of the Attune repository. This will start local instances of Postgres, Minio, and Attune as Docker containers.
+
+#### Using your own database and data plane
+
+If you'd like to use your own providers for Postgres and Minio, you can configure the control plane to use them by setting the `ATTUNE_DATABASE_URL` and `AWS_ENDPOINT_URL_S3` environment variables. For details, see [`.env.example`](../../.env.example).
 
 ### Setting up the CLI
 
-You can build the Attune CLI by using `go install ./...` in the `cli` folder. If you don't have Go installed, see [the installation docs](https://go.dev/doc/install).
+You can download the CLI from [GitHub Releases](https://github.com/attunehq/attune/releases).
 
-The Attune CLI needs to run in an environment where `ATTUNE_API_TOKEN` is set. Make sure to set this to the same value as the `ATTUNE_SECRET` of the control plane.
+To use the CLI, you need to configure two environment variables:
 
-If your control plane is running on a different host than your CLI, you can set that host using `ATTUNE_API_ENDPOINT`.
+- `ATTUNE_API_TOKEN`: This should be set to the same value as the `ATTUNE_SECRET` of the control plane.
+- `ATTUNE_API_ENDPOINT`: This should be set to the base URL of the control plane (e.g. `http://localhost:3000`).
 
-### Setting up the data plane
-
-Attune publishes a Linux repository to any S3-compatible object storage bucket. To serve this repository, you'll need to serve contents out of that bucket. How to do this will depend on exactly which object storage provider you use.
-
-A non-exhaustive list of providers includes:
-
-- AWS S3
-- Cloudflare R2
-- Backblaze B2
-- Self-hosted Minio
+Like for the control plane, you can see details about the available environment variables in [`.env.example`](../../.env.example).
 
 ## Publishing packages
 

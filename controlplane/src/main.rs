@@ -18,8 +18,9 @@ use sha2::{Digest, Sha256};
 use sqlx::types::{JsonValue, time::OffsetDateTime};
 use tabwriter::TabWriter;
 use time::format_description::well_known::Rfc2822;
+use tokio::signal;
 use tower_http::{auth::AddAuthorizationLayer, trace::TraceLayer};
-use tracing::{Instrument, debug_span, instrument};
+use tracing::{Instrument, debug, debug_span, instrument};
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
@@ -58,6 +59,7 @@ async fn main() {
         .expect("could not connect to database");
     let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let config = aws_sdk_s3::config::Builder::from(&config).build();
+    debug!(?config, "inferred AWS S3 configuration from environment");
     let s3 = aws_sdk_s3::Client::from_conf(config);
     let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
     let s3_bucket_name =
@@ -94,7 +96,17 @@ async fn main() {
     // Start server.
     println!("Listening on http://0.0.0.0:3000");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown())
+        .await
+        .unwrap();
+}
+
+async fn shutdown() {
+    signal::unix::signal(signal::unix::SignalKind::terminate())
+        .expect("could not install SIGTERM handler")
+        .recv()
+        .await;
 }
 
 #[derive(Serialize)]
