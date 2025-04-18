@@ -7,6 +7,12 @@ Attune is a tool for securely publishing and hosting Linux packages.
 - **Secure by design:** Attune's CLI does repository index signing locally, so you can own your signing keys without ever exposing them.
 - **Really, really fast:** Attune does incremental repository index rebuilds, so adding and removing packages is really fast.
 
+Attune is available in two editions:
+- **Community Edition:** Free and open source, perfect for individual developers and small teams
+- **Enterprise Edition:** For organizations with advanced security and compliance needs, includes priority support and advanced security features
+
+See our [pricing page](https://www.attunehq.com/pricing) for a detailed comparison of features between editions.
+
 We currently support publishing APT (Debian and Ubuntu) repositories, with more [coming soon](https://attunehq.com).
 
 ## Quick Start
