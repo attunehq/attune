@@ -2,6 +2,8 @@
 
 Attune is a tool for securely publishing and hosting Linux packages.
 
+For a quick start guide to get up and running in 5 minutes, see the [Quick Start section in the main README](../../README.md#quick-start).
+
 ## Setting up Attune
 
 To run Attune, you'll need to configure three pieces:
