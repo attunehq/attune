@@ -12,7 +12,7 @@ services:
       - postgres
       - minio
     networks:
-      - attune_dev
+      - dev
   postgres:
     image: postgres:17.4-bookworm
     environment:
@@ -25,9 +25,9 @@ services:
       - ./postgres-data:/var/lib/postgresql/data
       - ./controlplane/migrations:/docker-entrypoint-initdb.d
     networks:
-      - attune_dev
+      - dev
   minio:
-    image: minio/minio:RELEASE.2025-04-08T15-41-24Z-cpuv1
+    build: ./docker/minio
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -37,32 +37,13 @@ services:
       - MINIO_DOMAIN=minio
     volumes:
       - ./minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 3s
-      timeout: 1s
-      retries: 3
-    command: server /data --console-address ":9001"
     networks:
-      attune_dev:
+      dev:
         aliases:
           # By default, subdomains are not resolved to the service. Here, we
           # explicitly add the subdomain of the S3 bucket because we're using
           # vhost-style S3 requests.
           - attune-dev-0.minio
-  minio-setup:
-    image: minio/minio:RELEASE.2025-04-08T15-41-24Z-cpuv1
-    restart: no
-    entrypoint: |
-      sh -c "
-      mc alias set myminio http://minio:9000 attuneminio attuneminio;
-      mc mb myminio/attune-dev-0;
-      "
-    depends_on:
-      minio:
-        condition: service_healthy
-    networks:
-      - attune_dev
 
 networks:
-  attune_dev:
+  dev:
