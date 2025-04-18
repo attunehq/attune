@@ -14,11 +14,12 @@ CREATE TABLE debian_repository (
 
   -- Metadata fields for the top-level Release file. These are the _current_
   -- (i.e. _staging_) values, not necessarily the ones in production.
-  origin TEXT NOT NULL,
-  label TEXT NOT NULL,
+  description TEXT,
+  origin TEXT,
+  label TEXT,
+  version TEXT,
   suite TEXT NOT NULL,
   codename TEXT NOT NULL,
-  description TEXT NOT NULL,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -62,11 +63,12 @@ CREATE TABLE debian_repository_index_release (
 
   -- Metadata fields for the Release index. These are the values used to
   -- actually generate this file that's hosted in production.
-  origin TEXT NOT NULL,
-  label TEXT NOT NULL,
+  description TEXT,
+  origin TEXT,
+  label TEXT,
+  version TEXT,
   suite TEXT NOT NULL,
   codename TEXT NOT NULL,
-  description TEXT NOT NULL,
 
   -- The contents of the `Release` file.
   contents TEXT NOT NULL,

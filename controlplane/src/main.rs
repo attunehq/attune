@@ -120,11 +120,12 @@ struct Repository {
 struct CreateRepositoryRequest {
     uri: String,
     distribution: String,
-    origin: String,
-    label: String,
-    suite: String,
-    codename: String,
-    description: String,
+    origin: Option<String>,
+    label: Option<String>,
+    version: Option<String>,
+    suite: Option<String>,
+    codename: Option<String>,
+    description: Option<String>,
 }
 
 #[axum::debug_handler]
@@ -140,17 +141,19 @@ async fn create_repository(
             distribution,
             origin,
             label,
+            version,
             suite,
             codename,
             description
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         "#,
         payload.uri,
         payload.distribution,
         payload.origin,
         payload.label,
+        payload.version,
         payload.suite,
         payload.codename,
         payload.description,
@@ -268,6 +271,7 @@ async fn generate_indexes(
             distribution,
             origin,
             label,
+            version,
             suite,
             codename,
             description
@@ -423,19 +427,24 @@ async fn generate_indexes(
     let comps = comp_set
         .into_iter()
         .fold(String::new(), |acc_comps, comp| acc_comps + " " + &comp);
-    let mut release_index = format!(
-        r#"Origin: {}
-Label: {}
-Suite: {}
-Codename: {}
-Date: {date}
-Architectures:{archs}
-Components:{comps}
-Description: {}
-"#,
-        repo.origin, repo.label, repo.suite, repo.codename, repo.description
-    )
-    .to_string();
+    let release_fields: Vec<(&str, Option<String>)> = vec![
+        ("Origin", repo.origin.clone()),
+        ("Label", repo.label.clone()),
+        ("Version", repo.version.clone()),
+        ("Suite", Some(repo.suite.clone())),
+        ("Codename", Some(repo.codename.clone())),
+        ("Date", Some(date)),
+        ("Architectures", Some(archs)),
+        ("Components", Some(comps)),
+        ("Description", repo.description.clone()),
+    ];
+    let mut release_index = String::new();
+    for (k, v) in release_fields {
+        if let Some(v) = v {
+            release_index.push_str(&format!("{}: {}\n", k, v));
+        }
+    }
+    release_index.push_str("\n");
 
     let indexes = sqlx::query!(r#"
         SELECT
@@ -497,24 +506,27 @@ Description: {}
             repository_id,
             origin,
             label,
+            version,
             suite,
             codename,
             description,
             contents
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (repository_id)
         DO UPDATE SET
             repository_id = $1,
             origin = $2,
             label = $3,
-            suite = $4,
-            codename = $5,
-            description = $6,
-            contents = $7
+            version = $4,
+            suite = $5,
+            codename = $6,
+            description = $7,
+            contents = $8
         "#,
         repository_id as i64,
         repo.origin,
         repo.label,
+        repo.version,
         repo.suite,
         repo.codename,
         repo.description,

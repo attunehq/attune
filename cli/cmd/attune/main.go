@@ -53,3 +53,15 @@ func API(req *http.Request) (*http.Response, error) {
 	client := &http.Client{}
 	return client.Do(req)
 }
+
+func GetMaybeString(cmd *cobra.Command, name string) *string {
+	value, err := cmd.Flags().GetString(name)
+	if err != nil {
+		fmt.Printf("could not read --%s: %s\n", name, err)
+		os.Exit(1)
+	}
+	if value == "" {
+		return nil
+	}
+	return &value
+}
