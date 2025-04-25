@@ -32,6 +32,12 @@ struct ServerState {
     s3_bucket_name: String,
 }
 
+#[derive(Debug, Clone)]
+enum TenantMode {
+    Single,
+    Multi,
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize tracing.
@@ -61,9 +67,19 @@ async fn main() {
     let config = aws_sdk_s3::config::Builder::from(&config).build();
     debug!(?config, "inferred AWS S3 configuration from environment");
     let s3 = aws_sdk_s3::Client::from_conf(config);
-    let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
     let s3_bucket_name =
         std::env::var("ATTUNE_S3_BUCKET_NAME").unwrap_or("attune-dev-0".to_string());
+
+    // Initialize configuration.
+    let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
+    let tenant_mode = match std::env::var("ATTUNE_TENANT_MODE")
+        .expect("ATTUNE_TENANT_MODE not set")
+        .as_str()
+    {
+        "single" => TenantMode::Single,
+        "multi" => TenantMode::Multi,
+        other => panic!("invalid ATTUNE_TENANT_MODE value: {}", other),
+    };
 
     // Configure routes.
     let api = Router::new()
