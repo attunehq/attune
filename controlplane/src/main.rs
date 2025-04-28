@@ -29,7 +29,9 @@ use tracing_subscriber::{
 struct ServerState {
     db: sqlx::PgPool,
     s3: aws_sdk_s3::Client,
+
     s3_bucket_name: String,
+    tenant_mode: TenantMode,
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +75,7 @@ async fn main() {
     // Initialize configuration.
     let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
     let tenant_mode = match std::env::var("ATTUNE_TENANT_MODE")
-        .expect("ATTUNE_TENANT_MODE not set")
+        .unwrap_or("single".to_string())
         .as_str()
     {
         "single" => TenantMode::Single,
@@ -107,6 +109,7 @@ async fn main() {
             db,
             s3,
             s3_bucket_name,
+            tenant_mode,
         });
 
     // Start server.
@@ -150,6 +153,10 @@ async fn create_repository(
     State(state): State<ServerState>,
     Json(payload): Json<CreateRepositoryRequest>,
 ) -> Json<Repository> {
+    let s3_prefix = match state.tenant_mode {
+        TenantMode::Single => "".to_string(),
+        TenantMode::Multi => hex::encode(Sha256::digest(&payload.uri)),
+    };
     let created = sqlx::query!(
         r#"
         INSERT INTO debian_repository (
@@ -160,9 +167,11 @@ async fn create_repository(
             version,
             suite,
             codename,
-            description
+            description,
+            s3_bucket,
+            s3_prefix
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
         "#,
         payload.uri,
@@ -173,6 +182,8 @@ async fn create_repository(
         payload.suite,
         payload.codename,
         payload.description,
+        state.s3_bucket_name,
+        s3_prefix,
     )
     .fetch_one(&state.db)
     .await
@@ -290,7 +301,9 @@ async fn generate_indexes(
             version,
             suite,
             codename,
-            description
+            description,
+            s3_bucket,
+            s3_prefix
         FROM debian_repository
         WHERE id = $1
         "#,
@@ -410,14 +423,19 @@ async fn generate_indexes(
         .unwrap();
 
         // Upload index to staging.
+        let key = format!(
+            "staging/dists/{}/{}/binary-{}/Packages",
+            repo.distribution, package_index.component, package_index.architecture
+        );
         state
             .s3
             .put_object()
-            .bucket(&state.s3_bucket_name)
-            .key(format!(
-                "staging/dists/{}/{}/binary-{}/Packages",
-                repo.distribution, package_index.component, package_index.architecture
-            ))
+            .bucket(&repo.s3_bucket)
+            .key(if repo.s3_prefix.is_empty() {
+                key
+            } else {
+                format!("{}/{}", repo.s3_prefix, key)
+            })
             .body(axum::body::Bytes::from_owner(index).into())
             .send()
             .await
@@ -553,11 +571,17 @@ async fn generate_indexes(
     .unwrap();
 
     // Upload index to staging.
+    let key = format!("staging/dists/{}/Release", repo.distribution);
+
     state
         .s3
         .put_object()
         .bucket(&state.s3_bucket_name)
-        .key(format!("staging/dists/{}/Release", repo.distribution))
+        .key(if repo.s3_prefix.is_empty() {
+            key
+        } else {
+            format!("{}/{}", repo.s3_prefix, key)
+        })
         .body(axum::body::Bytes::from_owner(release_index.clone()).into())
         .send()
         .await
