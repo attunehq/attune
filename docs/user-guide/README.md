@@ -53,5 +53,5 @@ If you want to test your new repository:
 
 1. Start a new Debian container using `docker run -it --rm --network=host debian /bin/bash`.
 2. Run `echo 'deb YOUR_REPOSITORY_URI YOUR_DISTRIBUTION_NAME YOUR_COMPONENT_NAME' > /etc/apt/sources.list` to add your new repository to the list of sources in the Debian container. For example, if you're using Minio locally using our Docker Compose file, you might run `echo 'deb http://localhost:9000/your-bucket-name bookworm main' > /etc/apt/sources.list`.
-3. Copy the public key (from `gpg --armor --export $KEYID`) of the key that you signed your repository with into `/etc/apt.trusted.gpg.d/attune.asc`. This will tell APT to trust the key you signed the repository with.
+3. Copy the public key (from `gpg --armor --export $KEYID`) of the key that you signed your repository with into `/etc/apt/trusted.gpg.d/attune.asc`. This will tell APT to trust the key you signed the repository with.
 4. Now you can run `apt update` and then `apt install` one of the packages you published.
