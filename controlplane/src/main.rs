@@ -576,7 +576,7 @@ async fn generate_indexes(
     state
         .s3
         .put_object()
-        .bucket(&state.s3_bucket_name)
+        .bucket(&repo.s3_bucket)
         .key(if repo.s3_prefix.is_empty() {
             key
         } else {
@@ -620,7 +620,7 @@ async fn sync_repository(
         .await
         .unwrap();
     let repo = sqlx::query!(
-        "SELECT distribution FROM debian_repository WHERE id = $1",
+        "SELECT distribution, s3_bucket, s3_prefix FROM debian_repository WHERE id = $1",
         repository_id as i64
     )
     .fetch_one(&mut *tx)
@@ -657,15 +657,24 @@ async fn sync_repository(
     .await
     .unwrap();
     for added in added_packages {
+        let source_key = if repo.s3_prefix.is_empty() {
+            format!("{}/staging/{}", repo.s3_bucket, added.filename)
+        } else {
+            format!(
+                "{}/{}/staging/{}",
+                repo.s3_bucket, repo.s3_prefix, added.filename
+            )
+        };
         state
             .s3
             .copy_object()
-            .copy_source(format!(
-                "{}/staging/{}",
-                state.s3_bucket_name, added.filename
-            ))
-            .bucket(&state.s3_bucket_name)
-            .key(added.filename)
+            .copy_source(source_key)
+            .bucket(&repo.s3_bucket)
+            .key(if repo.s3_prefix.is_empty() {
+                added.filename
+            } else {
+                format!("{}/{}", repo.s3_prefix, added.filename)
+            })
             .send()
             .await
             .unwrap();
