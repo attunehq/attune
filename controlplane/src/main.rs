@@ -699,47 +699,77 @@ async fn sync_repository(
     .await
     .unwrap();
     for index in package_indexes {
+        let source_key = if repo.s3_prefix.is_empty() {
+            format!(
+                "{}/staging/dists/{}/{}/binary-{}/Packages",
+                repo.s3_bucket, repo.distribution, index.component, index.architecture
+            )
+        } else {
+            format!(
+                "{}/{}/staging/dists/{}/{}/binary-{}/Packages",
+                repo.s3_bucket, repo.s3_prefix, repo.distribution, index.component, index.architecture
+            )
+        };
+        let key = format!(
+            "dists/{}/{}/binary-{}/Packages",
+            repo.distribution, index.component, index.architecture
+        );
         state
             .s3
             .copy_object()
-            .copy_source(format!(
-                "{}/staging/dists/{}/{}/binary-{}/Packages",
-                state.s3_bucket_name, repo.distribution, index.component, index.architecture
-            ))
-            .bucket(&state.s3_bucket_name)
-            .key(format!(
-                "dists/{}/{}/binary-{}/Packages",
-                repo.distribution, index.component, index.architecture
-            ))
+            .copy_source(source_key)
+            .bucket(&repo.s3_bucket)
+            .key(if repo.s3_prefix.is_empty() {
+                key
+            } else {
+                format!("{}/{}", repo.s3_prefix, key)
+            })
             .send()
             .await
             .unwrap();
     }
 
     // Save release indexes.
+    let key = format!("dists/{}/Release", repo.distribution);
     state
         .s3
         .put_object()
-        .bucket(&state.s3_bucket_name)
-        .key(format!("dists/{}/Release", repo.distribution))
+        .bucket(&repo.s3_bucket)
+        .key(if repo.s3_prefix.is_empty() {
+            key
+        } else {
+            format!("{}/{}", repo.s3_prefix, key)
+        })
         .body(axum::body::Bytes::from_owner(release_index.contents).into())
         .send()
         .await
         .unwrap();
+
+    let key = format!("dists/{}/Release.gpg", repo.distribution);
     state
         .s3
         .put_object()
-        .bucket(&state.s3_bucket_name)
-        .key(format!("dists/{}/Release.gpg", repo.distribution,))
+        .bucket(&repo.s3_bucket)
+        .key(if repo.s3_prefix.is_empty() {
+            key
+        } else {
+            format!("{}/{}", repo.s3_prefix, key)
+        })
         .body(axum::body::Bytes::from_owner(payload.detached).into())
         .send()
         .await
         .unwrap();
+
+    let key = format!("dists/{}/InRelease", repo.distribution);
     state
         .s3
         .put_object()
-        .bucket(&state.s3_bucket_name)
-        .key(format!("dists/{}/InRelease", repo.distribution))
+        .bucket(&repo.s3_bucket)
+        .key(if repo.s3_prefix.is_empty() {
+            key
+        } else {
+            format!("{}/{}", repo.s3_prefix, key)
+        })
         .body(axum::body::Bytes::from_owner(payload.clearsigned).into())
         .send()
         .await
@@ -853,11 +883,23 @@ async fn add_package(
     let span = debug_span!("upload_to_pool");
     let key = format!("staging/{pool_filename}");
     async {
+        let repo = sqlx::query!(
+            "SELECT s3_bucket, s3_prefix FROM debian_repository WHERE id = $1",
+            repository_id as i64
+        )
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+
         state
             .s3
             .put_object()
-            .bucket(&state.s3_bucket_name)
-            .key(key)
+            .bucket(&repo.s3_bucket)
+            .key(if repo.s3_prefix.is_empty() {
+                key
+            } else {
+                format!("{}/{}", repo.s3_prefix, key)
+            })
             .body(value.into())
             .send()
             .await
