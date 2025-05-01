@@ -34,7 +34,14 @@ services:
     environment:
       - MINIO_ROOT_USER=attuneminio
       - MINIO_ROOT_PASSWORD=attuneminio
+      # This MINIO_DOMAIN variable needs to be set to the hostname that you're
+      # using to access MinIO. From containers within the Docker Compose
+      # network, this is `minio`. However, if you're developing the control
+      # plane on your host machine and just using Docker Compose to run the
+      # backing services, you're probably going to be accessing MinIO at
+      # `localhost`, so you'll need to set MINIO_DOMAIN to `localhost`.
       - MINIO_DOMAIN=minio
+      # - MINIO_DOMAIN=localhost
     volumes:
       - ./minio-data:/data
     networks:

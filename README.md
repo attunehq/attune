@@ -3,6 +3,8 @@
 
 Attune is a tool for securely publishing and hosting Linux packages.
 
+[Join our Community Slack](https://join.slack.com/t/attunecommunityslack/shared_invite/zt-33fmjoepy-w5HUiI6P44G15QJlvYhQiw) to connect with other users and get help.
+
 - **Flexible deployment:** Deploy a self-hosted package repository, or use our managed cloud infrastructure.
 - **Secure by design:** Attune's CLI does repository index signing locally, so you can own your signing keys without ever exposing them.
 - **Really, really fast:** Attune does incremental repository index rebuilds, so adding and removing packages is really fast.

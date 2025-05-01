@@ -478,7 +478,6 @@ async fn generate_indexes(
             release_index.push_str(&format!("{}: {}\n", k, v));
         }
     }
-    release_index.push_str("\n");
 
     let indexes = sqlx::query!(r#"
         SELECT
