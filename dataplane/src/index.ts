@@ -11,8 +11,42 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+import path from 'path';
+
+import { Pool } from 'pg';
+import { Kysely, PostgresDialect } from 'kysely';
+
+import { DB } from './db';
+
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
+		if (request.method !== 'GET') {
+			return new Response('Method not allowed', { status: 405 });
+		}
+
+		const db = new Kysely<DB>({
+			dialect: new PostgresDialect({
+				pool: new Pool({ connectionString: env.ATTUNE_RDS_HYPERDRIVE.connectionString }),
+			}),
+		});
+
+		const url = new URL(request.url);
+		const repo = await db.selectFrom('debian_repository').where('uri', '=', url.hostname).select('s3_prefix').executeTakeFirst();
+		if (!repo) {
+			return new Response('Not found', { status: 404 });
+		}
+
+		const key = path.join(repo.s3_prefix, url.pathname);
+		console.log({ message: 'loading object', key });
+		const object = await env.ATTUNE_R2_BUCKET.get(key);
+		if (!object) {
+			return new Response('Not found', { status: 404 });
+		}
+
+		return new Response(object.body, {
+			headers: {
+				'Content-Type': object.httpMetadata?.contentType ?? 'application/octet-stream',
+			},
+		});
 	},
 } satisfies ExportedHandler<Env>;

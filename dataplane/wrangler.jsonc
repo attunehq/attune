@@ -6,10 +6,11 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "attune-dataplane",
 	"main": "src/index.ts",
+	"compatibility_flags": ["nodejs_compat"],
 	"compatibility_date": "2025-04-28",
 	"observability": {
 		"enabled": true
-	}
+	},
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
@@ -22,6 +23,18 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
+	"r2_buckets": [{
+		"binding": "ATTUNE_R2_BUCKET",
+		"bucket_name": "attune-dev-0",
+		"preview_bucket_name": "attune-dev-0"
+	}],
+	"hyperdrive": [
+		{
+			"binding": "ATTUNE_RDS_HYPERDRIVE",
+			"id": "7b9a7e57a7304ce5bba5820b1a26d696",
+			"localConnectionString": "postgres://attune:attune@localhost:5432/attune"
+		}
+	],
 
 	/**
 	 * Environment Variables

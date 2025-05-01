@@ -5,15 +5,24 @@
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
+		"dev:remote": "wrangler dev --remote",
 		"start": "wrangler dev",
 		"test": "vitest",
-		"cf-typegen": "wrangler types"
+		"build": "npm run build:types && npm run build:db",
+		"build:types": "wrangler types",
+		"build:db": "kysely-codegen --dialect postgres --out-file ./src/db.ts"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",
-		"@cloudflare/workers-types": "^4.20250428.0",
+		"@types/node": "^22.15.3",
+		"@types/pg": "^8.11.14",
+		"kysely-codegen": "^0.18.3",
 		"typescript": "^5.5.2",
 		"vitest": "~3.0.7",
 		"wrangler": "^4.13.2"
+	},
+	"dependencies": {
+		"kysely": "^0.27.0",
+		"pg": "^8.15.6"
 	}
 }
