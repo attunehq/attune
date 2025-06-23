@@ -7,5 +7,5 @@ COPY ./.sqlx ./.sqlx
 COPY ./src ./src
 RUN touch ./src/main.rs && cargo build --release
 
-ENV RUST_LOG trace
+ENV RUST_LOG=trace
 ENTRYPOINT ["cargo", "run", "--release"]
