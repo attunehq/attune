@@ -103,7 +103,7 @@ async fn main() {
         );
     let app = Router::new()
         .nest("/api/v0", api)
-        .layer(ValidateRequestHeaderLayer::basic("attune", &secret))
+        .layer(ValidateRequestHeaderLayer::bearer(&secret))
         .layer(TraceLayer::new_for_http())
         .with_state(ServerState {
             db,
