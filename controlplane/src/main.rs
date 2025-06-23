@@ -19,7 +19,7 @@ use sqlx::types::{JsonValue, time::OffsetDateTime};
 use tabwriter::TabWriter;
 use time::format_description::well_known::Rfc2822;
 use tokio::signal;
-use tower_http::{auth::AddAuthorizationLayer, trace::TraceLayer};
+use tower_http::{trace::TraceLayer, validate_request::ValidateRequestHeaderLayer};
 use tracing::{Instrument, debug, debug_span, instrument};
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
@@ -103,7 +103,7 @@ async fn main() {
         );
     let app = Router::new()
         .nest("/api/v0", api)
-        .layer(AddAuthorizationLayer::basic("attune", &secret))
+        .layer(ValidateRequestHeaderLayer::basic("attune", &secret))
         .layer(TraceLayer::new_for_http())
         .with_state(ServerState {
             db,
@@ -706,7 +706,11 @@ async fn sync_repository(
         } else {
             format!(
                 "{}/{}/staging/dists/{}/{}/binary-{}/Packages",
-                repo.s3_bucket, repo.s3_prefix, repo.distribution, index.component, index.architecture
+                repo.s3_bucket,
+                repo.s3_prefix,
+                repo.distribution,
+                index.component,
+                index.architecture
             )
         };
         let key = format!(
