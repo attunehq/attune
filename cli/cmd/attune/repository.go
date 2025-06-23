@@ -111,9 +111,13 @@ https://wiki.debian.org/DebianRepository/Format#A.22Release.22_files`,
 			os.Exit(1)
 		}
 
-		res, err := http.Post("http://localhost:3000/api/v0/repositories",
-			"application/json",
-			bytes.NewBuffer(jsonBody))
+		req, err := http.NewRequest(http.MethodPost, "/api/v0/repositories", bytes.NewBuffer(jsonBody))
+		if err != nil {
+			fmt.Printf("could not create request to create repository: %s\n", err)
+			os.Exit(1)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		res, err := API(req)
 		if err != nil {
 			fmt.Printf("could not create repository: %s\n", err)
 			os.Exit(1)
@@ -247,4 +251,3 @@ var statusRepositoryCmd = &cobra.Command{
 		w.Flush()
 	},
 }
-

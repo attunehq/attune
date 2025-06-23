@@ -29,11 +29,11 @@ func API(req *http.Request) (*http.Response, error) {
 		fmt.Println("ATTUNE_API_TOKEN environment variable not set")
 		os.Exit(1)
 	}
-	req.SetBasicAuth("attune", token)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	u := req.URL
 	endpoint, ok := os.LookupEnv("ATTUNE_API_ENDPOINT")
-	if ok {
+	if ok && len(endpoint) > 0 {
 		parsed, err := req.URL.Parse(endpoint)
 		if err != nil {
 			fmt.Printf("Could not parse ATTUNE_API_ENDPOINT: %s\n", err)
@@ -43,10 +43,10 @@ func API(req *http.Request) (*http.Response, error) {
 		req.URL.Scheme = parsed.Scheme
 	} else {
 		if u.Hostname() == "" {
-			req.URL.Host = "localhost:3000"
+			req.URL.Host = "api.attunehq.com"
 		}
 		if u.Scheme == "" {
-			req.URL.Scheme = "http"
+			req.URL.Scheme = "https"
 		}
 	}
 

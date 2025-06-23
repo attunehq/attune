@@ -98,19 +98,18 @@ var createPkgsCmd = &cobra.Command{
 			)
 		}()
 
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://localhost:3000/api/v0/repositories/%d/packages", repoID), r)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("/api/v0/repositories/%d/packages", repoID), r)
 		if err != nil {
-			fmt.Printf("could not create request: %s\n", err)
+			fmt.Printf("could not create request to add package: %s\n", err)
 			os.Exit(1)
 		}
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		q := req.URL.Query()
 		q.Set("component", component)
 		req.URL.RawQuery = q.Encode()
-		client := &http.Client{}
-		res, err := client.Do(req)
+		res, err := API(req)
 		if err != nil {
-			fmt.Printf("could not make request: %s\n", err)
+			fmt.Printf("could not make request to add package: %s\n", err)
 			os.Exit(1)
 		}
 		defer res.Body.Close()
