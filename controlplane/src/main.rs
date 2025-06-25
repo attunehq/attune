@@ -74,14 +74,12 @@ async fn main() {
 
     // Initialize configuration.
     let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
-    let tenant_mode = match std::env::var("ATTUNE_TENANT_MODE")
-        .unwrap_or("single".to_string())
-        .as_str()
-    {
-        "single" => TenantMode::Single,
-        "multi" => TenantMode::Multi,
-        other => panic!("invalid ATTUNE_TENANT_MODE value: {}", other),
-    };
+    let tenant_mode =
+        std::env::var("ATTUNE_TENANT_MODE").map_or(TenantMode::Single, |v| match v.as_str() {
+            "single" => TenantMode::Single,
+            "multi" => TenantMode::Multi,
+            other => panic!("invalid ATTUNE_TENANT_MODE value: {}", other),
+        });
 
     // Configure routes.
     let api = Router::new()
