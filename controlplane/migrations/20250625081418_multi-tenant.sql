@@ -25,11 +25,15 @@ CREATE TABLE attune_tenant_api_token (
 
   -- This is just for human readability purposes.
   name TEXT NOT NULL,
-  -- This is a bcrypt API token hash.
+  -- This is the SHA-256 hash of the API token plus a fixed salt stored in
+  -- memory.
   token BYTEA NOT NULL,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- TODO: Alter existing tables to add tenant_id column. In particular,
+-- repositories and packages should belong to specific tenants.
 
 COMMIT;

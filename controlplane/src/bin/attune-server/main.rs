@@ -1,12 +1,21 @@
+use std::pin::Pin;
+
 use aws_sdk_s3::config::BehaviorVersion;
 use axum::{
     Router,
+    body::Body,
     extract::DefaultBodyLimit,
     handler::Handler,
+    http::{Request, Response, StatusCode},
     routing::{get, post},
 };
+use sha2::{Digest as _, Sha256};
+use sqlx::PgPool;
 use tokio::signal;
-use tower_http::{trace::TraceLayer, validate_request::ValidateRequestHeaderLayer};
+use tower_http::{
+    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
+    trace::TraceLayer,
+};
 use tracing::debug;
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
@@ -78,7 +87,10 @@ async fn main() {
         );
     let app = Router::new()
         .nest("/api/v0", api)
-        .layer(ValidateRequestHeaderLayer::bearer(&secret))
+        .layer(AsyncRequireAuthorizationLayer::new(APIToken {
+            secret,
+            db: db.clone(),
+        }))
         .layer(TraceLayer::new_for_http())
         .with_state(api::ServerState {
             db,
@@ -101,4 +113,58 @@ async fn shutdown() {
         .expect("could not install SIGTERM handler")
         .recv()
         .await;
+}
+
+#[derive(Clone)]
+struct APIToken {
+    db: PgPool,
+    secret: String,
+}
+
+impl<B> AsyncAuthorizeRequest<B> for APIToken
+where
+    B: Send + 'static,
+{
+    type RequestBody = B;
+    type ResponseBody = Body;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Request<B>, Response<Self::ResponseBody>>> + Send>>;
+
+    // TODO: This should be an extractor instead because that way we can pass
+    // authentication information to the handler in a type-safe way.
+    fn authorize(&mut self, request: Request<B>) -> Self::Future {
+        let secret = self.secret.clone();
+        let db = self.db.clone();
+        Box::pin(async move {
+            let token = request
+                .headers()
+                .get("Authorization")
+                .and_then(|header| header.to_str().ok())
+                .and_then(|header| header.strip_prefix("Bearer "));
+            let token = match token {
+                None => {
+                    return Err(Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .body(Body::default())
+                        .unwrap());
+                }
+                Some(token) => token,
+            };
+            let expected = Sha256::digest(format!("{}{}", &secret, token));
+            let actual = sqlx::query!(
+                "SELECT id FROM attune_tenant_api_token WHERE token = $1",
+                expected.as_slice(),
+            )
+            .fetch_optional(&db)
+            .await
+            .expect("could not validate API token");
+            match actual {
+                Some(_) => Ok(request),
+                None => Err(Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .body(Body::default())
+                    .unwrap()),
+            }
+        })
+    }
 }
