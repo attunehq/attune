@@ -17,6 +17,7 @@ serde_json = "1.0.140"
 sha1 = "0.10.6"
 sha2 = "0.10.8"
 sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio", "time", "tls-native-tls"] }
+tabled = "0.20.0"
 tabwriter = "1.4.1"
 time = { version = "0.3.41", features = ["formatting", "serde"] }
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "signal", "tracing"] }
