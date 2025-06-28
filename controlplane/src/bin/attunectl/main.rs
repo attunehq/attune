@@ -5,6 +5,8 @@ use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
+use attune_controlplane::auth;
+
 #[derive(Parser)]
 #[command(name = "attunectl", about = "Attune utilities CLI")]
 struct CLI {
@@ -221,12 +223,12 @@ async fn handle_token(command: TokenCommand, db: PgPool) {
             value,
             secret,
         } => {
-            let encrypted = Sha256::digest(format!("{}{}", secret, value));
+            let hashed_token = auth::hash_token(&secret, &value);
             let token = sqlx::query!(
                 "INSERT INTO attune_tenant_api_token (tenant_id, name, token) VALUES ($1, $2, $3) RETURNING id",
                 tenant_id,
                 name,
-                encrypted.as_slice(),
+                hashed_token,
             )
             .fetch_one(&db)
             .await

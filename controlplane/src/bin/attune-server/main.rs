@@ -9,7 +9,6 @@ use axum::{
     http::{Request, Response, StatusCode},
     routing::{get, post},
 };
-use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 use tokio::signal;
 use tower_http::{
@@ -20,6 +19,8 @@ use tracing::debug;
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
+
+use attune_controlplane::auth;
 
 mod api;
 
@@ -150,10 +151,10 @@ where
                 }
                 Some(token) => token,
             };
-            let expected = Sha256::digest(format!("{}{}", &secret, token));
+            let expected = auth::hash_token(&secret, &token);
             let actual = sqlx::query!(
                 "SELECT id FROM attune_tenant_api_token WHERE token = $1",
-                expected.as_slice(),
+                expected,
             )
             .fetch_optional(&db)
             .await
