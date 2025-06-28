@@ -1,23 +1,6 @@
-use std::pin::Pin;
-
-use aws_sdk_s3::config::BehaviorVersion;
-use axum::{
-    Router,
-    body::Body,
-    extract::DefaultBodyLimit,
-    handler::Handler,
-    http::{Request, Response, StatusCode},
-    routing::{get, post},
-};
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
-use tokio::signal;
-use tower_http::{
-    auth::{AsyncAuthorizeRequest, AsyncRequireAuthorizationLayer},
-    trace::TraceLayer,
-};
-use tracing::debug;
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
@@ -31,8 +14,69 @@ struct CLI {
 
 #[derive(Subcommand)]
 enum Command {
-    AddTenant,
-    AddToken,
+    #[command(name = "tenant", about = "Manage tenants")]
+    Tenant(TenantCommand),
+    #[command(name = "token", about = "Manage API tokens")]
+    Token(TokenCommand),
+}
+
+#[derive(Args)]
+struct TenantCommand {
+    #[command(subcommand)]
+    subcommand: TenantSubcommand,
+}
+
+#[derive(Subcommand)]
+enum TenantSubcommand {
+    #[command(name = "add", about = "Add a new tenant")]
+    Add {
+        #[arg(short = 'd', long, help = "Display name for the tenant")]
+        display_name: String,
+        #[arg(short = 'u', long, help = "Subdomain for the tenant")]
+        subdomain: String,
+        #[arg(
+            short = 's',
+            help = "S3 prefix for the tenant (default: SHA-256 hash of subdomain)"
+        )]
+        s3_prefix: Option<String>,
+    },
+    #[command(name = "list", alias = "ls", about = "List all tenants")]
+    List,
+    #[command(name = "edit", about = "Edit a tenant")]
+    Edit {
+        #[arg(short = 't', long, help = "ID of tenant to edit")]
+        tenant_id: i64,
+        #[arg(short = 'd', long, help = "New display name for the tenant")]
+        display_name: Option<String>,
+        #[arg(short = 'u', long, help = "New subdomain for the tenant")]
+        subdomain: Option<String>,
+        #[arg(short = 's', long, help = "New S3 prefix for the tenant")]
+        s3_prefix: Option<String>,
+    },
+    #[command(name = "remove", alias = "rm", about = "Remove a tenant")]
+    Remove {
+        #[arg(short = 't', long, help = "ID of tenant to remove")]
+        tenant_id: i64,
+    },
+}
+
+#[derive(Args)]
+struct TokenCommand {
+    #[arg(short, long, help = "ID of tenant to manage")]
+    tenant_id: i64,
+
+    #[command(subcommand)]
+    subcommand: TokenSubcommand,
+}
+
+#[derive(Subcommand)]
+enum TokenSubcommand {
+    #[command(name = "add", about = "Add a new API token")]
+    Add,
+    #[command(name = "list", about = "List all API tokens")]
+    List,
+    #[command(name = "remove", about = "Remove an API token")]
+    Remove,
 }
 
 #[tokio::main]
@@ -63,62 +107,102 @@ async fn main() {
         .connect(&db_url)
         .await
         .expect("could not connect to database");
-    // let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-    // let config = aws_sdk_s3::config::Builder::from(&config).build();
-    // debug!(?config, "inferred AWS S3 configuration from environment");
-    // let s3 = aws_sdk_s3::Client::from_conf(config);
-    // let s3_bucket_name =
-    //     std::env::var("ATTUNE_S3_BUCKET_NAME").unwrap_or("attune-dev-0".to_string());
 
-    // // Initialize configuration.
-    // let secret = std::env::var("ATTUNE_SECRET").expect("ATTUNE_SECRET not set");
-    // let tenant_mode =
-    //     std::env::var("ATTUNE_TENANT_MODE").map_or(api::TenantMode::Single, |v| match v.as_str() {
-    //         "single" => api::TenantMode::Single,
-    //         "multi" => api::TenantMode::Multi,
-    //         other => panic!("invalid ATTUNE_TENANT_MODE value: {}", other),
-    //     });
+    // Execute command.
+    match cli.command {
+        Command::Tenant(command) => handle_tenant(command, db).await,
+        Command::Token(command) => handle_token(command, db).await,
+    }
+}
 
-    // // Configure routes.
-    // let api = Router::new()
-    //     .route(
-    //         "/repositories",
-    //         get(api::list_repositories).post(api::create_repository),
-    //     )
-    //     .route("/repositories/{repository_id}", get(api::repository_status))
-    //     .route(
-    //         "/repositories/{repository_id}/indexes",
-    //         get(api::generate_indexes),
-    //     )
-    //     .route(
-    //         "/repositories/{repository_id}/sync",
-    //         post(api::sync_repository),
-    //     )
-    //     .route(
-    //         "/repositories/{repository_id}/packages",
-    //         get(api::list_packages)
-    //             .delete(api::remove_package)
-    //             .post(api::add_package.layer(DefaultBodyLimit::disable())),
-    //     );
-    // let app = Router::new()
-    //     .nest("/api/v0", api)
-    //     .layer(AsyncRequireAuthorizationLayer::new(APIToken {
-    //         secret,
-    //         db: db.clone(),
-    //     }))
-    //     .layer(TraceLayer::new_for_http())
-    //     .with_state(api::ServerState {
-    //         db,
-    //         s3,
-    //         s3_bucket_name,
-    //         tenant_mode,
-    //     });
+async fn handle_tenant(command: TenantCommand, db: PgPool) {
+    match command.subcommand {
+        TenantSubcommand::Add {
+            display_name,
+            s3_prefix,
+            subdomain,
+        } => {
+            let tenant = sqlx::query!(
+                "INSERT INTO attune_tenant (display_name, subdomain, s3_prefix) VALUES ($1, $2, $3) RETURNING id",
+                display_name,
+                subdomain,
+                s3_prefix.unwrap_or(hex::encode(Sha256::digest(&subdomain))),
+            )
+            .fetch_one(&db)
+            .await
+            .expect("could not add tenant");
+            println!("Added tenant with ID {}", tenant.id);
+        }
+        TenantSubcommand::List => {
+            let tenants =
+                sqlx::query!("SELECT id, display_name, subdomain, s3_prefix FROM attune_tenant")
+                    .fetch_all(&db)
+                    .await
+                    .expect("could not list tenants");
+            let mut builder = tabled::builder::Builder::new();
+            builder.push_record([
+                "ID".to_string(),
+                "Display Name".to_string(),
+                "Subdomain".to_string(),
+                "S3 Prefix".to_string(),
+            ]);
+            for tenant in tenants {
+                builder.push_record([
+                    tenant.id.to_string(),
+                    tenant.display_name,
+                    tenant.subdomain,
+                    tenant.s3_prefix,
+                ]);
+            }
+            let table = builder.build();
+            println!("{}", table.to_string());
+        }
+        TenantSubcommand::Edit {
+            tenant_id,
+            display_name,
+            subdomain,
+            s3_prefix,
+        } => {
+            let updated = sqlx::query!(
+                r#"
+                UPDATE attune_tenant
+                SET display_name = COALESCE($2, old_tenant.display_name),
+                    subdomain = COALESCE($3, old_tenant.subdomain),
+                    s3_prefix = COALESCE($4, old_tenant.s3_prefix)
+                FROM (
+                    SELECT display_name,
+                           subdomain,
+                           s3_prefix
+                    FROM attune_tenant
+                    WHERE id = $1
+                ) AS old_tenant
+                WHERE id = $1
+                RETURNING id, attune_tenant.display_name, attune_tenant.subdomain, attune_tenant.s3_prefix
+                "#,
+                tenant_id,
+                display_name,
+                subdomain,
+                s3_prefix,
+            )
+            .fetch_one(&db)
+            .await
+            .expect("could not edit tenant");
+            println!("Edited tenant with ID {} to {:?}", tenant_id, updated);
+        }
+        TenantSubcommand::Remove { tenant_id } => {
+            sqlx::query!("DELETE FROM attune_tenant WHERE id = $1", tenant_id)
+                .execute(&db)
+                .await
+                .expect("could not remove tenant");
+            println!("Removed tenant with ID {}", tenant_id);
+        }
+    }
+}
 
-    // // Start server.
-    // println!("Listening on http://0.0.0.0:3000");
-    // let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    // axum::serve(listener, app)
-    //     .with_graceful_shutdown(shutdown())
-    //     .await
-    //     .unwrap();
+async fn handle_token(command: TokenCommand, db: PgPool) {
+    match command.subcommand {
+        TokenSubcommand::Add => todo!(),
+        TokenSubcommand::List => todo!(),
+        TokenSubcommand::Remove => todo!(),
+    }
 }
