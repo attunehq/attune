@@ -62,7 +62,7 @@ enum TenantSubcommand {
 
 #[derive(Args)]
 struct TokenCommand {
-    #[arg(short, long, help = "ID of tenant to manage")]
+    #[arg(short = 't', long, help = "ID of tenant to manage")]
     tenant_id: i64,
 
     #[command(subcommand)]
@@ -72,11 +72,25 @@ struct TokenCommand {
 #[derive(Subcommand)]
 enum TokenSubcommand {
     #[command(name = "add", about = "Add a new API token")]
-    Add,
-    #[command(name = "list", about = "List all API tokens")]
+    Add {
+        #[arg(short = 'n', long, help = "Name for the API token")]
+        name: String,
+        #[arg(short = 'v', long, help = "Value for the API token")]
+        value: String,
+        #[arg(
+            short = 's',
+            long,
+            help = "Control plane secret (used to encrypt API token for storage)"
+        )]
+        secret: String,
+    },
+    #[command(name = "list", alias = "ls", about = "List all API tokens")]
     List,
-    #[command(name = "remove", about = "Remove an API token")]
-    Remove,
+    #[command(name = "remove", alias = "rm", about = "Remove an API token")]
+    Remove {
+        #[arg(short = 'i', long, help = "ID of API token to remove")]
+        token_id: i64,
+    },
 }
 
 #[tokio::main]
@@ -200,9 +214,50 @@ async fn handle_tenant(command: TenantCommand, db: PgPool) {
 }
 
 async fn handle_token(command: TokenCommand, db: PgPool) {
+    let tenant_id = command.tenant_id;
     match command.subcommand {
-        TokenSubcommand::Add => todo!(),
-        TokenSubcommand::List => todo!(),
-        TokenSubcommand::Remove => todo!(),
+        TokenSubcommand::Add {
+            name,
+            value,
+            secret,
+        } => {
+            let encrypted = Sha256::digest(format!("{}{}", secret, value));
+            let token = sqlx::query!(
+                "INSERT INTO attune_tenant_api_token (tenant_id, name, token) VALUES ($1, $2, $3) RETURNING id",
+                tenant_id,
+                name,
+                encrypted.as_slice(),
+            )
+            .fetch_one(&db)
+            .await
+            .expect("could not add token");
+            println!("Added token with ID {}", token.id);
+        }
+        TokenSubcommand::List => {
+            let tokens = sqlx::query!(
+                "SELECT id, name, token FROM attune_tenant_api_token WHERE tenant_id = $1",
+                tenant_id
+            )
+            .fetch_all(&db)
+            .await
+            .expect("could not list tokens");
+            let mut builder = tabled::builder::Builder::new();
+            builder.push_record(["ID".to_string(), "Name".to_string(), "Value".to_string()]);
+            for token in tokens {
+                builder.push_record([token.id.to_string(), token.name, hex::encode(token.token)]);
+            }
+            let table = builder.build();
+            println!("{}", table.to_string());
+        }
+        TokenSubcommand::Remove { token_id } => {
+            sqlx::query!(
+                "DELETE FROM attune_tenant_api_token WHERE id = $1",
+                token_id
+            )
+            .execute(&db)
+            .await
+            .expect("could not remove token");
+            println!("Removed token with ID {}", token_id);
+        }
     }
 }
