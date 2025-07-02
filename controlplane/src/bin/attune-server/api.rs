@@ -3,9 +3,10 @@ use std::{
     io::Write,
 };
 
+use attune_controlplane::auth::TenantID;
 use axum::{
     Json,
-    extract::{Multipart, Path, Query, State},
+    extract::{FromRef, Multipart, Path, Query, State},
 };
 use debian_packaging::deb::reader::{BinaryPackageEntry, BinaryPackageReader, ControlTarFile};
 use md5::Md5;
@@ -15,21 +16,14 @@ use sha2::{Digest, Sha256};
 use sqlx::types::{JsonValue, time::OffsetDateTime};
 use tabwriter::TabWriter;
 use time::format_description::well_known::Rfc2822;
-use tracing::{Instrument, instrument, debug_span};
+use tracing::{Instrument, debug_span, instrument};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, FromRef)]
 pub struct ServerState {
     pub db: sqlx::PgPool,
     pub s3: aws_sdk_s3::Client,
 
     pub s3_bucket_name: String,
-    pub tenant_mode: TenantMode,
-}
-
-#[derive(Debug, Clone)]
-pub enum TenantMode {
-    Single,
-    Multi,
 }
 
 #[derive(Serialize)]
@@ -55,12 +49,11 @@ pub struct CreateRepositoryRequest {
 #[instrument(skip(state))]
 pub async fn create_repository(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Json(payload): Json<CreateRepositoryRequest>,
 ) -> Json<Repository> {
-    let s3_prefix = match state.tenant_mode {
-        TenantMode::Single => "".to_string(),
-        TenantMode::Multi => hex::encode(Sha256::digest(&payload.uri)),
-    };
+    // FIXME: This should also be a function of the repository owner, right?
+    let s3_prefix = hex::encode(Sha256::digest(&payload.uri));
     let created = sqlx::query!(
         r#"
         INSERT INTO debian_repository (
@@ -101,7 +94,10 @@ pub async fn create_repository(
 
 #[axum::debug_handler]
 #[instrument(skip(state))]
-pub async fn list_repositories(State(state): State<ServerState>) -> Json<Vec<Repository>> {
+pub async fn list_repositories(
+    State(state): State<ServerState>,
+    tenant_id: TenantID,
+) -> Json<Vec<Repository>> {
     let repositories = sqlx::query!("SELECT id, uri, distribution FROM debian_repository")
         .fetch_all(&state.db)
         .await
@@ -139,6 +135,7 @@ pub struct RepositoryChange {
 #[instrument(skip(state))]
 pub async fn repository_status(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
 ) -> Json<RepositoryStatus> {
     let changes = sqlx::query!(
@@ -185,6 +182,7 @@ pub struct RepositoryIndexes {
 #[instrument(skip(state))]
 pub async fn generate_indexes(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
 ) -> Json<RepositoryIndexes> {
     // TODO: Do some optimization to check for staleness to avoid regenerating
@@ -327,19 +325,17 @@ pub async fn generate_indexes(
         .unwrap();
 
         // Upload index to staging.
-        let key = format!(
-            "staging/dists/{}/{}/binary-{}/Packages",
-            repo.distribution, package_index.component, package_index.architecture
-        );
         state
             .s3
             .put_object()
             .bucket(&repo.s3_bucket)
-            .key(if repo.s3_prefix.is_empty() {
-                key
-            } else {
-                format!("{}/{}", repo.s3_prefix, key)
-            })
+            .key(format!(
+                "{}/staging/dists/{}/{}/binary-{}/Packages",
+                repo.s3_prefix,
+                repo.distribution,
+                package_index.component,
+                package_index.architecture
+            ))
             .body(axum::body::Bytes::from_owner(index).into())
             .send()
             .await
@@ -474,17 +470,14 @@ pub async fn generate_indexes(
     .unwrap();
 
     // Upload index to staging.
-    let key = format!("staging/dists/{}/Release", repo.distribution);
-
     state
         .s3
         .put_object()
         .bucket(&repo.s3_bucket)
-        .key(if repo.s3_prefix.is_empty() {
-            key
-        } else {
-            format!("{}/{}", repo.s3_prefix, key)
-        })
+        .key(format!(
+            "{}/staging/dists/{}/Release",
+            repo.s3_prefix, repo.distribution
+        ))
         .body(axum::body::Bytes::from_owner(release_index.clone()).into())
         .send()
         .await
@@ -508,6 +501,7 @@ pub struct SyncRepositoryRequest {
 #[instrument(skip(state))]
 pub async fn sync_repository(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
     Json(payload): Json<SyncRepositoryRequest>,
 ) -> () {
@@ -560,24 +554,15 @@ pub async fn sync_repository(
     .await
     .unwrap();
     for added in added_packages {
-        let source_key = if repo.s3_prefix.is_empty() {
-            format!("{}/staging/{}", repo.s3_bucket, added.filename)
-        } else {
-            format!(
-                "{}/{}/staging/{}",
-                repo.s3_bucket, repo.s3_prefix, added.filename
-            )
-        };
         state
             .s3
             .copy_object()
-            .copy_source(source_key)
+            .copy_source(format!(
+                "{}/{}/staging/{}",
+                repo.s3_bucket, repo.s3_prefix, added.filename
+            ))
             .bucket(&repo.s3_bucket)
-            .key(if repo.s3_prefix.is_empty() {
-                added.filename
-            } else {
-                format!("{}/{}", repo.s3_prefix, added.filename)
-            })
+            .key(format!("{}/{}", repo.s3_prefix, added.filename))
             .send()
             .await
             .unwrap();
@@ -602,81 +587,62 @@ pub async fn sync_repository(
     .await
     .unwrap();
     for index in package_indexes {
-        let source_key = if repo.s3_prefix.is_empty() {
-            format!(
-                "{}/staging/dists/{}/{}/binary-{}/Packages",
-                repo.s3_bucket, repo.distribution, index.component, index.architecture
-            )
-        } else {
-            format!(
+        state
+            .s3
+            .copy_object()
+            .copy_source(format!(
                 "{}/{}/staging/dists/{}/{}/binary-{}/Packages",
                 repo.s3_bucket,
                 repo.s3_prefix,
                 repo.distribution,
                 index.component,
                 index.architecture
-            )
-        };
-        let key = format!(
-            "dists/{}/{}/binary-{}/Packages",
-            repo.distribution, index.component, index.architecture
-        );
-        state
-            .s3
-            .copy_object()
-            .copy_source(source_key)
+            ))
             .bucket(&repo.s3_bucket)
-            .key(if repo.s3_prefix.is_empty() {
-                key
-            } else {
-                format!("{}/{}", repo.s3_prefix, key)
-            })
+            .key(format!(
+                "{}/dists/{}/{}/binary-{}/Packages",
+                repo.s3_prefix, repo.distribution, index.component, index.architecture
+            ))
             .send()
             .await
             .unwrap();
     }
 
     // Save release indexes.
-    let key = format!("dists/{}/Release", repo.distribution);
     state
         .s3
         .put_object()
         .bucket(&repo.s3_bucket)
-        .key(if repo.s3_prefix.is_empty() {
-            key
-        } else {
-            format!("{}/{}", repo.s3_prefix, key)
-        })
+        .key(format!(
+            "{}/dists/{}/Release",
+            repo.s3_prefix, repo.distribution
+        ))
         .body(axum::body::Bytes::from_owner(release_index.contents).into())
         .send()
         .await
         .unwrap();
 
-    let key = format!("dists/{}/Release.gpg", repo.distribution);
     state
         .s3
         .put_object()
         .bucket(&repo.s3_bucket)
-        .key(if repo.s3_prefix.is_empty() {
-            key
-        } else {
-            format!("{}/{}", repo.s3_prefix, key)
-        })
+        .key(format!(
+            "{}/dists/{}/Release.gpg",
+            repo.s3_prefix, repo.distribution
+        ))
         .body(axum::body::Bytes::from_owner(payload.detached).into())
         .send()
         .await
         .unwrap();
 
-    let key = format!("dists/{}/InRelease", repo.distribution);
     state
         .s3
         .put_object()
         .bucket(&repo.s3_bucket)
-        .key(if repo.s3_prefix.is_empty() {
-            key
-        } else {
-            format!("{}/{}", repo.s3_prefix, key)
-        })
+        .key(format!(
+            "{}/dists/{}/InRelease",
+            repo.s3_prefix, repo.distribution
+        ))
         .body(axum::body::Bytes::from_owner(payload.clearsigned).into())
         .send()
         .await
@@ -711,6 +677,7 @@ pub struct Package {
 #[instrument(skip(state, multipart))]
 pub async fn add_package(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
     Query(params): Query<HashMap<String, String>>,
     mut multipart: Multipart,
@@ -788,7 +755,6 @@ pub async fn add_package(
     );
 
     let span = debug_span!("upload_to_pool");
-    let key = format!("staging/{pool_filename}");
     async {
         let repo = sqlx::query!(
             "SELECT s3_bucket, s3_prefix FROM debian_repository WHERE id = $1",
@@ -802,11 +768,7 @@ pub async fn add_package(
             .s3
             .put_object()
             .bucket(&repo.s3_bucket)
-            .key(if repo.s3_prefix.is_empty() {
-                key
-            } else {
-                format!("{}/{}", repo.s3_prefix, key)
-            })
+            .key(format!("{}/staging/{pool_filename}", repo.s3_prefix))
             .body(value.into())
             .send()
             .await
