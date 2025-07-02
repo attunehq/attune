@@ -3,6 +3,7 @@ use std::{
     io::Write,
 };
 
+use attune_controlplane::auth::TenantID;
 use axum::{
     Json,
     extract::{FromRef, Multipart, Path, Query, State},
@@ -92,7 +93,10 @@ pub async fn create_repository(
 
 #[axum::debug_handler]
 #[instrument(skip(state))]
-pub async fn list_repositories(State(state): State<ServerState>) -> Json<Vec<Repository>> {
+pub async fn list_repositories(
+    State(state): State<ServerState>,
+    tenant_id: TenantID,
+) -> Json<Vec<Repository>> {
     let repositories = sqlx::query!("SELECT id, uri, distribution FROM debian_repository")
         .fetch_all(&state.db)
         .await

@@ -9,6 +9,7 @@ use sqlx::PgPool;
 
 /// An unvalidated bearer API token parsed from a request's `Authorization`
 /// header.
+#[derive(Debug, Clone)]
 pub struct TenantID(pub i64);
 
 fn parse_api_token(header: &axum::http::header::HeaderMap) -> Result<&str, &'static str> {
@@ -49,7 +50,15 @@ where
         )
         .fetch_optional(&db)
         .await
-        .map_err(|_err| (axum::http::StatusCode::UNAUTHORIZED, "Invalid API token"))?;
-        Ok(TenantID(tenant_id.unwrap().id))
+        .map_err(|_err| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not validate API token",
+            )
+        })?;
+        match tenant_id {
+            Some(tenant_id) => Ok(TenantID(tenant_id.id)),
+            None => Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid API token")),
+        }
     }
 }
