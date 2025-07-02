@@ -49,6 +49,7 @@ pub struct CreateRepositoryRequest {
 #[instrument(skip(state))]
 pub async fn create_repository(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Json(payload): Json<CreateRepositoryRequest>,
 ) -> Json<Repository> {
     // FIXME: This should also be a function of the repository owner, right?
@@ -134,6 +135,7 @@ pub struct RepositoryChange {
 #[instrument(skip(state))]
 pub async fn repository_status(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
 ) -> Json<RepositoryStatus> {
     let changes = sqlx::query!(
@@ -180,6 +182,7 @@ pub struct RepositoryIndexes {
 #[instrument(skip(state))]
 pub async fn generate_indexes(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
 ) -> Json<RepositoryIndexes> {
     // TODO: Do some optimization to check for staleness to avoid regenerating
@@ -498,6 +501,7 @@ pub struct SyncRepositoryRequest {
 #[instrument(skip(state))]
 pub async fn sync_repository(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
     Json(payload): Json<SyncRepositoryRequest>,
 ) -> () {
@@ -673,6 +677,7 @@ pub struct Package {
 #[instrument(skip(state, multipart))]
 pub async fn add_package(
     State(state): State<ServerState>,
+    tenant_id: TenantID,
     Path(repository_id): Path<u64>,
     Query(params): Query<HashMap<String, String>>,
     mut multipart: Multipart,
