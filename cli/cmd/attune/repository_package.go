@@ -25,7 +25,7 @@ func repoPkgCmd() *cobra.Command {
 	createPkgsCmd.Flags().StringP("component", "c", "", "Component to add the package to")
 	createPkgsCmd.MarkFlagRequired("component")
 
-	cmd.AddCommand(createPkgsCmd)
+	cmd.AddCommand(createPkgsCmd, listPkgsCmd)
 	return cmd
 }
 
@@ -34,6 +34,7 @@ type PackageResponse struct {
 	Package      string
 	Version      string
 	Architecture string
+	Component    string
 }
 
 var createPkgsCmd = &cobra.Command{
@@ -138,8 +139,60 @@ var createPkgsCmd = &cobra.Command{
 
 		fmt.Println("Added new package:")
 		tw := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
-		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\n")
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture)
+		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\tComponent\n")
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture, pkg.Component)
+		tw.Flush()
+	},
+}
+
+var listPkgsCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List packages in a repository",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Read flags.
+		repoID, err := cmd.Parent().Flags().GetInt("repo-id")
+		if err != nil {
+			fmt.Printf("could not read --repo-id: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Make API request to list packages
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v0/repositories/%d/packages", repoID), nil)
+		if err != nil {
+			fmt.Printf("could not create request to list packages: %s\n", err)
+			os.Exit(1)
+		}
+		res, err := API(req)
+		if err != nil {
+			fmt.Printf("could not list packages: %s\n", err)
+			os.Exit(1)
+		}
+		defer res.Body.Close()
+
+		// Check response.
+		if res.StatusCode != http.StatusOK {
+			fmt.Printf("could not list packages: %s\n", res.Status)
+			os.Exit(1)
+		}
+
+		var packages []PackageResponse
+		if err := json.NewDecoder(res.Body).Decode(&packages); err != nil {
+			fmt.Printf("could not decode packages: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Display packages in a table.
+		if len(packages) == 0 {
+			fmt.Println("No packages found in repository")
+			return
+		}
+
+		fmt.Println("Packages in repository:")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\tComponent\n")
+		for _, pkg := range packages {
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture, pkg.Component)
+		}
 		tw.Flush()
 	},
 }

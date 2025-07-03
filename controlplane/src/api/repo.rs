@@ -181,6 +181,7 @@ pub async fn list(State(state): State<ServerState>, tenant_id: TenantID) -> Json
             FROM debian_repository
                 JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id
             WHERE tenant_id = $1
+            ORDER BY debian_repository_release.id ASC
         "#,
         tenant_id.0,
     )

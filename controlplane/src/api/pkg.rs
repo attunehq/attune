@@ -20,6 +20,7 @@ pub struct Package {
     package: String,
     version: String,
     architecture: String,
+    component: String,
 }
 
 #[axum::debug_handler]
@@ -297,13 +298,48 @@ pub async fn add(
         package: package_name.to_string(),
         version,
         architecture: architecture.to_string(),
+        component,
     }))
 }
 
 #[axum::debug_handler]
-#[instrument]
-pub async fn list() -> Json<Vec<Package>> {
-    todo!()
+#[instrument(skip(state))]
+pub async fn list(
+    State(state): State<ServerState>,
+    tenant_id: TenantID,
+    Path(release_id): Path<u64>,
+) -> Result<Json<Vec<Package>>, (axum::http::StatusCode, &'static str)> {
+    auth::tenant_owns_release(&state.db, tenant_id, release_id).await?;
+
+    let packages = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_package.id,
+            debian_repository_package.package,
+            debian_repository_package.version,
+            debian_repository_package.architecture::TEXT AS "architecture!: String",
+            debian_repository_component.name AS component
+        FROM
+            debian_repository_release
+            JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
+            JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id
+        WHERE debian_repository_release.id = $1
+        ORDER BY debian_repository_package.id ASC
+        "#,
+        release_id as i64,
+    )
+    .map(|row| Package {
+        id: row.id,
+        package: row.package,
+        version: row.version,
+        architecture: row.architecture,
+        component: row.component,
+    })
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+
+    Ok(Json(packages))
 }
 
 #[axum::debug_handler]
