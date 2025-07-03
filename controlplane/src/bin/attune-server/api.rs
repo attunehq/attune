@@ -98,7 +98,7 @@ pub async fn list_repositories(
     State(state): State<ServerState>,
     tenant_id: TenantID,
 ) -> Json<Vec<Repository>> {
-    let repositories = sqlx::query!("SELECT id, uri, distribution FROM debian_repository")
+    let repositories = sqlx::query!("SELECT id, uri, distribution FROM debian_repository ORDER BY id ASC")
         .fetch_all(&state.db)
         .await
         .unwrap();
@@ -671,6 +671,7 @@ pub struct Package {
     package: String,
     version: String,
     architecture: String,
+    component: String,
 }
 
 #[axum::debug_handler]
@@ -910,13 +911,44 @@ pub async fn add_package(
         package: package_name.to_string(),
         version,
         architecture: architecture.to_string(),
+        component,
     })
 }
 
 #[axum::debug_handler]
-#[instrument]
-pub async fn list_packages() -> Json<Vec<Package>> {
-    todo!()
+#[instrument(skip(state))]
+pub async fn list_packages(
+    State(state): State<ServerState>,
+    Path(repository_id): Path<u64>,
+) -> Json<Vec<Package>> {
+    let packages = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_package.id,
+            debian_repository_package.package,
+            debian_repository_package.version,
+            debian_repository_architecture.name AS architecture,
+            debian_repository_component.name AS component
+        FROM debian_repository_package
+        JOIN debian_repository_architecture ON debian_repository_architecture.id = debian_repository_package.architecture_id
+        JOIN debian_repository_component ON debian_repository_component.id = debian_repository_package.component_id
+        WHERE debian_repository_package.repository_id = $1
+        ORDER BY debian_repository_package.id ASC
+        "#,
+        repository_id as i64,
+    )
+    .map(|row| Package {
+        id: row.id,
+        package: row.package,
+        version: row.version,
+        architecture: row.architecture,
+        component: row.component,
+    })
+    .fetch_all(&state.db)
+    .await
+    .unwrap();
+
+    Json(packages)
 }
 
 #[axum::debug_handler]
