@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT attune_tenant.id\n            FROM attune_tenant\n                JOIN attune_tenant_api_token ON attune_tenant_api_token.tenant_id = attune_tenant.id\n            WHERE attune_tenant_api_token.token = $1;\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f79b8659141e52d090c87126496b87ccff50a9aae5baa7827146113710cb8532"
+}

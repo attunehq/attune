@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE debian_repository_release\n        SET\n            description = $1,\n            origin = $2,\n            label = $3,\n            version = $4,\n            suite = $5,\n            codename = $6,\n            contents = $7,\n            updated_at = $8\n        WHERE id = $9\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dfea03e76caa8ae17a12851093f1a2869f9184eb0e8ed0bd9900d6c0db3f8637"
+}

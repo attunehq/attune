@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    debian_repository.s3_bucket,\n                    debian_repository.s3_prefix\n                FROM debian_repository\n                    JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n                WHERE debian_repository_release.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "s3_bucket",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "s3_prefix",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "35dd7e8acf6c98ddfe4fcd8907a8a7814facc9741154c53ced5f5c0aa3862419"
+}

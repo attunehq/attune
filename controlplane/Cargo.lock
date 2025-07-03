@@ -429,6 +429,7 @@ dependencies = [
  "debian-packaging",
  "hex",
  "md-5 0.10.6",
+ "percent-encoding",
  "serde",
  "serde_json",
  "sha1",

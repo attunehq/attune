@@ -12,8 +12,6 @@ use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
-mod api;
-
 #[tokio::main]
 async fn main() {
     // Initialize tracing.
@@ -50,27 +48,27 @@ async fn main() {
     let api = Router::new()
         .route(
             "/repositories",
-            get(api::list_repositories).post(api::create_repository),
+            get(attune_controlplane::api::repo::list).post(attune_controlplane::api::repo::create),
         )
-        .route("/repositories/{repository_id}", get(api::repository_status))
+        .route("/repositories/{repository_id}", get(attune_controlplane::api::repo::status))
         .route(
             "/repositories/{repository_id}/indexes",
-            get(api::generate_indexes),
+            get(attune_controlplane::api::sign::generate_indexes),
         )
         .route(
             "/repositories/{repository_id}/sync",
-            post(api::sync_repository),
+            post(attune_controlplane::api::sign::sync_repository),
         )
         .route(
             "/repositories/{repository_id}/packages",
-            get(api::list_packages)
-                .delete(api::remove_package)
-                .post(api::add_package.layer(DefaultBodyLimit::disable())),
+            get(attune_controlplane::api::pkg::list)
+                .delete(attune_controlplane::api::pkg::remove)
+                .post(attune_controlplane::api::pkg::add.layer(DefaultBodyLimit::disable())),
         );
     let app = Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())
-        .with_state(api::ServerState {
+        .with_state(attune_controlplane::api::ServerState {
             db,
             s3,
             s3_bucket_name,

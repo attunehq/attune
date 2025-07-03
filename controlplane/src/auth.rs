@@ -7,8 +7,7 @@ use axum::{
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 
-/// An unvalidated bearer API token parsed from a request's `Authorization`
-/// header.
+/// An extractor for tenants authenticated via API token.
 #[derive(Debug, Clone)]
 pub struct TenantID(pub i64);
 
@@ -61,4 +60,34 @@ where
             None => Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid API token")),
         }
     }
+}
+
+/// Returns an Error if the tenant does not own the release.
+pub async fn tenant_owns_release(
+    db: &PgPool,
+    tenant_id: TenantID,
+    release_id: u64,
+) -> Result<(), (axum::http::StatusCode, &'static str)> {
+    let release = sqlx::query!(
+        r#"
+            SELECT
+                debian_repository_release.id,
+                debian_repository.tenant_id
+            FROM debian_repository
+                JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id
+            WHERE debian_repository_release.id = $1
+        "#,
+        release_id as i64,
+    )
+    .fetch_optional(db)
+    .await
+    .unwrap();
+    if let Some(release) = release {
+        if release.tenant_id != tenant_id.0 {
+            return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found"));
+        }
+    } else {
+        return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found"));
+    }
+    Ok(())
 }
