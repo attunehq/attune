@@ -103,28 +103,31 @@ pub async fn generate_indexes(
         .await
         .unwrap();
 
-        let index = pkgs.into_iter().fold(String::new(), |acc_index, mut pkg| {
-            let fields = pkg
-                .paragraph
-                .as_object_mut()
-                .unwrap()
-                .into_iter()
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
-                .chain(
-                    vec![
-                        ("Filename".to_string(), pkg.filename),
-                        ("Size".to_string(), pkg.size.to_string()),
-                        ("MD5sum".to_string(), pkg.md5sum),
-                        ("SHA1".to_string(), pkg.sha1sum),
-                        ("SHA256".to_string(), pkg.sha256sum),
-                    ]
-                    .into_iter(),
-                )
-                .fold(String::new(), |acc_fields, (k, v)| {
-                    acc_fields + &k + ": " + &v + "\n"
-                });
-            acc_index + &fields + "\n"
-        });
+        let index = {
+            let mut index = pkgs
+            .into_iter()
+            .map(|mut pkg| {
+                let fields = pkg
+                    .paragraph
+                    .as_object_mut()
+                    .unwrap()
+                    .into_iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.as_str().unwrap()))
+                    .chain(vec![
+                        format!("Filename: {}", pkg.filename),
+                        format!("Size: {}", pkg.size.to_string()),
+                        format!("MD5sum: {}", pkg.md5sum),
+                        format!("SHA1: {}", pkg.sha1sum),
+                        format!("SHA256: {}", pkg.sha256sum),
+                    ])
+                    .collect::<Vec<String>>();
+                fields.join("\n")
+            })
+            .collect::<Vec<String>>()
+            .join("\n\n");
+            index.push('\n');
+            index
+        };
 
         // Compute hashes.
         let sha256sum = hex::encode(Sha256::digest(&index));

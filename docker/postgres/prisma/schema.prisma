@@ -39,7 +39,7 @@ model AttuneTenantAPIToken {
   // unnecessary, since we control the generation of API tokens, and we choose
   // to generate long, random, and unique tokens (that are therefore resistant
   // to rainbow table attacks).
-  token Bytes @unique
+  token Bytes  @unique
 
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
@@ -80,7 +80,7 @@ model DebianRepository {
 // - https://wiki.debian.org/DebianRepository/Format#A.22Release.22_files
 model DebianRepositoryRelease {
   id            BigInt           @id @default(autoincrement())
-  repository_id BigInt           @unique
+  repository_id BigInt
   repository    DebianRepository @relation(fields: [repository_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
 
   // Releases have a primary name, called the "distribution". This defines their

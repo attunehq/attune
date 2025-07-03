@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{api::ServerState, auth};
 use crate::auth::TenantID;
+use crate::{api::ServerState, auth};
 use axum::{
     Json,
     extract::{Multipart, Path, Query, State},
@@ -50,7 +50,10 @@ pub async fn add(
         .expect("expected a file");
     let name = field.name().unwrap().to_string();
     if name != "file" {
-        panic!("unexpected field name: expected \"file\", got {}", name);
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            "unexpected field named \"file\"",
+        ));
     }
 
     // TODO: Is there a way to implement this function body with streaming
@@ -152,7 +155,10 @@ pub async fn add(
         //
         // TODO: When we start serializing publishes, will we need to edit this?
         let mut tx = state.db.begin().await.unwrap();
-        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *tx).await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
 
         // Find or create the release component.
         let component_row = sqlx::query!(
@@ -269,9 +275,15 @@ pub async fn add(
             paragraph,
             control_file.depends().map(|d| d.unwrap().to_string()),
             control_file.recommends().map(|d| d.unwrap().to_string()),
-            control_file.field_dependency_list("conflicts").map(|d| d.unwrap().to_string()),
-            control_file.field_dependency_list("provides").map(|d| d.unwrap().to_string()),
-            control_file.field_dependency_list("replaces").map(|d| d.unwrap().to_string()),
+            control_file
+                .field_dependency_list("conflicts")
+                .map(|d| d.unwrap().to_string()),
+            control_file
+                .field_dependency_list("provides")
+                .map(|d| d.unwrap().to_string()),
+            control_file
+                .field_dependency_list("replaces")
+                .map(|d| d.unwrap().to_string()),
             &pool_filename,
             size,
             md5sum,
