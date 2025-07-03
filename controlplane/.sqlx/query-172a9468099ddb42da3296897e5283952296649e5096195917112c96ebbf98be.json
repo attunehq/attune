@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT DISTINCT\n            debian_repository_package.component_id,\n            debian_repository_component.name AS component,\n            debian_repository_package.architecture::TEXT AS \"architecture!: String\"\n        FROM debian_repository_release\n        JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n        JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id\n        WHERE debian_repository_release.id = $1\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "component_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "component",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "172a9468099ddb42da3296897e5283952296649e5096195917112c96ebbf98be"
+}

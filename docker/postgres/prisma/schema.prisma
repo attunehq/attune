@@ -1,0 +1,292 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A tenant of the Attune platform. This is generally an organization account.
+model AttuneTenant {
+  id BigInt @id @default(autoincrement())
+
+  // This is just for human readability purposes.
+  display_name String
+
+  // The managed cloud subdomain for this tenant (i.e. their repositories that
+  // don't use custom domains will be hosted at `*.<subdomain>.attunehq.com`).
+  subdomain String @unique
+
+  api_tokens AttuneTenantAPIToken[]
+
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @updatedAt @db.Timestamptz(6)
+  DebianRepository DebianRepository[]
+
+  @@map("attune_tenant")
+}
+
+// An API token provisioned for an Attune tenant.
+model AttuneTenantAPIToken {
+  id        BigInt       @id @default(autoincrement())
+  tenant_id BigInt
+  tenant    AttuneTenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // This is just for human readability purposes.
+  name  String
+  // This is the SHA-256 hash of the API token. Salting this hash is
+  // unnecessary, since we control the generation of API tokens, and we choose
+  // to generate long, random, and unique tokens (that are therefore resistant
+  // to rainbow table attacks).
+  token Bytes  @unique
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("attune_tenant_api_token")
+}
+
+// A Debian package repository.
+//
+// For more details, see:
+// - https://wiki.debian.org/DebianRepository
+// - https://wiki.debian.org/DebianRepository/Format
+model DebianRepository {
+  id        BigInt       @id @default(autoincrement())
+  tenant_id BigInt
+  tenant    AttuneTenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // For managed cloud deployments, this is the URI at which the data plane will
+  // serve the repository.
+  uri String @unique
+
+  // Every release in a repository is stored in the same S3 folder.
+  s3_bucket String
+  s3_prefix String
+
+  releases DebianRepositoryRelease[]
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("debian_repository")
+}
+
+// A package repository contains many releases. Each release contains packages
+// prepared for a specific version of Debian.
+//
+// For more details, see:
+// - https://wiki.debian.org/DebianRepository/Format#A.22Release.22_files
+model DebianRepositoryRelease {
+  id            BigInt           @id @default(autoincrement())
+  repository_id BigInt
+  repository    DebianRepository @relation(fields: [repository_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+
+  // Releases have a primary name, called the "distribution". This defines their
+  // URL path under `/dists` within the repository.
+  //
+  // Generally, this should either be the `suite` (e.g. `stable`) or `codename`
+  // (e.g. `bullseye`) of a release.
+  //
+  // See https://wiki.debian.org/DebianRepository/Format#Overview:~:text=The%20distribution%20part,this%20enforced%20anyhow%3F
+  distribution String
+
+  // Metadata for generating the Release file. Note that these fields track the
+  // _working_ state of the release, not the currently published release.
+  description String?
+  origin      String?
+  label       String?
+  version     String?
+  // Technically, one or the other of `suite` or `codename` must be set. We
+  // require both for simplicity.
+  suite       String
+  codename    String
+
+  // The contents of the `Release` file. Similarly, these track the working
+  // state and not the currently published values.
+  contents    String
+  clearsigned String?
+  detached    String?
+
+  // TODO: Would it be useful to track things like `last_generated_at` for the
+  // sake of index generation optimization?
+
+  // Each release's contents are divided into multiple components.
+  components DebianRepositoryComponent[]
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  // Each repository can only have one release with a given distribution.
+  @@unique([repository_id, distribution])
+  @@map("debian_repository_release")
+}
+
+// TODO: Add a set of tables that tracks published releases? That way we can
+// diff between them and revert if necessary.
+
+// Each release is divided into components, each of which has its own
+// architecture-specific indexes.
+model DebianRepositoryComponent {
+  id         BigInt                  @id @default(autoincrement())
+  release_id BigInt
+  release    DebianRepositoryRelease @relation(fields: [release_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+
+  name String
+
+  packages         DebianRepositoryPackage[]
+  packages_indexes DebianRepositoryPackagesIndex[]
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  // Each release can only have one component with a given name.
+  @@unique([release_id, name])
+  @@map("debian_repository_component")
+}
+
+// Each component contains individual Debian packages.
+model DebianRepositoryPackage {
+  id           BigInt                       @id @default(autoincrement())
+  // TODO: For now, when the same package is uploaded to two different
+  // components, it's counted as two different packages with different filenames
+  // (using the standard pool format). Is there a way we can avoid
+  // double-storing these packages e.g. using `Filename: ` in the Packages
+  // index?
+  component_id BigInt
+  component    DebianRepositoryComponent    @relation(fields: [component_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+  architecture DebianRepositoryArchitecture
+
+  // If set, this package is being newly added or removed in the next publish.
+  staging_status DebianRepositoryPackageStagingStatus?
+
+  // For a list of available fields, see:
+  // 1. https://wiki.debian.org/DebianRepository/Format#A.22Packages.22_Indices
+  // 2. https://www.debian.org/doc/debian-policy/ch-controlfields.html#debian-binary-package-control-files-debian-control
+  package        String
+  version        String
+  priority       String?
+  section        String?
+  installed_size BigInt?
+  maintainer     String
+  description    String
+  homepage       String?
+
+  // Free-form { [key: string]: string } containing all control file fields.
+  // This encapsulates the presences of extra fields sometimes, like `License`
+  // or `Vendor`.
+  paragraph Json
+
+  depends    String?
+  recommends String?
+  conflicts  String?
+  provides   String?
+  replaces   String?
+
+  filename  String
+  size      BigInt
+  md5sum    String
+  sha1sum   String
+  sha256sum String
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  // Within the same component, releases do not contain duplicate packages
+  // with the same (name, version, arch). See:
+  // https://wiki.debian.org/DebianRepository/Format#Duplicate_Packages
+  @@unique([component_id, package, version, architecture])
+  @@map("debian_repository_package")
+}
+
+// For a list of architectures, see:
+// - https://wiki.debian.org/SupportedArchitectures
+enum DebianRepositoryArchitecture {
+  amd64
+  arm64
+  armel
+  armhf
+  i386
+  ppc64el
+  riscv64
+  s390x
+  alpha
+  arm
+  avr32
+  hppa
+  hurd_i386      @map("hurd-i386")
+  hurd_amd64     @map("hurd-amd64")
+  ia64
+  kfreebsd_amd64 @map("kfreebsd-amd64")
+  kfreebsd_i386  @map("kfreebsd-i386")
+  loong64
+  m32
+  m68k
+  mips
+  mipsel
+  mips64el
+  netbsd_i386    @map("netbsd-i386")
+  netbsd_alpha   @map("netbsd-alpha")
+  or1k
+  powerpc
+  powerpcspe
+  ppc64
+  s390
+  sparc
+  sparc64
+  sh4
+  x32
+
+  @@map("debian_repository_architecture")
+}
+
+// Changes to be resolved during the next publish.
+enum DebianRepositoryPackageStagingStatus {
+  add
+  remove
+
+  @@map("debian_repository_package_staging_status")
+}
+
+// Different types of compression supported by Debian repository indexes. Each
+// instance of an index file (i.e. with the same contents, but a different
+// compression scheme) is saved in the database as a separate index, because we
+// need to know its checksums to generate a release file.
+//
+// For more details, see:
+// - https://wiki.debian.org/DebianRepository/Format#Compression_of_indices
+enum DebianRepositoryIndexCompression {
+  xz
+  gz
+  bz2
+  lzma
+
+  @@map("debian_repository_index_compression")
+}
+
+// A Packages index file. This table tracks the _working_ state of indexes, and
+// may not necessarily contain the data of the indexes currently published.
+//
+// For more details, see:
+// - https://wiki.debian.org/DebianRepository/Format#A.22Packages.22_Indices
+model DebianRepositoryPackagesIndex {
+  id           BigInt                       @id @default(autoincrement())
+  component_id BigInt
+  component    DebianRepositoryComponent    @relation(fields: [component_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+  architecture DebianRepositoryArchitecture
+
+  compression DebianRepositoryIndexCompression?
+  size        BigInt
+  contents    Bytes
+  md5sum      String
+  sha1sum     String
+  sha256sum   String
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  // Packages indexes are uniquely identified by (component, arch).
+  @@unique([component_id, architecture])
+  @@map("debian_repository_index_packages")
+}

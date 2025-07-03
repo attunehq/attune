@@ -92,10 +92,9 @@ async fn handle_init(db: PgPool) {
         }
         None => {
             sqlx::query!(
-                "INSERT INTO attune_tenant (display_name, subdomain, s3_prefix) VALUES ($1, $2, $3) RETURNING id",
+                "INSERT INTO attune_tenant (display_name, subdomain, updated_at) VALUES ($1, $2, NOW()) RETURNING id",
                 "local",
                 "",
-                "attune",
             )
             .fetch_one(&db)
             .await
@@ -106,29 +105,42 @@ async fn handle_init(db: PgPool) {
 }
 
 async fn handle_token(command: TokenCommand, db: PgPool) {
+    let local_tenant = sqlx::query!("SELECT id FROM attune_tenant LIMIT 1")
+        .fetch_one(&db)
+        .await
+        .expect("could not find local tenant");
     match command.subcommand {
         TokenSubcommand::Add { name, value } => {
             let token = sqlx::query!(
-                "INSERT INTO attune_tenant_api_token (tenant_id, name, token) VALUES ($1, $2, $3) RETURNING id",
-                1,
+                "INSERT INTO attune_tenant_api_token (tenant_id, name, token, updated_at) VALUES ($1, $2, $3, NOW()) RETURNING id",
+                local_tenant.id,
                 name,
                 Sha256::digest(value).as_slice().to_vec(),
             )
             .fetch_one(&db)
-            .await
-            .expect("could not add token");
-            println!("Added token with ID {}", token.id);
+            .await;
+            match token {
+                Ok(token) => println!("Added token with ID {}", token.id),
+                Err(e) => println!(
+                    "Could not add token. Maybe you need to run `attunectl init`?\n\nDetails: {}",
+                    e
+                ),
+            }
         }
         TokenSubcommand::List => {
             let tokens = sqlx::query!(
                 "SELECT id, name, token FROM attune_tenant_api_token WHERE tenant_id = $1",
-                1
+                local_tenant.id
             )
             .fetch_all(&db)
             .await
             .expect("could not list tokens");
             let mut builder = tabled::builder::Builder::new();
-            builder.push_record(["ID".to_string(), "Name".to_string(), "Value".to_string()]);
+            builder.push_record([
+                "ID".to_string(),
+                "Name".to_string(),
+                "SHA-256(token)".to_string(),
+            ]);
             for token in tokens {
                 builder.push_record([token.id.to_string(), token.name, hex::encode(token.token)]);
             }

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aerosol = { version = "1.1.0", features = ["axum"] }
 aws-config = "1.6.1"
 aws-sdk-s3 = "1.82.0"
 axum = { version = "0.8.3", features = ["macros", "multipart"] }

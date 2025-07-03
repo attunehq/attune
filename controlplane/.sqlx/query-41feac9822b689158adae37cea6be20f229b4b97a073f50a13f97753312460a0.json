@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE debian_repository_release\n            SET clearsigned = $1, detached = $2\n            WHERE id = $3\n            RETURNING contents\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "contents",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "41feac9822b689158adae37cea6be20f229b4b97a073f50a13f97753312460a0"
+}

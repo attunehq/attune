@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                paragraph,\n                filename,\n                size,\n                md5sum,\n                sha1sum,\n                sha256sum\n            FROM debian_repository_package\n            WHERE\n                component_id = $1\n                AND architecture = $2::debian_repository_architecture\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "paragraph",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "filename",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "md5sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sha1sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        {
+          "Custom": {
+            "name": "debian_repository_architecture",
+            "kind": {
+              "Enum": [
+                "amd64",
+                "arm64",
+                "armel",
+                "armhf",
+                "i386",
+                "ppc64el",
+                "riscv64",
+                "s390x",
+                "alpha",
+                "arm",
+                "avr32",
+                "hppa",
+                "hurd-i386",
+                "hurd-amd64",
+                "ia64",
+                "kfreebsd-amd64",
+                "kfreebsd-i386",
+                "loong64",
+                "m32",
+                "m68k",
+                "mips",
+                "mipsel",
+                "mips64el",
+                "netbsd-i386",
+                "netbsd-alpha",
+                "or1k",
+                "powerpc",
+                "powerpcspe",
+                "ppc64",
+                "s390",
+                "sparc",
+                "sparc64",
+                "sh4",
+                "x32"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "15d3a1a4cd586ee0f1234eed6c6c0b4d6e7c33f707a749d6e653ea01f20de92f"
+}

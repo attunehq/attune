@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE debian_repository_package\n            SET staging_status = NULL\n            WHERE id = (\n                SELECT debian_repository_package.id\n                FROM\n                    debian_repository_release\n                    JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n                    JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id\n                WHERE\n                    debian_repository_release.id = $1\n                    AND debian_repository_package.staging_status = 'add'\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f19cf6616cf5f6804624127358000b1c68e14c22bd241e537ccd15b87626aae2"
+}
