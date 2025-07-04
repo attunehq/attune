@@ -8,4 +8,4 @@ COPY ./src ./src
 RUN touch ./src/main.rs && cargo build --release
 
 ENV RUST_LOG=trace
-ENTRYPOINT ["cargo", "run", "--release"]
+ENTRYPOINT ["cargo", "run", "--release", "--bin", "attune-server"]
