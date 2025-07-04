@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                debian_repository_release.id,\n                debian_repository.uri,\n                debian_repository_release.distribution\n            FROM debian_repository\n                JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n            WHERE tenant_id = $1\n            ORDER BY debian_repository_release.id ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "distribution",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1d119a739da5d227227d33e0f0e928aec35b1853938bc2ec22e9abefb886b857"
+}
