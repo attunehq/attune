@@ -1,0 +1,15 @@
+.env
+.env.example
+.git
+.github
+.gitignore
+.gitmodules
+.scratch
+.vscode
+cli/
+docker/
+docs/
+LICENSE
+minio-data/
+postgres-data/
+README.md
