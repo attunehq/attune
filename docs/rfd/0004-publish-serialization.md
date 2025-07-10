@@ -46,13 +46,16 @@ In order to get index signing to behave correctly in the face of concurrency, we
 
 To enforce invariant (1), we'll:
 
-1. Add a timestamp to the generated index.
-2. Take the index timestamp as a parameter in the signature submission endpoint.
-3. Store the "index timestamp" of the current signature in the database.
-4. Only allow signatures with newer index timestamps.
-
-An authed client could theoretically spoof the signature timestamp, but they would only be able to damage their own repository. As future work, we should verify the integrity of indexes and signatures to resist insider attacks.
+1. Compute a "fingerprint" for the generated index, based on a hash of the index contents.
+2. Store the fingerprint of the current generated index in the database.
+3. Take the index fingerprint as a parameter in the signature submission endpoint.
+4. Only accept signatures with a fingerprint that matches the current fingerprint.
 
 Postgres should already enforce invariant (2) for us, because the publishing takes place in a transaction that always commits before index generation in the corresponding CI run occurs (because the publish endpoint doesn't return until the transaction commits, and therefore the CLI command for adding a package doesn't complete until the transaction commits, and the index generation can't occur until the CLI command for adding a package completes).
 
-Just to be extra safe, I'm going to make index generation, index signing, and all package updates (add, update, delete) handlers run in transactions at the serializable isolation level. This shouldn't actually be necessary since there can't be read/write cycles in these operations (adding a package doesn't read from the index tables, and creating an index doesn't write to the package tables), but seeing serialization errors will be a good indication that something strange is happening.
+Just to be extra safe, I'm going to make index generation, index signing, and all package updates (add, update, delete) handlers run in transactions at the serializable isolation level. This shouldn't actually be necessary for most operations since there can't be read/write cycles in these operations (adding a package only reads and writes to the packages table and users will basically never add the same package concurrently and therefore won't conflict with other adds; creating an index reads from the package tables but doesn't write to them and therefore won't conflict with package updates) except maybe for signing or generating indexes concurrently. On serialization error, the whole handler endpoint will fail, and the CLI will retry the signature from the client side.
+
+## Future work
+
+- Verifying GPG signatures. We don't actually verify that the uploaded GPG signatures are valid. This allows malicious clients to upload signatures that are invalid, and therefore cause end-user package installations to fail.
+- Verifying the signed indexes. We don't actually verify that the clearsigned index contents match the generated index. This allows malicious clients to upload a clearsigned index that is validly signed but has modified contents. Content modifications can only cause the end-user to see packages that were uploaded or not yet published, or prevent the end-user from seeing packages that were published.
