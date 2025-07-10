@@ -150,7 +150,7 @@ pub async fn generate_indexes(
                 sha256sum,
 
                 updated_at
-            ) VALUES ($1, $2::debian_repository_architecture, NULL, $3, $4, $5, $6, $7, $8)
+            ) VALUES ($1, $2::debian_repository_architecture, NULL, $3, $4, $5, $6, $7, NOW())
             ON CONFLICT (component_id, architecture)
             DO UPDATE SET
                 component_id = $1,
@@ -161,7 +161,7 @@ pub async fn generate_indexes(
                 md5sum = $5,
                 sha1sum = $6,
                 sha256sum = $7,
-                updated_at = $8
+                updated_at = NOW()
             "#,
             package_index.component_id,
             package_index.architecture as _,
@@ -170,8 +170,7 @@ pub async fn generate_indexes(
             index.as_bytes(),
             md5sum,
             sha1sum,
-            sha256sum,
-            OffsetDateTime::now_utc()
+            sha256sum
         )
         .execute(&mut *tx)
         .await
@@ -302,8 +301,8 @@ pub async fn generate_indexes(
             codename = $6,
             contents = $7,
             fingerprint = $8,
-            updated_at = $9
-        WHERE id = $10
+            updated_at = NOW()
+        WHERE id = $9
         "#,
         repo.description,
         repo.origin,
@@ -313,7 +312,6 @@ pub async fn generate_indexes(
         repo.codename,
         release_file,
         release_file_fingerprint,
-        OffsetDateTime::now_utc(),
         release_id as i64
     )
     .execute(&mut *tx)
@@ -394,7 +392,7 @@ pub async fn sync_repository(
     let release_file = sqlx::query!(
         r#"
             UPDATE debian_repository_release
-            SET clearsigned = $1, detached = $2
+            SET clearsigned = $1, detached = $2, updated_at = NOW()
             WHERE id = $3
             RETURNING contents
         "#,

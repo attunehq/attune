@@ -11,7 +11,7 @@ use md5::Md5;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use sqlx::types::{JsonValue, time::OffsetDateTime};
+use sqlx::types::JsonValue;
 use tracing::{Instrument, debug_span, instrument};
 
 #[derive(Deserialize, Serialize)]
@@ -174,11 +174,10 @@ pub async fn add(
                             name,
                             release_id,
                             updated_at
-                        ) VALUES ($1, $2, $3) RETURNING id
+                        ) VALUES ($1, $2, NOW()) RETURNING id
                     "#,
                     component,
                     release_id as i64,
-                    OffsetDateTime::now_utc(),
                 )
                 .fetch_one(&mut *tx)
                 .await
@@ -252,8 +251,8 @@ pub async fn add(
                 $20,
                 $21,
                 $22,
-                $23,
-                $24
+                NOW(),
+                NOW()
             )
             RETURNING id
             "#,
@@ -285,8 +284,6 @@ pub async fn add(
             md5sum,
             sha1sum,
             sha256sum,
-            OffsetDateTime::now_utc(),
-            OffsetDateTime::now_utc(),
         )
         .fetch_one(&mut *tx)
         .await
