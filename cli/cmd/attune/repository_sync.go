@@ -98,12 +98,11 @@ keyring, GPG agent, or hardware tokens.`,
 				// Sign release index using local GPG installation.
 				syncRequest, err = signWithLocalGPG(signingKeyID, indexes.Release)
 			}
-			syncRequest.Fingerprint = indexes.Fingerprint
-
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
+			syncRequest.Fingerprint = indexes.Fingerprint
 
 			// Start synchronization.
 			jsonBody, err := json.Marshal(syncRequest)
