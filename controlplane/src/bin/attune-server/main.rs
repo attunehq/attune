@@ -3,7 +3,7 @@ use axum::{
     Router,
     extract::DefaultBodyLimit,
     handler::Handler,
-    routing::{get, post},
+    routing::{get, post, delete},
 };
 use tokio::signal;
 use tower_http::trace::TraceLayer;
@@ -62,8 +62,11 @@ async fn main() {
         .route(
             "/repositories/{repository_id}/packages",
             get(attune_controlplane::api::pkg::list)
-                .delete(attune_controlplane::api::pkg::remove)
                 .post(attune_controlplane::api::pkg::add.layer(DefaultBodyLimit::disable())),
+        )
+        .route(
+            "/repositories/{repository_id}/packages/{package_id}",
+            delete(attune_controlplane::api::pkg::remove),
         );
     let app = Router::new()
         .nest("/api/v0", api)

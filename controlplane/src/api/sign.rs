@@ -518,7 +518,53 @@ pub async fn sync_repository(
         .await
         .unwrap();
 
-    // TODO: Delete removed package files from active.
+    // Get packages marked for removal.
+    let removed_packages = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_package.id,
+            debian_repository_package.filename
+        FROM
+            debian_repository_release
+            JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
+            JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id
+        WHERE
+            debian_repository_release.id = $1
+            AND debian_repository_package.staging_status = 'remove'
+        "#,
+        release_id as i64
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+
+    // Delete removed package files from S3 and update database.
+    for removed in removed_packages {
+        // Delete the package file from S3
+        state
+            .s3
+            .delete_object()
+            .bucket(&repo.s3_bucket)
+            .key(format!("{}/{}", repo.s3_prefix, removed.filename))
+            .send()
+            .await
+            .unwrap();
+            
+        // Mark the package as removed in the database
+        sqlx::query!(
+            r#"
+            UPDATE debian_repository_package
+            SET 
+                removed_at = NOW(),
+                staging_status = NULL
+            WHERE id = $1
+            "#,
+            removed.id
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
 
     // Update staging statuses for all packages.
     sqlx::query!(

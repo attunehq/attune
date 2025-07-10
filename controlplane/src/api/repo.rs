@@ -242,6 +242,9 @@ pub async fn status(
         WHERE
             staging_status IS NOT NULL
             AND debian_repository_release.id = $1
+        ORDER BY 
+            debian_repository_package.staging_status,
+            debian_repository_package.updated_at DESC
         "#,
         release_id as i64,
     )
