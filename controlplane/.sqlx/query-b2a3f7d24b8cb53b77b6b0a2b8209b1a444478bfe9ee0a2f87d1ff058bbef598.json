@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE debian_repository_release\n            SET clearsigned = $1, detached = $2\n            WHERE id = $3\n            RETURNING contents\n        ",
+  "query": "\n            UPDATE debian_repository_release\n            SET clearsigned = $1, detached = $2, updated_at = NOW()\n            WHERE id = $3\n            RETURNING contents\n        ",
   "describe": {
     "columns": [
       {
@@ -20,5 +20,5 @@
       false
     ]
   },
-  "hash": "41feac9822b689158adae37cea6be20f229b4b97a073f50a13f97753312460a0"
+  "hash": "b2a3f7d24b8cb53b77b6b0a2b8209b1a444478bfe9ee0a2f87d1ff058bbef598"
 }

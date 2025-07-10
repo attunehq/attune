@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO debian_repository_package (\n                component_id,\n                architecture,\n\n                staging_status,\n\n                package,\n                version,\n                priority,\n                section,\n                installed_size,\n                maintainer,\n                description,\n                homepage,\n\n                paragraph,\n\n                depends,\n                recommends,\n                conflicts,\n                provides,\n                replaces,\n\n                filename,\n                size,\n                md5sum,\n                sha1sum,\n                sha256sum,\n\n                created_at,\n                updated_at\n            )\n            VALUES (\n                $1,\n                $2::debian_repository_architecture,\n                $3::debian_repository_package_staging_status,\n                $4,\n                $5,\n                $6,\n                $7,\n                $8,\n                $9,\n                $10,\n                $11,\n                $12,\n                $13,\n                $14,\n                $15,\n                $16,\n                $17,\n                $18,\n                $19,\n                $20,\n                $21,\n                $22,\n                $23,\n                $24\n            )\n            RETURNING id\n            ",
+  "query": "\n            INSERT INTO debian_repository_package (\n                component_id,\n                architecture,\n\n                staging_status,\n\n                package,\n                version,\n                priority,\n                section,\n                installed_size,\n                maintainer,\n                description,\n                homepage,\n\n                paragraph,\n\n                depends,\n                recommends,\n                conflicts,\n                provides,\n                replaces,\n\n                filename,\n                size,\n                md5sum,\n                sha1sum,\n                sha256sum,\n\n                created_at,\n                updated_at\n            )\n            VALUES (\n                $1,\n                $2::debian_repository_architecture,\n                $3::debian_repository_package_staging_status,\n                $4,\n                $5,\n                $6,\n                $7,\n                $8,\n                $9,\n                $10,\n                $11,\n                $12,\n                $13,\n                $14,\n                $15,\n                $16,\n                $17,\n                $18,\n                $19,\n                $20,\n                $21,\n                $22,\n                NOW(),\n                NOW()\n            )\n            RETURNING id\n            ",
   "describe": {
     "columns": [
       {
@@ -84,14 +84,12 @@
         "Int8",
         "Text",
         "Text",
-        "Text",
-        "Timestamptz",
-        "Timestamptz"
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "9e70a201599a832d0aa7e919bdf7a7014a0015082ed24c873e806930386796ce"
+  "hash": "103b38269d58042673aa1ac09783c7e48f3085e2d52d6d13cf49a7a9c9c4ede9"
 }
