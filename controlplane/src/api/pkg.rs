@@ -250,7 +250,8 @@ pub async fn add(
                 $19,
                 $20,
                 $21,
-                $22,                NOW(),
+                $22,
+                NOW(),
                 NOW()
             )
             RETURNING id
