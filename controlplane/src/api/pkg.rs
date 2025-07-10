@@ -95,8 +95,8 @@ pub async fn add(
     });
     let architecture = control_file.architecture().unwrap();
 
-    // TODO: Check if the package already exists. If so, provide a nice error
-    // message.
+    // TODO: Check if the package already exists before we spend time computing
+    // hashes. If so, provide a nice error message.
 
     // Compute hashes.
     //
@@ -150,10 +150,6 @@ pub async fn add(
     // Once the upload is complete, add a record to the database.
     let span = debug_span!("add_to_database");
     let package_row = async {
-        // Make this transaction serializable (like all other package adding
-        // transactions).
-        //
-        // TODO: When we start serializing publishes, will we need to edit this?
         let mut tx = state.db.begin().await.unwrap();
         sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *tx)
