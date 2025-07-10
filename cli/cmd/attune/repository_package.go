@@ -22,8 +22,7 @@ func repoPkgCmd() *cobra.Command {
 	cmd.PersistentFlags().IntP("repo-id", "r", 0, "ID of repository to change")
 	cmd.MarkPersistentFlagRequired("repo-id")
 
-	createPkgsCmd.Flags().StringP("component", "c", "", "Component to add the package to")
-	createPkgsCmd.MarkFlagRequired("component")
+	createPkgsCmd.Flags().StringP("component", "c", "main", "Component to add the package to (defaults to \"main\")")
 
 	cmd.AddCommand(createPkgsCmd, listPkgsCmd)
 	return cmd

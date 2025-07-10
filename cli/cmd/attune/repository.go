@@ -23,8 +23,7 @@ func repoCmd() *cobra.Command {
 
 	createRepositoryCmd.Flags().StringP("uri", "u", "", "URI at which repository will be hosted")
 	createRepositoryCmd.MarkFlagRequired("uri")
-	createRepositoryCmd.Flags().StringP("distribution", "d", "", "OS distribution release name (e.g. \"bookworm\")")
-	createRepositoryCmd.MarkFlagRequired("distribution")
+	createRepositoryCmd.Flags().StringP("distribution", "d", "stable", "OS distribution release name (e.g. \"bookworm\", defaults to \"stable\")")
 	createRepositoryCmd.Flags().StringP("origin", "o", "", "")
 	createRepositoryCmd.Flags().StringP("label", "l", "", "")
 	createRepositoryCmd.Flags().StringP("version", "v", "", "")
