@@ -11,7 +11,7 @@ use md5::Md5;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use sqlx::types::{JsonValue, time::OffsetDateTime};
+use sqlx::types::JsonValue;
 use tracing::{Instrument, debug_span, instrument};
 
 #[derive(Deserialize, Serialize)]
@@ -95,8 +95,8 @@ pub async fn add(
     });
     let architecture = control_file.architecture().unwrap();
 
-    // TODO: Check if the package already exists. If so, provide a nice error
-    // message.
+    // TODO: Check if the package already exists before we spend time computing
+    // hashes. If so, provide a nice error message.
 
     // Compute hashes.
     //
@@ -150,10 +150,6 @@ pub async fn add(
     // Once the upload is complete, add a record to the database.
     let span = debug_span!("add_to_database");
     let package_row = async {
-        // Make this transaction serializable (like all other package adding
-        // transactions).
-        //
-        // TODO: When we start serializing publishes, will we need to edit this?
         let mut tx = state.db.begin().await.unwrap();
         sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *tx)
@@ -178,11 +174,10 @@ pub async fn add(
                             name,
                             release_id,
                             updated_at
-                        ) VALUES ($1, $2, $3) RETURNING id
+                        ) VALUES ($1, $2, NOW()) RETURNING id
                     "#,
                     component,
                     release_id as i64,
-                    OffsetDateTime::now_utc(),
                 )
                 .fetch_one(&mut *tx)
                 .await
@@ -256,8 +251,8 @@ pub async fn add(
                 $20,
                 $21,
                 $22,
-                $23,
-                $24
+                NOW(),
+                NOW()
             )
             RETURNING id
             "#,
@@ -289,8 +284,6 @@ pub async fn add(
             md5sum,
             sha1sum,
             sha256sum,
-            OffsetDateTime::now_utc(),
-            OffsetDateTime::now_utc(),
         )
         .fetch_one(&mut *tx)
         .await

@@ -10,14 +10,14 @@ use md5::Md5;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use sqlx::types::time::OffsetDateTime;
 use tabwriter::TabWriter;
-use time::format_description::well_known::Rfc2822;
+use time::{OffsetDateTime, format_description::well_known::Rfc2822};
 use tracing::instrument;
 
 #[derive(Debug, Serialize)]
 pub struct ReleaseFile {
     release: String,
+    fingerprint: String,
 }
 
 #[axum::debug_handler]
@@ -105,26 +105,26 @@ pub async fn generate_indexes(
 
         let index = {
             let mut index = pkgs
-            .into_iter()
-            .map(|mut pkg| {
-                let fields = pkg
-                    .paragraph
-                    .as_object_mut()
-                    .unwrap()
-                    .into_iter()
-                    .map(|(k, v)| format!("{}: {}", k, v.as_str().unwrap()))
-                    .chain(vec![
-                        format!("Filename: {}", pkg.filename),
-                        format!("Size: {}", pkg.size.to_string()),
-                        format!("MD5sum: {}", pkg.md5sum),
-                        format!("SHA1: {}", pkg.sha1sum),
-                        format!("SHA256: {}", pkg.sha256sum),
-                    ])
-                    .collect::<Vec<String>>();
-                fields.join("\n")
-            })
-            .collect::<Vec<String>>()
-            .join("\n\n");
+                .into_iter()
+                .map(|mut pkg| {
+                    let fields = pkg
+                        .paragraph
+                        .as_object_mut()
+                        .unwrap()
+                        .into_iter()
+                        .map(|(k, v)| format!("{}: {}", k, v.as_str().unwrap()))
+                        .chain(vec![
+                            format!("Filename: {}", pkg.filename),
+                            format!("Size: {}", pkg.size.to_string()),
+                            format!("MD5sum: {}", pkg.md5sum),
+                            format!("SHA1: {}", pkg.sha1sum),
+                            format!("SHA256: {}", pkg.sha256sum),
+                        ])
+                        .collect::<Vec<String>>();
+                    fields.join("\n")
+                })
+                .collect::<Vec<String>>()
+                .join("\n\n");
             index.push('\n');
             index
         };
@@ -150,7 +150,7 @@ pub async fn generate_indexes(
                 sha256sum,
 
                 updated_at
-            ) VALUES ($1, $2::debian_repository_architecture, NULL, $3, $4, $5, $6, $7, $8)
+            ) VALUES ($1, $2::debian_repository_architecture, NULL, $3, $4, $5, $6, $7, NOW())
             ON CONFLICT (component_id, architecture)
             DO UPDATE SET
                 component_id = $1,
@@ -161,7 +161,7 @@ pub async fn generate_indexes(
                 md5sum = $5,
                 sha1sum = $6,
                 sha256sum = $7,
-                updated_at = $8
+                updated_at = NOW()
             "#,
             package_index.component_id,
             package_index.architecture as _,
@@ -170,8 +170,7 @@ pub async fn generate_indexes(
             index.as_bytes(),
             md5sum,
             sha1sum,
-            sha256sum,
-            OffsetDateTime::now_utc()
+            sha256sum
         )
         .execute(&mut *tx)
         .await
@@ -201,88 +200,93 @@ pub async fn generate_indexes(
     // says it should be the date format of `date -R -u`, which technically is
     // RFC 5322, but these formats are compatible. 5322 is a later revision of
     // 2822 that retains backwards compatibility.
-    let date = OffsetDateTime::now_utc().format(&Rfc2822).unwrap();
-    let mut arch_set = HashSet::new();
-    let mut comp_set = HashSet::new();
-    for p in package_indexes {
-        arch_set.insert(p.architecture);
-        comp_set.insert(p.component);
-    }
-    let archs = arch_set
-        .into_iter()
-        .fold(String::new(), |acc_archs, arch| acc_archs + " " + &arch);
-    let comps = comp_set
-        .into_iter()
-        .fold(String::new(), |acc_comps, comp| acc_comps + " " + &comp);
-    let release_fields: Vec<(&str, Option<String>)> = vec![
-        ("Origin", repo.origin.clone()),
-        ("Label", repo.label.clone()),
-        ("Version", repo.version.clone()),
-        ("Suite", Some(repo.suite.clone())),
-        ("Codename", Some(repo.codename.clone())),
-        ("Date", Some(date)),
-        ("Architectures", Some(archs)),
-        ("Components", Some(comps)),
-        ("Description", repo.description.clone()),
-    ];
-    let mut release_file = String::new();
-    for (k, v) in release_fields {
-        if let Some(v) = v {
-            release_file.push_str(&format!("{}: {}\n", k, v));
+    let release_file = {
+        let date = OffsetDateTime::now_utc().format(&Rfc2822).unwrap();
+        let mut arch_set = HashSet::new();
+        let mut comp_set = HashSet::new();
+        for p in package_indexes {
+            arch_set.insert(p.architecture);
+            comp_set.insert(p.component);
         }
-    }
+        let archs = arch_set
+            .into_iter()
+            .fold(String::new(), |acc_archs, arch| acc_archs + " " + &arch);
+        let comps = comp_set
+            .into_iter()
+            .fold(String::new(), |acc_comps, comp| acc_comps + " " + &comp);
+        let release_fields: Vec<(&str, Option<String>)> = vec![
+            ("Origin", repo.origin.clone()),
+            ("Label", repo.label.clone()),
+            ("Version", repo.version.clone()),
+            ("Suite", Some(repo.suite.clone())),
+            ("Codename", Some(repo.codename.clone())),
+            ("Date", Some(date)),
+            ("Architectures", Some(archs)),
+            ("Components", Some(comps)),
+            ("Description", repo.description.clone()),
+        ];
+        let mut release_file = String::new();
+        for (k, v) in release_fields {
+            if let Some(v) = v {
+                release_file.push_str(&format!("{}: {}\n", k, v));
+            }
+        }
 
-    let indexes = sqlx::query!(r#"
-        SELECT
-            debian_repository_component.name AS component,
-            debian_repository_index_packages.architecture::TEXT AS "architecture!: String",
-            debian_repository_index_packages.size,
-            debian_repository_index_packages.md5sum,
-            debian_repository_index_packages.sha1sum,
-            debian_repository_index_packages.sha256sum
-        FROM debian_repository_release
-        JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
-        JOIN debian_repository_index_packages ON debian_repository_index_packages.component_id = debian_repository_component.id
-        WHERE
-            debian_repository_release.id = $1
-        "#,
-        release_id as i64
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .unwrap();
-
-    release_file = release_file + "MD5Sum:\n";
-    let mut md5writer = TabWriter::new(vec![]);
-    for index in &indexes {
-        // TODO: Handle compressed indexes.
-        write!(
-            &mut md5writer,
-            " {}\t{} {}\n",
-            index.md5sum,
-            index.size,
-            format!("{}/binary-{}/Packages", index.component, index.architecture)
+        let indexes = sqlx::query!(r#"
+            SELECT
+                debian_repository_component.name AS component,
+                debian_repository_index_packages.architecture::TEXT AS "architecture!: String",
+                debian_repository_index_packages.size,
+                debian_repository_index_packages.md5sum,
+                debian_repository_index_packages.sha1sum,
+                debian_repository_index_packages.sha256sum
+            FROM debian_repository_release
+            JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
+            JOIN debian_repository_index_packages ON debian_repository_index_packages.component_id = debian_repository_component.id
+            WHERE
+                debian_repository_release.id = $1
+            "#,
+            release_id as i64
         )
+        .fetch_all(&mut *tx)
+        .await
         .unwrap();
-    }
-    md5writer.flush().unwrap();
-    release_file = release_file + &String::from_utf8(md5writer.into_inner().unwrap()).unwrap();
 
-    release_file = release_file + "SHA256:\n";
-    let mut sha256writer = TabWriter::new(vec![]);
-    for index in &indexes {
-        // TODO: Handle compressed indexes.
-        write!(
-            &mut sha256writer,
-            " {}\t{} {}\n",
-            index.sha256sum,
-            index.size,
-            format!("{}/binary-{}/Packages", index.component, index.architecture)
-        )
-        .unwrap();
-    }
-    sha256writer.flush().unwrap();
-    release_file = release_file + &String::from_utf8(sha256writer.into_inner().unwrap()).unwrap();
+        release_file = release_file + "MD5Sum:\n";
+        let mut md5writer = TabWriter::new(vec![]);
+        for index in &indexes {
+            // TODO: Handle compressed indexes.
+            write!(
+                &mut md5writer,
+                " {}\t{} {}\n",
+                index.md5sum,
+                index.size,
+                format!("{}/binary-{}/Packages", index.component, index.architecture)
+            )
+            .unwrap();
+        }
+        md5writer.flush().unwrap();
+        release_file = release_file + &String::from_utf8(md5writer.into_inner().unwrap()).unwrap();
+
+        release_file = release_file + "SHA256:\n";
+        let mut sha256writer = TabWriter::new(vec![]);
+        for index in &indexes {
+            // TODO: Handle compressed indexes.
+            write!(
+                &mut sha256writer,
+                " {}\t{} {}\n",
+                index.sha256sum,
+                index.size,
+                format!("{}/binary-{}/Packages", index.component, index.architecture)
+            )
+            .unwrap();
+        }
+        sha256writer.flush().unwrap();
+        release_file =
+            release_file + &String::from_utf8(sha256writer.into_inner().unwrap()).unwrap();
+        release_file
+    };
+    let release_file_fingerprint = hex::encode(Sha256::digest(release_file.as_bytes()).as_slice());
 
     // Save release file to database.
     sqlx::query!(
@@ -296,7 +300,8 @@ pub async fn generate_indexes(
             suite = $5,
             codename = $6,
             contents = $7,
-            updated_at = $8
+            fingerprint = $8,
+            updated_at = NOW()
         WHERE id = $9
         "#,
         repo.description,
@@ -306,7 +311,7 @@ pub async fn generate_indexes(
         repo.suite,
         repo.codename,
         release_file,
-        OffsetDateTime::now_utc(),
+        release_file_fingerprint,
         release_id as i64
     )
     .execute(&mut *tx)
@@ -332,11 +337,13 @@ pub async fn generate_indexes(
     // Return generated release file.
     Ok(Json(ReleaseFile {
         release: release_file,
+        fingerprint: release_file_fingerprint,
     }))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SyncRepositoryRequest {
+    fingerprint: String,
     clearsigned: String,
     detached: String,
 }
@@ -352,8 +359,6 @@ pub async fn sync_repository(
     // Check that the release exists and the user has permission to sign it.
     auth::tenant_owns_release(&state.db, tenant_id, release_id).await?;
 
-    // TODO: Add locking to make sure this can't happen simultaneously.
-
     // TODO: Check that signatures and checksums are actually valid and
     // up-to-date?
 
@@ -367,6 +372,7 @@ pub async fn sync_repository(
         r#"
             SELECT
                 debian_repository_release.distribution,
+                debian_repository_release.fingerprint,
                 debian_repository.s3_bucket,
                 debian_repository.s3_prefix
             FROM debian_repository_release
@@ -379,10 +385,14 @@ pub async fn sync_repository(
     .await
     .unwrap();
 
+    if repo.fingerprint != payload.fingerprint {
+        return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid fingerprint"));
+    }
+
     let release_file = sqlx::query!(
         r#"
             UPDATE debian_repository_release
-            SET clearsigned = $1, detached = $2
+            SET clearsigned = $1, detached = $2, updated_at = NOW()
             WHERE id = $3
             RETURNING contents
         "#,

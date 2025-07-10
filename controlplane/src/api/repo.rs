@@ -77,7 +77,7 @@ pub async fn create(
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, NOW(), NOW())
                 RETURNING id
                 "#,
                 tenant_id.0,
@@ -88,8 +88,6 @@ pub async fn create(
                     tenant_id.0,
                     hex::encode(Sha256::digest(&payload.uri))
                 ),
-                OffsetDateTime::now_utc(),
-                OffsetDateTime::now_utc(),
             )
             .fetch_one(&mut *tx)
             .await
@@ -133,11 +131,12 @@ pub async fn create(
                     suite,
                     codename,
                     contents,
+                    fingerprint,
                     clearsigned,
                     detached,
                     updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
                 RETURNING id
                 "#,
                 repo_id,
@@ -149,9 +148,9 @@ pub async fn create(
                 payload.suite,
                 payload.codename,
                 "",
+                hex::encode(Sha256::digest("").to_vec()),
                 None::<String>,
                 None::<String>,
-                OffsetDateTime::now_utc(),
             )
             .fetch_one(&mut *tx)
             .await
