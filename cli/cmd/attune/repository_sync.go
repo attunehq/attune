@@ -16,10 +16,12 @@ import (
 )
 
 type RepositoryIndexes struct {
-	Release string
+	Release     string `json:"release"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 type SyncRepositoryRequest struct {
+	Fingerprint string `json:"fingerprint"`
 	Clearsigned string `json:"clearsigned"`
 	Detached    string `json:"detached"`
 }
@@ -96,6 +98,7 @@ keyring, GPG agent, or hardware tokens.`,
 				// Sign release index using local GPG installation.
 				syncRequest, err = signWithLocalGPG(signingKeyID, indexes.Release)
 			}
+			syncRequest.Fingerprint = indexes.Fingerprint
 
 			if err != nil {
 				fmt.Println(err)
