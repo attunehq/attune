@@ -82,6 +82,15 @@ var createPkgsCmd = &cobra.Command{
 			}
 			progress = progressbar.DefaultBytes(debStat.Size(), "Uploading package:")
 			_, err = io.Copy(io.MultiWriter(part, progress), deb)
+			if err == io.ErrClosedPipe {
+				// This happens when request authorization fails faster than the upload
+				// completes, which can occur because request authorization only reads
+				// the headers of the request, not the body. Once request authorization
+				// fails, the server closes the connection, which causes a "read/write
+				// on closed pipe" error when we try to write into the pipe on this
+				// goroutine.
+				return
+			}
 			if err != nil {
 				fmt.Printf("could not copy package file: %s\n", err)
 				os.Exit(1)
@@ -122,7 +131,12 @@ var createPkgsCmd = &cobra.Command{
 
 		// Check response.
 		if res.StatusCode != http.StatusOK {
-			fmt.Printf("could not add package: %s\n", res.Status)
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				fmt.Printf("could not read response body: %s\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("could not add package: %s\n", string(body))
 			os.Exit(1)
 		}
 		body, err := io.ReadAll(res.Body)
