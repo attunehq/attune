@@ -132,9 +132,6 @@ CREATE UNIQUE INDEX "attune_tenant_api_token_token_key" ON "attune_tenant_api_to
 CREATE UNIQUE INDEX "debian_repository_uri_key" ON "debian_repository"("uri");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "debian_repository_release_repository_id_key" ON "debian_repository_release"("repository_id");
-
--- CreateIndex
 CREATE UNIQUE INDEX "debian_repository_release_repository_id_distribution_key" ON "debian_repository_release"("repository_id", "distribution");
 
 -- CreateIndex
