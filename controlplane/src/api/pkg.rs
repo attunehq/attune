@@ -329,6 +329,7 @@ pub async fn list(
             JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
             JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id
         WHERE debian_repository_release.id = $1
+            AND debian_repository_package.staging_status IS NULL
         ORDER BY debian_repository_package.id ASC
         "#,
         release_id as i64,
