@@ -349,7 +349,66 @@ pub async fn list(
 }
 
 #[axum::debug_handler]
-#[instrument]
-pub async fn remove() -> Json<Package> {
-    todo!()
+#[instrument(skip(state))]
+pub async fn remove(
+    State(state): State<ServerState>,
+    tenant_id: TenantID,
+    Path((release_id, package_id)): Path<(u64, i64)>,
+) -> Result<Json<Package>, (axum::http::StatusCode, &'static str)> {
+    // Check that the release exists and the user has permission to modify it.
+    auth::tenant_owns_release(&state.db, tenant_id, release_id).await?;
+
+    // Get the package information before marking it for removal.
+    let package = sqlx::query!(
+        r#"
+        SELECT
+            debian_repository_package.id,
+            debian_repository_package.package,
+            debian_repository_package.version,
+            debian_repository_package.architecture::TEXT AS "architecture!: String",
+            debian_repository_component.name AS component
+        FROM
+            debian_repository_release
+            JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
+            JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id
+        WHERE 
+            debian_repository_release.id = $1 AND
+            debian_repository_package.id = $2
+        "#,
+        release_id as i64,
+        package_id
+    )
+    .fetch_optional(&state.db)
+    .await
+    .unwrap();
+
+    let Some(package) = package else {
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            "Package not found",
+        ));
+    };
+
+    // Mark the package for removal by setting its staging_status to "remove".
+    sqlx::query!(
+        r#"
+        UPDATE debian_repository_package
+        SET 
+            staging_status = 'remove',
+            updated_at = NOW()
+        WHERE id = $1
+        "#,
+        package_id
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    Ok(Json(Package {
+        id: package.id,
+        package: package.package,
+        version: package.version,
+        architecture: package.architecture,
+        component: package.component,
+    }))
 }

@@ -24,7 +24,10 @@ func repoPkgCmd() *cobra.Command {
 
 	createPkgsCmd.Flags().StringP("component", "c", "main", "Component to add the package to (defaults to \"main\")")
 
-	cmd.AddCommand(createPkgsCmd, listPkgsCmd)
+	removePkgCmd.Flags().IntP("package-id", "p", 0, "ID of package to remove")
+	removePkgCmd.MarkFlagRequired("package-id")
+
+	cmd.AddCommand(createPkgsCmd, listPkgsCmd, removePkgCmd)
 	return cmd
 }
 
@@ -207,5 +210,61 @@ var listPkgsCmd = &cobra.Command{
 			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture, pkg.Component)
 		}
 		tw.Flush()
+	},
+}
+
+var removePkgCmd = &cobra.Command{
+	Use:   "rm",
+	Short: "Remove a package from a repository",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Read flags.
+		repoID, err := cmd.Parent().Flags().GetInt("repo-id")
+		if err != nil {
+			fmt.Printf("could not read --repo-id: %s\n", err)
+			os.Exit(1)
+		}
+
+		packageID, err := cmd.Flags().GetInt("package-id")
+		if err != nil {
+			fmt.Printf("could not read --package-id: %s\n", err)
+			os.Exit(1)
+		}
+
+		// Make API request to remove package
+		req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("/api/v0/repositories/%d/packages/%d", repoID, packageID), nil)
+		if err != nil {
+			fmt.Printf("could not create request to remove package: %s\n", err)
+			os.Exit(1)
+		}
+		res, err := API(req)
+		if err != nil {
+			fmt.Printf("could not remove package: %s\n", err)
+			os.Exit(1)
+		}
+		defer res.Body.Close()
+
+		// Check response.
+		if res.StatusCode != http.StatusOK {
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				fmt.Printf("could not read response body: %s\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("could not remove package: %s\n", string(body))
+			os.Exit(1)
+		}
+
+		var pkg PackageResponse
+		if err := json.NewDecoder(res.Body).Decode(&pkg); err != nil {
+			fmt.Printf("could not decode package: %s\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Package marked for removal:")
+		tw := tabwriter.NewWriter(os.Stdout, 0, 8, 1, '\t', 0)
+		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\tComponent\n")
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture, pkg.Component)
+		tw.Flush()
+		fmt.Println("\nRun 'attune repo sync' to finalize the removal.")
 	},
 }
