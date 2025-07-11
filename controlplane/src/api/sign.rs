@@ -538,7 +538,7 @@ pub async fn sync_repository(
     .await
     .unwrap();
 
-    // Delete removed package files from S3 and update database.
+    // Delete removed package files from S3 and delete from database.
     for removed in removed_packages {
         // Delete the package file from S3
         state
@@ -550,13 +550,10 @@ pub async fn sync_repository(
             .await
             .unwrap();
             
-        // Mark the package as removed in the database
+        // Delete the package from the database
         sqlx::query!(
             r#"
-            UPDATE debian_repository_package
-            SET 
-                removed_at = NOW(),
-                staging_status = NULL
+            DELETE FROM debian_repository_package
             WHERE id = $1
             "#,
             removed.id

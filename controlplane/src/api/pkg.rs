@@ -372,8 +372,7 @@ pub async fn remove(
             JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id
         WHERE 
             debian_repository_release.id = $1 AND
-            debian_repository_package.id = $2 AND
-            debian_repository_package.removed_at IS NULL
+            debian_repository_package.id = $2
         "#,
         release_id as i64,
         package_id
@@ -383,25 +382,6 @@ pub async fn remove(
     .unwrap();
 
     let Some(package) = package else {
-        // Check if it's because the package is already removed.
-        let already_removed = sqlx::query!(
-            r#"
-            SELECT 1 AS exists FROM debian_repository_package
-            WHERE id = $1 AND removed_at IS NOT NULL
-            "#,
-            package_id
-        )
-        .fetch_optional(&state.db)
-        .await
-        .unwrap();
-        
-        if already_removed.is_some() {
-            return Err((
-                axum::http::StatusCode::BAD_REQUEST,
-                "Package has already been removed",
-            ));
-        }
-        
         return Err((
             axum::http::StatusCode::NOT_FOUND,
             "Package not found",
