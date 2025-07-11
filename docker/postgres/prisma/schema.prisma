@@ -18,11 +18,11 @@ model AttuneTenant {
   // don't use custom domains will be hosted at `*.<subdomain>.attunehq.com`).
   subdomain String @unique
 
+  repositories DebianRepository[]
   api_tokens AttuneTenantAPIToken[]
 
   created_at       DateTime           @default(now()) @db.Timestamptz(6)
   updated_at       DateTime           @updatedAt @db.Timestamptz(6)
-  DebianRepository DebianRepository[]
 
   @@map("attune_tenant")
 }
