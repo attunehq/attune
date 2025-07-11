@@ -13,3 +13,4 @@ LICENSE
 minio-data/
 postgres-data/
 README.md
+node_modules/
