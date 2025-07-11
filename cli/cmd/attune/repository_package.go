@@ -158,6 +158,7 @@ var createPkgsCmd = &cobra.Command{
 		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\tComponent\n")
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture, pkg.Component)
 		tw.Flush()
+		fmt.Println("\nRun 'attune repo sync' to finalize adding the package.")
 	},
 }
 
@@ -265,6 +266,6 @@ var removePkgCmd = &cobra.Command{
 		fmt.Fprint(tw, "ID\tPackage\tVersion\tArchitecture\tComponent\n")
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\n", pkg.ID, pkg.Package, pkg.Version, pkg.Architecture, pkg.Component)
 		tw.Flush()
-		fmt.Println("\nRun 'attune repo sync' to finalize the removal.")
+		fmt.Println("\nRun 'attune repo sync' to finalize removing the package.")
 	},
 }
