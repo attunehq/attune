@@ -525,7 +525,7 @@ pub async fn sync_repository(
         r#"
             UPDATE debian_repository_package
             SET staging_status = NULL
-            WHERE id = (
+            WHERE id IN (
                 SELECT debian_repository_package.id
                 FROM
                     debian_repository_release
