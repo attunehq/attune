@@ -62,7 +62,7 @@ pub async fn create(
     let repo_id = match existing {
         Some(existing) => {
             if existing.tenant_id != tenant_id.0 {
-                return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found"));
+                return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found\n"));
             }
             existing.id
         }
@@ -114,7 +114,7 @@ pub async fn create(
         Some(_) => {
             return Err((
                 axum::http::StatusCode::BAD_REQUEST,
-                "Repository already exists",
+                "Repository already exists\n",
             ));
         }
         None => {
@@ -242,7 +242,7 @@ pub async fn status(
         WHERE
             staging_status IS NOT NULL
             AND debian_repository_release.id = $1
-        ORDER BY 
+        ORDER BY
             debian_repository_package.staging_status,
             debian_repository_package.updated_at DESC
         "#,

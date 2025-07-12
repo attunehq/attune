@@ -386,7 +386,7 @@ pub async fn sync_repository(
     .unwrap();
 
     if repo.fingerprint != payload.fingerprint {
-        return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid fingerprint"));
+        return Err((axum::http::StatusCode::BAD_REQUEST, "Invalid fingerprint\n"));
     }
 
     let release_file = sqlx::query!(
@@ -549,7 +549,7 @@ pub async fn sync_repository(
             .send()
             .await
             .unwrap();
-            
+
         // Delete the package from the database
         sqlx::query!(
             r#"

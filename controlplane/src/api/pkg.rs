@@ -52,7 +52,7 @@ pub async fn add(
     if name != "file" {
         return Err((
             axum::http::StatusCode::BAD_REQUEST,
-            "unexpected field named \"file\"",
+            "unexpected field named \"file\"\n",
         ));
     }
 
@@ -371,7 +371,7 @@ pub async fn remove(
             debian_repository_release
             JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
             JOIN debian_repository_package ON debian_repository_package.component_id = debian_repository_component.id
-        WHERE 
+        WHERE
             debian_repository_release.id = $1 AND
             debian_repository_package.id = $2
         "#,
@@ -385,7 +385,7 @@ pub async fn remove(
     let Some(package) = package else {
         return Err((
             axum::http::StatusCode::NOT_FOUND,
-            "Package not found",
+            "Package not found\n",
         ));
     };
 
@@ -393,7 +393,7 @@ pub async fn remove(
     sqlx::query!(
         r#"
         UPDATE debian_repository_package
-        SET 
+        SET
             staging_status = 'remove',
             updated_at = NOW()
         WHERE id = $1

@@ -57,7 +57,7 @@ where
         })?;
         match tenant_id {
             Some(tenant_id) => Ok(TenantID(tenant_id.id)),
-            None => Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid API token")),
+            None => Err((axum::http::StatusCode::UNAUTHORIZED, "Invalid API token\n")),
         }
     }
 }
@@ -84,10 +84,10 @@ pub async fn tenant_owns_release(
     .unwrap();
     if let Some(release) = release {
         if release.tenant_id != tenant_id.0 {
-            return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found"));
+            return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found\n"));
         }
     } else {
-        return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found"));
+        return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found\n"));
     }
     Ok(())
 }
