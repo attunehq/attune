@@ -9,8 +9,13 @@ services:
       - ATTUNE_DATABASE_URL=postgres://attune:attune@postgres:5432/attune
       - AWS_ENDPOINT_URL_S3=http://minio:9000
     depends_on:
-      - postgres
-      - minio
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # TODO: Implement a health check.
     networks:
       - dev
   postgres:
@@ -23,8 +28,27 @@ services:
       - "5432:5432"
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "attune"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
     networks:
       - dev
+  migrate:
+    image: node:24-bookworm
+    environment:
+      - DATABASE_URL=postgres://attune:attune@postgres:5432/attune
+    volumes:
+      - ./docker/migrate:/app
+    working_dir: /app
+    command: ["npm", "run", "migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dev
+    restart: on-failure
   minio:
     build: ./docker/minio
     ports:
@@ -43,6 +67,11 @@ services:
       # - MINIO_DOMAIN=localhost
     volumes:
       - ./minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
     networks:
       dev:
         aliases:

@@ -9,6 +9,8 @@ datasource db {
 
 // A tenant of the Attune platform. This is generally an organization account.
 model AttuneTenant {
+  // The tenant at ID 1 is a special "local" tenant, which is automatically
+  // initialized on control plane start.
   id BigInt @id @default(autoincrement())
 
   // This is just for human readability purposes.
@@ -16,6 +18,8 @@ model AttuneTenant {
 
   // The managed cloud subdomain for this tenant (i.e. their repositories that
   // don't use custom domains will be hosted at `*.<subdomain>.attunehq.com`).
+  //
+  // This value is empty for the special tenant at ID 1.
   subdomain String @unique
 
   repositories DebianRepository[]

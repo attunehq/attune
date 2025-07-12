@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM attune_tenant_api_token WHERE tenant_id = 1;",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f2c31158041c4c90fa1b8a0ff57810321c37660d983b3b37a7b1e92bc39a111c"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "attune-postgres-schema",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "prisma": "^6.10.1"
+  },
+  "scripts": {
+    "migrate:new": "prisma migrate dev",
+    "migrate": "prisma migrate deploy",
+    "reset": "prisma migrate reset",
+    "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.10.1"
+  }
+}

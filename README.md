@@ -36,7 +36,7 @@ git clone git@github.com:attunehq/attune.git && cd attune
 
 # 2. Set up environment variables by copying from .env.example. You should
 #    modify these values as needed to suit your deployment, especially
-#    ATTUNE_SECRET.
+#    ATTUNE_API_TOKEN.
 cp .env.example .env
 
 # 3. Start the control plane and supporting services.

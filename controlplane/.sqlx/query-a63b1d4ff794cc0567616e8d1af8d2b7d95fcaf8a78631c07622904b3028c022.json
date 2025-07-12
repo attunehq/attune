@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO attune_tenant (id, display_name, subdomain, created_at, updated_at)\n        VALUES (1, 'LOCAL_TENANT', '', NOW(), NOW())\n        ON CONFLICT DO NOTHING;\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a63b1d4ff794cc0567616e8d1af8d2b7d95fcaf8a78631c07622904b3028c022"
+}

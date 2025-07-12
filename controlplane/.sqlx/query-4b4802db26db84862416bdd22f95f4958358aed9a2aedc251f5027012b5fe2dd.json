@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO attune_tenant_api_token (tenant_id, name, token, created_at, updated_at)\n                VALUES (1, 'LOCAL_TENANT_API_TOKEN', $1, NOW(), NOW())\n                ON CONFLICT DO NOTHING;\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4b4802db26db84862416bdd22f95f4958358aed9a2aedc251f5027012b5fe2dd"
+}
