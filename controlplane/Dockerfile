@@ -16,5 +16,5 @@ COPY --from=build /target/release/attune-server /usr/local/bin/attune-server
 
 USER 1000:1000
 
-ENV RUST_LOG='attune_server=debug,attune_controlplane=debug'
+ENV RUST_LOG=attune_server=debug,attune_controlplane=debug
 ENTRYPOINT ["attune-server"]
