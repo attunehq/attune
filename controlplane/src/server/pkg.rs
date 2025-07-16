@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::auth::TenantID;
-use crate::{api::ServerState, auth};
+use crate::{server::ServerState, auth};
 use axum::{
     Json,
     extract::{Multipart, Path, Query, State},
