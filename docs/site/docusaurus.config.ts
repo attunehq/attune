@@ -23,8 +23,8 @@ const config: Config = {
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
   organizationName: 'attunehq', // Usually your GitHub org/user name.
-  projectName: 'docs', // Usually your repo name.
-  deploymentBranch: 'gh-pages',
+  projectName: 'attune', // Usually your repo name.
+  deploymentBranch: 'main',
   trailingSlash: true,
 
   onBrokenLinks: 'throw',
@@ -47,7 +47,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/attunehq/docs/tree/main/docs/',
+            'https://github.com/attunehq/attune/tree/main/docs/site',
           routeBasePath: '/',
         },
         blog: {
@@ -59,7 +59,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/attunehq/docs/tree/main/blog/',
+            'https://github.com/attunehq/attune/tree/main/docs/site/blog/',
           // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
