@@ -1,0 +1,47 @@
+# Workflows that run on pull requests. These are primarily CI checks for
+# linting, formatting, testing, etc.
+name: Pull request checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.txt'
+      - '**/*.json'
+      - '**/*.lock'
+      - '**/.gitignore'
+      - '**/LICENSE'
+
+jobs:
+  ci:
+    name: CI checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check format
+        run: cargo fmt --all --check
+
+      - name: Check build
+        run: cargo check --all-targets --all-features
+
+      - name: Check clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --all-features
