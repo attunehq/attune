@@ -1,7 +1,9 @@
 name: "attune"
 services:
   controlplane:
-    build: ./controlplane
+    build:
+      context: .
+      dockerfile: ./docker/attune/Dockerfile
     ports:
       - "3000:3000"
     env_file: ./.env
@@ -36,9 +38,11 @@ services:
     networks:
       - dev
   migrate:
-    image: node:24-bookworm
+    build:
+      context: ./docker/migrate
+      dockerfile: Dockerfile
     environment:
-      - DATABASE_URL=postgres://attune:attune@postgres:5432/attune
+      - ATTUNE_DATABASE_URL=postgres://attune:attune@postgres:5432/attune
     volumes:
       - ./docker/migrate:/app
     working_dir: /app

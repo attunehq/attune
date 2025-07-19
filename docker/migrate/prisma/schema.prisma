@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("ATTUNE_DATABASE_URL")
 }
 
 // A tenant of the Attune platform. This is generally an organization account.

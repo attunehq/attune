@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO debian_repository_release (\n                    repository_id,\n                    distribution,\n                    description,\n                    origin,\n                    label,\n                    version,\n                    suite,\n                    codename,\n                    contents,\n                    fingerprint,\n                    clearsigned,\n                    detached,\n                    created_at,\n                    updated_at\n                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())\n                RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "add9fbf41229000db29377ccae8e420db02fdf7be75ecc5497d02be9a95a5ddd"
+}

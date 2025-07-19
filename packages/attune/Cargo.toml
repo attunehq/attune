@@ -1,5 +1,5 @@
 [package]
-name = "attune_controlplane"
+name = "attune"
 version = "0.1.0"
 edition = "2024"
 

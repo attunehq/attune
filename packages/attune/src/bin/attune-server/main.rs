@@ -96,33 +96,33 @@ async fn main() {
     let api = Router::new()
         .route(
             "/repositories",
-            get(attune_controlplane::api::repo::list).post(attune_controlplane::api::repo::create),
+            get(attune::api::repo::list).post(attune::api::repo::create),
         )
         .route(
             "/repositories/{repository_id}",
-            get(attune_controlplane::api::repo::status),
+            get(attune::api::repo::status),
         )
         .route(
             "/repositories/{repository_id}/indexes",
-            get(attune_controlplane::api::sign::generate_indexes),
+            get(attune::api::sign::generate_indexes),
         )
         .route(
             "/repositories/{repository_id}/sync",
-            post(attune_controlplane::api::sign::sync_repository),
+            post(attune::api::sign::sync_repository),
         )
         .route(
             "/repositories/{repository_id}/packages",
-            get(attune_controlplane::api::pkg::list)
-                .post(attune_controlplane::api::pkg::add.layer(DefaultBodyLimit::disable())),
+            get(attune::api::pkg::list)
+                .post(attune::api::pkg::add.layer(DefaultBodyLimit::disable())),
         )
         .route(
             "/repositories/{repository_id}/packages/{package_id}",
-            delete(attune_controlplane::api::pkg::remove),
+            delete(attune::api::pkg::remove),
         );
     let app = Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())
-        .with_state(attune_controlplane::api::ServerState {
+        .with_state(attune::api::ServerState {
             db,
             s3,
             s3_bucket_name,
