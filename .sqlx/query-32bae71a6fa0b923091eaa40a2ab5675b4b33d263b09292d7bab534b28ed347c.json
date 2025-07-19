@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM debian_repository_release WHERE repository_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "32bae71a6fa0b923091eaa40a2ab5675b4b33d263b09292d7bab534b28ed347c"
+}

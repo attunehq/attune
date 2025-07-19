@@ -1,3 +1,3 @@
-[submodule "ee"]
-	path = ee
+[submodule "packages/attune-ee"]
+	path = packages/attune-ee
 	url = git@github.com:attunehq/attune.e

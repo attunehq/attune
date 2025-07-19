@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE attune_tenant\n                SET display_name = COALESCE($2, old_tenant.display_name),\n                    subdomain = COALESCE($3, old_tenant.subdomain)\n                FROM (\n                    SELECT display_name,\n                           subdomain\n                    FROM attune_tenant\n                    WHERE id = $1\n                ) AS old_tenant\n                WHERE id = $1\n                RETURNING id, attune_tenant.display_name, attune_tenant.subdomain\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "subdomain",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c8de94ad22a798ec15b34a27bcc1624a571c4a58da97127bf8f74ef7be39669c"
+}
