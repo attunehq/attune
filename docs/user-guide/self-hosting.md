@@ -6,7 +6,7 @@ This guide provides detailed steps for self-hosting Attune Publishing.
 
 Before you begin, ensure you have the following installed:
 
-- **Docker**: Required for running the Attune control plane and backing services (PostgreSQL and MinIO)
+- **Docker**: Required for running the Attune control plane and required services (PostgreSQL and MinIO)
 - **Go**: Required for building the Attune CLI
 
 ## 1. Clone the Repository
@@ -30,7 +30,7 @@ Consider using direnv](https://direnv.net/) to manage environment variables.
 
 ## 3. Spin Up Docker Containers
 
-Start the required services (Attune control plane, PostgreSQL and MinIO) in the background:
+Start the Attune control plane, PostgreSQL and MinIO in the background:
 
 ```bash
 docker compose up -d
@@ -47,7 +47,7 @@ You can check if the containers are running with:
 docker compose ps
 ```
 
-## 4. Build and install the CLI
+## 4. Build and Install the CLI
 
 Navigate to the CLI directory and build the Go binary:
 
@@ -68,26 +68,23 @@ Make sure `~/go/bin` is in your PATH. If not, add it:
 export PATH=$PATH:~/go/bin
 ```
 
-## 11. Test Basic CLI Functionality
+## 5. Generate a GPG Key
 
-Set the required environment variables for the CLI:
-
-```bash
-export ATTUNE_API_TOKEN=your-value  # The token value you created earlier
-export ATTUNE_API_ENDPOINT=http://localhost:3000
-```
-
-Test that the CLI can connect to the control plane:
+This step is only required if you don't already have a GPG key.
 
 ```bash
-attune repo list
+gpg --generate-key
 ```
 
-If this returns an empty list without errors, your setup is working correctly.
+Get the key ID of the secret key you'd like to use to sign. This should be a 40 character hexadecimal string.
 
-## 13. Create a Test Repository
+```bash
+gpg --list-secret-keys
+```
 
-Create a new repository pointing to the MinIO instance:
+## 6. Test Your Setup
+
+Create a new Debian repository:
 
 ```bash
 attune repo create -u 'http://localhost:9000/debian'
@@ -95,40 +92,10 @@ attune repo create -u 'http://localhost:9000/debian'
 
 This should return a repository ID that you'll use in the next step.
 
-## 14. Add a Package to the Repository
-
 Add a package to your newly created repository:
 
 ```bash
-attune repo pkg -r 1 add path-to-package
+attune repo -r 1 pkg add path-to-package -i gpg-key-id
 ```
 
-Replace `1` with the repository ID from the previous step and `path-to-package` with the path to the package you want to add.
-
-## Troubleshooting Tips
-
-If you encounter issues:
-
-1. Check the logs of the Docker containers:
-   ```bash
-   docker compose logs postgres
-   docker compose logs minio
-   ```
-
-2. Use `RUST_LOG=debug` to get more detailed logs from the control plane.
-
-3. For CLI issues, try running with the `-v` flag for verbose output:
-   ```bash
-   attune -v repo list
-   ```
-
-4. Remember to check error messages carefully - they often contain valuable information about what went wrong and how to fix it.
-
-5. Use console.log() or println!() statements to debug specific parts of the code if needed.
-
-6. For database-related issues, you can connect directly to the PostgreSQL database:
-   ```bash
-   psql -h localhost -U attune -d attune
-   ```
-
-7. For MinIO issues, you can access the web interface at http://localhost:9001 with the credentials specified in docker-compose.yml.
+Replace `1` with the repository ID from the previous step, `path-to-package` with the path to the package you want to add, and `gpg-key-id` with the key ID of the secret key you'd like to use to sign.
