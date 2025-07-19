@@ -383,10 +383,7 @@ pub async fn remove(
     .unwrap();
 
     let Some(package) = package else {
-        return Err((
-            axum::http::StatusCode::NOT_FOUND,
-            "Package not found\n",
-        ));
+        return Err((axum::http::StatusCode::NOT_FOUND, "Package not found\n"));
     };
 
     // Mark the package for removal by setting its staging_status to "remove".
