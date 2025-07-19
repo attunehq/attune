@@ -21,59 +21,57 @@ We currently support publishing APT (Debian and Ubuntu) repositories, with more 
 
 Here's how to set up an APT repository in about 5 minutes.
 
-### Requirements
+### Prerequisites
 
-- Docker (`docker`)
-- GnuPG (`gpg`)
+- **Docker**: Required for running the Attune control plane and required services (PostgreSQL and MinIO)
+- **Go**: Required for building the Attune CLI
+- **GnuPG** (`gpg`): Required for signing packages
 
 ### Setup
 
 ```bash
-############## First, we need to set up the Attune backend.
+# 1. Clone the repository
+git clone https://github.com/attunehq/attune.git
+cd attune
 
-# 1. Clone the repository.
-git clone git@github.com:attunehq/attune.git && cd attune
-
-# 2. Set up environment variables by copying from .env.example. You should
-#    modify these values as needed to suit your deployment, especially
-#    ATTUNE_API_TOKEN.
+# 2. Set up environment variables
 cp .env.example .env
+# Modify values in .env as needed for your setup
 
-# 3. Start the control plane and supporting services.
+# 3. Start the control plane and supporting services
 docker compose up -d
+# This starts:
+# - Attune control plane on port 3000
+# - PostgreSQL on port 5432 (default database: attune, default credentials: attune/attune)
+# - MinIO on ports 9000/9001 (default credentials: attuneminio/attuneminio)
 
-############## Now, we'll install the CLI and set up a repository.
+# 4. Build and install the CLI
+cd cli
+go install ./...
 
-# 4. Install the Attune CLI by downloading it from GitHub Releases.
-
-# 5. Create a repository.
-attune repo create -u 'http://localhost:9000/debian' -d bookworm
-
-# 6. Prepare a `.deb` package to host. One way you can do this is by downloading
-#    a sample package e.g. `https://cdn.teleport.dev/teleport_17.4.4_arm64.deb`.
-
-# 7. Add the package to the repository
-attune repo pkg -r 1 add -c stable/v17 ~/Downloads/teleport_17.4.4_arm64.deb
-
-############## Lastly, we'll use a GPG key to sign and deploy the repository.
-
-# 8. If needed, generate a GPG key.
+# 5. Generate a GPG key (if you don't already have one)
 gpg --generate-key
 
-# 9. Get the key ID of the secret key you'd like to use to sign.
+# 6. Get the key ID of your secret key
 gpg --list-secret-keys
+# Note the 40 character hexadecimal string next to the `sec` entries
 
-# 10. Export your signing key (replace $KEYID with your key ID, which is the 40
-#     character string next to the `sec` entries in each key).
-gpg --armor --export-secret-keys --output demo-key.asc $KEYID
+# 7. Create a new repository
+attune repo create -u 'http://localhost:9000/debian'
+# This returns a repository ID you'll use in the next steps
 
-# 11. Sign and deploy the repository.
-attune repo -r 1 sync -k demo-key.asc
+# 8. Add a package to your repository
+attune repo -r 1 pkg add path-to-package -i gpg-key-id
+# Replace:
+# - '1' with the repository ID from step 7
+# - 'path-to-package' with the path to your .deb package
+# - 'gpg-key-id' with your GPG key ID from step 6
 
-############## Congratulations, you're done!
+# 9. Sign and deploy the repository
+attune repo -r 1 sync
 ```
 
-For more detailed setup instructions and configuration options, refer to the [user guide](./docs/user-guide/README.md).
+For more detailed setup instructions and configuration options, refer to the [self-hosting guide](./docs/user-guide/self-hosting.md).
 
 ## License
 

@@ -1,6 +1,10 @@
-# Attune Publishing Self-Hosting Guide
+---
+sidebar_position: 1
+---
 
-This guide provides detailed steps for self-hosting Attune Publishing.
+# Getting Started
+
+This guide provides detailed steps for getting started with Attune Publishing.
 
 ## Prerequisites
 
