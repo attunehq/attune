@@ -1,4 +1,4 @@
-name: Test docs deployment on opening PR
+name: Build docs site
 
 on:
   pull_request:
@@ -27,3 +27,10 @@ jobs:
       - name: Test build website
         run: npm run build
         working-directory: docs/site
+        
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: docs-site-preview
+          path: docs/site/build
+          retention-days: 14

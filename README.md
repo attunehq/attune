@@ -42,16 +42,12 @@ cp .env.example .env
 docker compose up -d
 # This starts:
 # - Attune control plane on port 3000
-# - PostgreSQL on port 5432 (default credentials: attune/attune)
+# - PostgreSQL on port 5432 (default database: attune, default credentials: attune/attune)
 # - MinIO on ports 9000/9001 (default credentials: attuneminio/attuneminio)
 
 # 4. Build and install the CLI
 cd cli
-go build -o attune ./cmd/attune
-# Move to your Go path or another location in your PATH
-mv attune ~/go/bin
-# Ensure ~/go/bin is in your PATH
-export PATH=$PATH:~/go/bin
+go install ./...
 
 # 5. Generate a GPG key (if you don't already have one)
 gpg --generate-key

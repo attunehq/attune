@@ -1,4 +1,4 @@
-name: Deploy docs to GitHub Pages on merging PR
+name: Deploy docs to GitHub Pages on push to main
 
 on:
   push:
