@@ -72,7 +72,7 @@ const config: Config = {
           type: 'docSidebar',
           sidebarId: 'tutorialSidebar',
           position: 'left',
-          label: 'Tutorial',
+          label: 'Getting Started',
         },
       ],
     },
@@ -83,8 +83,8 @@ const config: Config = {
           title: 'Docs',
           items: [
             {
-              label: 'Tutorial',
-              to: '/docs/intro/',
+              label: 'Getting Started',
+              to: '/docs/getting-started/',
             },
           ],
         },
