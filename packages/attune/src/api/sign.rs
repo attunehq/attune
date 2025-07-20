@@ -259,10 +259,7 @@ pub async fn generate_indexes(
             writeln!(
                 &mut md5writer,
                 " {}\t{} {}/binary-{}/Packages",
-                index.md5sum,
-                index.size,
-                index.component,
-                index.architecture
+                index.md5sum, index.size, index.component, index.architecture
             )
             .unwrap();
         }
@@ -276,10 +273,7 @@ pub async fn generate_indexes(
             writeln!(
                 &mut sha256writer,
                 " {}\t{} {}/binary-{}/Packages",
-                index.sha256sum,
-                index.size,
-                index.component,
-                index.architecture
+                index.sha256sum, index.size, index.component, index.architecture
             )
             .unwrap();
         }
