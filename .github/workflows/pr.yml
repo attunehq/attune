@@ -6,12 +6,12 @@ on:
   pull_request:
     branches: [main]
     paths-ignore:
-      - '**/*.md'
-      - '**/*.txt'
-      - '**/*.json'
-      - '**/*.lock'
-      - '**/.gitignore'
-      - '**/LICENSE'
+      - "**/*.md"
+      - "**/*.txt"
+      - "**/*.json"
+      - "**/*.lock"
+      - "**/.gitignore"
+      - "**/LICENSE"
 
 env:
   CARGO_TERM_COLOR: always
@@ -54,3 +54,13 @@ jobs:
 
       - name: Run full build
         run: cargo build --workspace --all-targets --all-features
+
+  # TODO: Add a job (maybe called `dev`?) that spins up the Docker Compose local
+  # development environment and runs some smoke tests (maybe ideally this would
+  # be an integration testing job?) to make sure we didn't break it (e.g. right
+  # now, we don't actually test that the `migrate` image builds and functions
+  # properly).
+
+  # TODO: Add a job (maybe called `setup` or `onboarding`?) that literally
+  # performs the onboarding/setup/quickstart instructions we've documented to
+  # make sure they actually work as expected.
