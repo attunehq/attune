@@ -79,7 +79,7 @@ async fn main() {
                 )
             }
             std::env::VarError::NotUnicode(os_string) => {
-                panic!("$ATTUNE_API_TOKEN is not valid Unicode: {:?}", os_string)
+                panic!("$ATTUNE_API_TOKEN is not valid Unicode: {os_string:?}")
             }
         },
     }

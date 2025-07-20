@@ -79,11 +79,8 @@ pub async fn add(
                 .unwrap()
                 .to_control_file()
                 .unwrap();
-            match control_tar_file {
-                ControlTarFile::Control(control_file) => {
-                    break control_file;
-                }
-                _ => {}
+            if let ControlTarFile::Control(control_file) = control_tar_file {
+                break control_file;
             }
         };
         // TODO: Parse file paths for building Contents index.
