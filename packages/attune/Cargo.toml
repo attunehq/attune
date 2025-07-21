@@ -4,22 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-config = "1.6.1"
-aws-sdk-s3 = "1.82.0"
-axum = { version = "0.8.3", features = ["macros", "multipart"] }
-clap = { version = "4.5.35", features = ["derive"] }
-debian-packaging = "0.18.0"
-hex = "0.4.3"
-md-5 = "0.10.6"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-sha1 = "0.10.6"
-sha2 = "0.10.8"
-sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio", "time", "tls-native-tls"] }
-tabled = "0.20.0"
-tabwriter = "1.4.1"
-time = { version = "0.3.41", features = ["formatting", "serde"] }
-tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "signal", "tracing"] }
-tower-http = { version = "0.6.2", features = ["auth", "trace"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+debian-packaging = { workspace = true }
+hex = { workspace = true }
+md-5 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tabwriter = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
