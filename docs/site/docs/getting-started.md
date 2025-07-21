@@ -30,7 +30,7 @@ cp .env.example .env
 
 Make sure the values in the `.env` file match your local setup. The defaults should work with the Docker Compose configuration.
 
-Consider using direnv](https://direnv.net/) to manage environment variables.
+Consider using [direnv](https://direnv.net/) to manage environment variables.
 
 ## 3. Spin Up Docker Containers
 
