@@ -20,7 +20,7 @@ env:
 
 jobs:
   cd:
-    name: Build development release
+    name: Build commit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,9 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Remove empty EE crate
+        run: rm -r ./packages/attune-ee
 
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release
