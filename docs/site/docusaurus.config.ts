@@ -15,17 +15,10 @@ const config: Config = {
   },
 
   // Set the production url of your site here
-  url: 'https://attunehq.github.io/',
+  url: 'https://attune-docs-site.vercel.app/',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/docs/',
-
-  // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'attunehq', // Usually your GitHub org/user name.
-  projectName: 'attune', // Usually your repo name.
-  deploymentBranch: 'main',
-  trailingSlash: true,
+  baseUrl: '/',
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
@@ -59,7 +52,7 @@ const config: Config = {
 
   themeConfig: {
     // Replace with your project's social card
-    image: 'img/docusaurus-social-card.jpg',
+    image: 'img/attune-logo-gradient.png',
     colorMode: {
       defaultMode: 'dark',
       disableSwitch: false,
