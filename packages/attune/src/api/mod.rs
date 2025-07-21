@@ -1,5 +1,5 @@
-pub mod repo;
 pub mod pkg;
+pub mod repo;
 pub mod sign;
 
 use axum::extract::FromRef;

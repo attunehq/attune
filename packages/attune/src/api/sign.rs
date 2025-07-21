@@ -228,7 +228,7 @@ pub async fn generate_indexes(
         let mut release_file = String::new();
         for (k, v) in release_fields {
             if let Some(v) = v {
-                release_file.push_str(&format!("{}: {}\n", k, v));
+                release_file.push_str(&format!("{k}: {v}\n"));
             }
         }
 
@@ -252,32 +252,28 @@ pub async fn generate_indexes(
         .await
         .unwrap();
 
-        release_file = release_file + "MD5Sum:\n";
+        release_file += "MD5Sum:\n";
         let mut md5writer = TabWriter::new(vec![]);
         for index in &indexes {
             // TODO: Handle compressed indexes.
-            write!(
+            writeln!(
                 &mut md5writer,
-                " {}\t{} {}\n",
-                index.md5sum,
-                index.size,
-                format!("{}/binary-{}/Packages", index.component, index.architecture)
+                " {}\t{} {}/binary-{}/Packages",
+                index.md5sum, index.size, index.component, index.architecture
             )
             .unwrap();
         }
         md5writer.flush().unwrap();
         release_file = release_file + &String::from_utf8(md5writer.into_inner().unwrap()).unwrap();
 
-        release_file = release_file + "SHA256:\n";
+        release_file += "SHA256:\n";
         let mut sha256writer = TabWriter::new(vec![]);
         for index in &indexes {
             // TODO: Handle compressed indexes.
-            write!(
+            writeln!(
                 &mut sha256writer,
-                " {}\t{} {}\n",
-                index.sha256sum,
-                index.size,
-                format!("{}/binary-{}/Packages", index.component, index.architecture)
+                " {}\t{} {}/binary-{}/Packages",
+                index.sha256sum, index.size, index.component, index.architecture
             )
             .unwrap();
         }

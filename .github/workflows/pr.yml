@@ -1,0 +1,66 @@
+# Workflows that run on pull requests. These are primarily CI checks for
+# linting, formatting, testing, etc.
+name: PR
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.txt"
+      - "**/*.json"
+      - "**/*.lock"
+      - "**/.gitignore"
+      - "**/LICENSE"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: Build, check, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Remove empty EE crate
+        run: rm -r ./packages/attune-ee
+
+      - name: Check format
+        run: cargo fmt --all --check
+
+      - name: Check build
+        run: cargo check --workspace --all-targets --all-features
+
+      - name: Check clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace --all-targets --all-features
+
+      - name: Run full build
+        run: cargo build --workspace --all-targets --all-features
+
+  # TODO: Add a job (maybe called `dev`?) that spins up the Docker Compose local
+  # development environment and runs some smoke tests (maybe ideally this would
+  # be an integration testing job?) to make sure we didn't break it (e.g. right
+  # now, we don't actually test that the `migrate` image builds and functions
+  # properly).
+
+  # TODO: Add a job (maybe called `setup` or `onboarding`?) that literally
+  # performs the onboarding/setup/quickstart instructions we've documented to
+  # make sure they actually work as expected.

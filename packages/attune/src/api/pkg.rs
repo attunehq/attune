@@ -79,11 +79,8 @@ pub async fn add(
                 .unwrap()
                 .to_control_file()
                 .unwrap();
-            match control_tar_file {
-                ControlTarFile::Control(control_file) => {
-                    break control_file;
-                }
-                _ => {}
+            if let ControlTarFile::Control(control_file) = control_tar_file {
+                break control_file;
             }
         };
         // TODO: Parse file paths for building Contents index.
@@ -383,10 +380,7 @@ pub async fn remove(
     .unwrap();
 
     let Some(package) = package else {
-        return Err((
-            axum::http::StatusCode::NOT_FOUND,
-            "Package not found\n",
-        ));
+        return Err((axum::http::StatusCode::NOT_FOUND, "Package not found\n"));
     };
 
     // Mark the package for removal by setting its staging_status to "remove".
