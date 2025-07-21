@@ -8,7 +8,7 @@ use sqlx::types::time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    api::ServerState,
+    server::ServerState,
     auth::{self, TenantID},
 };
 
