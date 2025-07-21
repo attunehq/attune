@@ -1,7 +1,7 @@
 use std::{collections::HashSet, io::Write};
 
-use crate::server::ServerState;
 use crate::auth::{self, TenantID};
+use crate::server::ServerState;
 use axum::{
     Json,
     extract::{Path, State},

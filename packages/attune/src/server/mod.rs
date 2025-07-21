@@ -32,17 +32,21 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
     )
     .execute(&state.db)
     .await
-    .unwrap();
+    .expect("could not initialize single-tenant user");
 
     // If $ATTUNE_API_TOKEN is set, initialize the special single-tenant API
     // token.
     match default_api_token {
         Some(api_token) => {
-            let mut tx = state.db.begin().await.unwrap();
+            let mut tx = state
+                .db
+                .begin()
+                .await
+                .expect("could not start default user initialization");
             sqlx::query!("DELETE FROM attune_tenant_api_token WHERE tenant_id = 1;")
                 .execute(&mut *tx)
                 .await
-                .unwrap();
+                .expect("could not remove existing single-tenant API token");
             sqlx::query!(
                 r#"
                 INSERT INTO attune_tenant_api_token (tenant_id, name, token, created_at, updated_at)
@@ -53,8 +57,10 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             )
             .execute(&mut *tx)
             .await
-            .unwrap();
-            tx.commit().await.unwrap();
+            .expect("could not initialize single-tenant API token");
+            tx.commit()
+                .await
+                .expect("could not commit default user initialization");
         }
         None => {
             warn!("$ATTUNE_API_TOKEN is not set, skipping single-tenant API token initialization")

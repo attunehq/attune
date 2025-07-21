@@ -8,8 +8,8 @@ use sqlx::types::time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    server::ServerState,
     auth::{self, TenantID},
+    server::ServerState,
 };
 
 #[derive(Serialize)]
