@@ -30,7 +30,7 @@ jobs:
         run: rustup show
 
       - name: Cache cargo
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -74,7 +74,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.docker-build-and-push.outputs.digest }}
           push-to-registry: true
 
@@ -83,5 +83,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: attune-${{ runner.os }}_${{ runner.arch }}_${{ github.sha }}
-          path: target/release/{attunectl, attune-server}
+          path: target/release/{attune, attune-server}
           if-no-files-found: error
