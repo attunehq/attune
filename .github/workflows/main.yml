@@ -23,8 +23,10 @@ jobs:
     name: Build commit
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write
       id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
