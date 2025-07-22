@@ -1,4 +1,6 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
+
+mod cmd;
 
 /// Attune CLI
 ///
@@ -9,10 +11,23 @@ struct Args {
     /// Attune API token.
     #[arg(long, env = "ATTUNE_API_TOKEN")]
     api_token: Option<String>,
+
+    /// Tool to run.
+    #[command(subcommand)]
+    tool: ToolCommand,
 }
 
-fn main() {
+#[derive(Subcommand)]
+enum ToolCommand {
+    #[command(name = "apt", about = "Manage APT repositories")]
+    Apt(cmd::apt::AptCommand),
+}
+
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
 
-    println!("Hello, world!");
+    match args.tool {
+        ToolCommand::Apt(command) => cmd::apt::handle_apt(command).await,
+    }
 }
