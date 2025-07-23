@@ -19,7 +19,7 @@ struct Args {
 
 #[derive(Subcommand)]
 enum ToolCommand {
-    #[command(name = "apt", about = "Manage APT repositories")]
+    /// Manage APT repositories
     Apt(cmd::apt::AptCommand),
 }
 
