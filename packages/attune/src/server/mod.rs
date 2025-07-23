@@ -10,7 +10,7 @@ use axum::{
 };
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
-use tower_http::trace::TraceLayer;
+use tower_http::{catch_panic::CatchPanicLayer, trace::TraceLayer};
 use tracing::warn;
 
 #[derive(Clone, Debug, FromRef)]
@@ -90,5 +90,6 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
     Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())
+        .layer(CatchPanicLayer::new())
         .with_state(state)
 }

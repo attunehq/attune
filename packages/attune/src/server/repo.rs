@@ -8,27 +8,18 @@ use sqlx::types::time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    auth::{self, TenantID},
-    server::ServerState,
+    api::ApiResponse, auth::{self, TenantID}, server::ServerState
 };
 
 #[derive(Serialize)]
 pub struct Repository {
     id: i64,
-    uri: String,
-    distribution: String,
+    name: String,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct CreateRepositoryRequest {
-    uri: String,
-    distribution: String,
-    origin: Option<String>,
-    label: Option<String>,
-    version: Option<String>,
-    suite: Option<String>,
-    codename: Option<String>,
-    description: Option<String>,
+    name: String,
 }
 
 #[axum::debug_handler]
@@ -37,24 +28,18 @@ pub async fn create(
     State(state): State<ServerState>,
     tenant_id: TenantID,
     Json(payload): Json<CreateRepositoryRequest>,
-) -> Result<Json<Repository>, (axum::http::StatusCode, &'static str)> {
+) -> Result<Json<ApiResponse<()>>, (axum::http::StatusCode, &'static str)> {
     let mut tx = state.db.begin().await.unwrap();
 
-    // Note that this _actually_ creates a release _in addition to_ a
-    // repository.
-    //
-    // TODO: Should we clarify the concept of "releases" distinct from
-    // "repositories" in the UX?
-
-    // Find or create a repository with the given URI. If a repository already
+    // Find or create a repository with the given name. If a repository already
     // exists under a different tenant, abort.
     let existing = sqlx::query!(
         r#"
-        SELECT id, uri, tenant_id
+        SELECT name, tenant_id
         FROM debian_repository
-        WHERE uri = $1
+        WHERE name = $1
         "#,
-        payload.uri,
+        payload.name,
     )
     .fetch_optional(&mut *tx)
     .await
@@ -88,69 +73,6 @@ pub async fn create(
                     tenant_id.0,
                     hex::encode(Sha256::digest(&payload.uri))
                 ),
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap()
-            .id
-        }
-    };
-
-    // Find or create a release with the given distribution.
-    let existing = sqlx::query!(
-        r#"
-        SELECT id
-        FROM debian_repository_release
-        WHERE repository_id = $1
-            AND distribution = $2
-        "#,
-        repo_id,
-        payload.distribution,
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .unwrap();
-    let release_id = match existing {
-        Some(_) => {
-            return Err((
-                axum::http::StatusCode::BAD_REQUEST,
-                "Repository already exists\n",
-            ));
-        }
-        None => {
-            // Create the release.
-            sqlx::query!(
-                r#"
-                INSERT INTO debian_repository_release (
-                    repository_id,
-                    distribution,
-                    description,
-                    origin,
-                    label,
-                    version,
-                    suite,
-                    codename,
-                    contents,
-                    fingerprint,
-                    clearsigned,
-                    detached,
-                    updated_at
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-                RETURNING id
-                "#,
-                repo_id,
-                payload.distribution,
-                payload.description,
-                payload.origin,
-                payload.label,
-                payload.version,
-                payload.suite,
-                payload.codename,
-                "",
-                hex::encode(Sha256::digest("").to_vec()),
-                None::<String>,
-                None::<String>,
             )
             .fetch_one(&mut *tx)
             .await
