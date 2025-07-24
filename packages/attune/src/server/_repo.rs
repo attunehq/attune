@@ -8,7 +8,9 @@ use sqlx::types::time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    api::ApiResponse, auth::{self, TenantID}, server::ServerState
+    api::ErrorResponse,
+    auth::{self, TenantID},
+    server::ServerState,
 };
 
 #[derive(Serialize)]
@@ -22,71 +24,78 @@ pub struct CreateRepositoryRequest {
     name: String,
 }
 
+#[derive(Serialize)]
+pub struct CreateRepositoryResponse {
+    id: i64,
+    name: String,
+}
+
 #[axum::debug_handler]
 #[instrument(skip(state))]
 pub async fn create(
     State(state): State<ServerState>,
     tenant_id: TenantID,
-    Json(payload): Json<CreateRepositoryRequest>,
-) -> Result<Json<ApiResponse<()>>, (axum::http::StatusCode, &'static str)> {
+    Json(req): Json<CreateRepositoryRequest>,
+) -> Result<Json<CreateRepositoryResponse>, ErrorResponse> {
     let mut tx = state.db.begin().await.unwrap();
 
     // Find or create a repository with the given name. If a repository already
     // exists under a different tenant, abort.
     let existing = sqlx::query!(
         r#"
-        SELECT name, tenant_id
+        SELECT id, name, tenant_id
         FROM debian_repository
         WHERE name = $1
         "#,
-        payload.name,
+        req.name,
     )
     .fetch_optional(&mut *tx)
     .await
     .unwrap();
-    let repo_id = match existing {
+    let repo = match existing {
         Some(existing) => {
             if existing.tenant_id != tenant_id.0 {
-                return Err((axum::http::StatusCode::NOT_FOUND, "Repository not found\n"));
+                return Err(ErrorResponse::new(
+                    axum::http::StatusCode::NOT_FOUND,
+                    "REPO_NOT_FOUND".to_string(),
+                    "Repository not found".to_string(),
+                ));
             }
-            existing.id
+            (existing.id, existing.name)
         }
         None => {
-            sqlx::query!(
+            let inserted = sqlx::query!(
                 r#"
                 INSERT INTO debian_repository (
                     tenant_id,
-                    uri,
                     s3_bucket,
                     s3_prefix,
                     created_at,
                     updated_at
                 )
-                VALUES ($1, $2, $3, $4, NOW(), NOW())
-                RETURNING id
+                VALUES ($1, $2, $3, NOW(), NOW())
+                RETURNING id, name
                 "#,
                 tenant_id.0,
-                payload.uri,
                 state.s3_bucket_name,
                 format!(
                     "{}/{}",
                     tenant_id.0,
-                    hex::encode(Sha256::digest(&payload.uri))
+                    hex::encode(Sha256::digest(format!("{}/{}", tenant_id.0, req.name).as_bytes()))
                 ),
             )
             .fetch_one(&mut *tx)
             .await
-            .unwrap()
-            .id
+            .unwrap();
+            (inserted.id, inserted.name)
         }
     };
 
     tx.commit().await.unwrap();
 
-    Ok(Json(Repository {
-        id: release_id,
-        uri: payload.uri,
-        distribution: payload.distribution,
+    Ok(Json(CreateRepositoryResponse {
+        id: repo.0,
+        name: repo.1,
     }))
 }
 

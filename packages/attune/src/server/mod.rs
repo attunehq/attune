@@ -69,8 +69,9 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
 
     // Configure routes.
     let api = Router::new()
-        .route("/repositories", get(repo::list).post(repo::create))
-        .route("/repositories/{repository_id}", get(repo::status))
+        .route("/repositories", post(repo::create::handler))
+        // .route("/repositories", get(repo::list).post(repo::create))
+        // .route("/repositories/{repository_id}", get(repo::status))
         .route(
             "/repositories/{repository_id}/indexes",
             get(sign::generate_indexes),
