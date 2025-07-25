@@ -3,6 +3,7 @@ use clap::{Args, Subcommand};
 use crate::config::Config;
 
 mod create;
+mod list;
 
 #[derive(Args)]
 pub struct RepoCommand {
@@ -17,7 +18,7 @@ pub enum RepoSubCommand {
     Create(create::RepoCreateCommand),
     /// Show information about repositories
     #[command(visible_alias = "ls")]
-    List,
+    List(list::RepoListCommand),
     /// Edit repository metadata
     #[command(visible_alias = "set")]
     Edit,
@@ -28,8 +29,8 @@ pub enum RepoSubCommand {
 
 pub async fn handle_repo(ctx: Config, command: RepoCommand) {
     match command.subcommand {
-        RepoSubCommand::Create(create) => create::handle_repo_create(ctx, create).await,
-        RepoSubCommand::List => println!("Listing repositories"),
+        RepoSubCommand::Create(create) => create::run(ctx, create).await,
+        RepoSubCommand::List(list) => list::run(ctx, list).await,
         RepoSubCommand::Edit => println!("Editing repository"),
         RepoSubCommand::Delete => println!("Deleting repository"),
     }

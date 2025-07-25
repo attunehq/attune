@@ -13,7 +13,7 @@ pub struct RepoCreateCommand {
     name: String,
 }
 
-pub async fn handle_repo_create(ctx: Config, command: RepoCreateCommand) {
+pub async fn run(ctx: Config, command: RepoCreateCommand) {
     let res = ctx
         .client
         .post(ctx.endpoint.join("/api/v0/repositories").unwrap())

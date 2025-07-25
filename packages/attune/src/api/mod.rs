@@ -1,8 +1,8 @@
 use axum::{
     body::Body,
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

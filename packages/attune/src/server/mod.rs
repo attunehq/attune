@@ -1,3 +1,4 @@
+pub mod compatibility;
 pub mod pkg;
 pub mod repo;
 pub mod sign;
@@ -69,9 +70,11 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
 
     // Configure routes.
     let api = Router::new()
-        .route("/repositories", post(repo::create::handler))
-        // .route("/repositories", get(repo::list).post(repo::create))
-        // .route("/repositories/{repository_id}", get(repo::status))
+        .route("/compatibility", get(compatibility::handler))
+        .route(
+            "/repositories",
+            get(repo::list::handler).post(repo::create::handler),
+        )
         .route(
             "/repositories/{repository_id}/indexes",
             get(sign::generate_indexes),
@@ -91,6 +94,9 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
     Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())
+        // FIXME: Use a custom ResponseForPanic so that the response body is a
+        // valid `api::ErrorResponse` on 500, which is what all the CLI parsing
+        // logic expects on a non-200 response.
         .layer(CatchPanicLayer::new())
         .with_state(state)
 }
