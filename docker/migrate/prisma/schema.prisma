@@ -19,14 +19,14 @@ model AttuneTenant {
   // The managed cloud subdomain for this tenant (i.e. their repositories that
   // don't use custom domains will be hosted at `*.<subdomain>.attunehq.com`).
   //
-  // This value is empty for the special tenant at ID 1.
+  // This value is empty for the local tenant at ID 1.
   subdomain String @unique
 
   repositories DebianRepository[]
-  api_tokens AttuneTenantAPIToken[]
+  api_tokens   AttuneTenantAPIToken[]
 
-  created_at       DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime           @updatedAt @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
 
   @@map("attune_tenant")
 }
@@ -61,9 +61,16 @@ model DebianRepository {
   tenant_id BigInt
   tenant    AttuneTenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  // The name uniquely identifies a repository within a tenant.
+  name String
+
   // For managed cloud deployments, this is the URI at which the data plane will
-  // serve the repository.
-  uri String @unique
+  // serve the repository. For self-hosted deployments, this value is null.
+  //
+  // For now, this value is _always_ provisioned manually during onboarding, and
+  // is not self-serviceable or editable. Later, we may implement self-service
+  // custom subdomains.
+  uri String? @unique
 
   // Every release in a repository is stored in the same S3 folder.
   s3_bucket String
@@ -74,6 +81,8 @@ model DebianRepository {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @updatedAt @db.Timestamptz(6)
 
+  // Each repository's name must be unique within a tenant.
+  @@unique([tenant_id, name])
   @@map("debian_repository")
 }
 
@@ -109,10 +118,10 @@ model DebianRepositoryRelease {
 
   // The contents of the `Release` file. Similarly, these track the working
   // state and not the currently published values.
-  contents          String
-  fingerprint       String
-  clearsigned       String?
-  detached          String?
+  contents    String
+  fingerprint String
+  clearsigned String?
+  detached    String?
 
   // TODO: Would it be useful to track things like `last_generated_at` for the
   // sake of index generation optimization?

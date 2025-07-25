@@ -1,3 +1,4 @@
+pub mod compatibility;
 pub mod pkg;
 pub mod repo;
 pub mod sign;
@@ -6,11 +7,11 @@ use axum::{
     Router,
     extract::{DefaultBodyLimit, FromRef},
     handler::Handler,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
-use tower_http::trace::TraceLayer;
+use tower_http::{catch_panic::CatchPanicLayer, trace::TraceLayer};
 use tracing::warn;
 
 #[derive(Clone, Debug, FromRef)]
@@ -69,26 +70,18 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
 
     // Configure routes.
     let api = Router::new()
-        .route("/repositories", get(repo::list).post(repo::create))
-        .route("/repositories/{repository_id}", get(repo::status))
+        .route("/compatibility", get(compatibility::handler))
         .route(
-            "/repositories/{repository_id}/indexes",
-            get(sign::generate_indexes),
+            "/repositories",
+            get(repo::list::handler).post(repo::create::handler),
         )
-        .route(
-            "/repositories/{repository_id}/sync",
-            post(sign::sync_repository),
-        )
-        .route(
-            "/repositories/{repository_id}/packages",
-            get(pkg::list).post(pkg::add.layer(DefaultBodyLimit::disable())),
-        )
-        .route(
-            "/repositories/{repository_id}/packages/{package_id}",
-            delete(pkg::remove),
-        );
+        .route("/repositories/{repository_name}", put(repo::edit::handler).delete(repo::delete::handler));
     Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())
+        // FIXME: Use a custom ResponseForPanic so that the response body is a
+        // valid `api::ErrorResponse` on 500, which is what all the CLI parsing
+        // logic expects on a non-200 response.
+        .layer(CatchPanicLayer::new())
         .with_state(state)
 }

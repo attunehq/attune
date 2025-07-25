@@ -65,6 +65,8 @@ async fn main() {
     trace!(?config, "inferred AWS S3 configuration from environment");
     let s3 = aws_sdk_s3::Client::from_conf(config);
     let s3_bucket_name = args.s3_bucket_name;
+
+    // Initialize server.
     let app = attune::server::new(
         attune::server::ServerState {
             db,
