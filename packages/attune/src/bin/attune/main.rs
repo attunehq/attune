@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod cmd;
+mod config;
 
 /// Attune CLI
 ///
@@ -10,7 +11,11 @@ mod cmd;
 struct Args {
     /// Attune API token.
     #[arg(long, env = "ATTUNE_API_TOKEN")]
-    api_token: Option<String>,
+    api_token: String,
+
+    /// Attune API endpoint.
+    #[arg(long, env = "ATTUNE_API_ENDPOINT", default_value = "https://api.attunehq.com")]
+    api_endpoint: String,
 
     /// Tool to run.
     #[command(subcommand)]
@@ -26,8 +31,9 @@ enum ToolCommand {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    let ctx = config::Config::new(args.api_token, args.api_endpoint);
 
     match args.tool {
-        ToolCommand::Apt(command) => cmd::apt::handle_apt(command).await,
+        ToolCommand::Apt(command) => cmd::apt::handle_apt(ctx, command).await,
     }
 }

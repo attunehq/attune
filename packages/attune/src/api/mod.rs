@@ -18,11 +18,6 @@ pub struct ErrorResponse {
 
 impl ErrorResponse {
     pub fn new(status: StatusCode, error: String, message: String) -> Self {
-        let message = if message.ends_with("\n") {
-            message
-        } else {
-            message + "\n"
-        };
         Self {
             error,
             message,

@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand};
 
+use crate::config::Config;
+
 mod dist;
 mod pkg;
 mod repo;
@@ -27,10 +29,10 @@ pub enum AptSubcommand {
     Package(pkg::PkgCommand),
 }
 
-pub async fn handle_apt(command: AptCommand) {
+pub async fn handle_apt(ctx: Config, command: AptCommand) {
     match command.subcommand {
-        AptSubcommand::Repository(repo) => repo::handle_repo(repo).await,
-        AptSubcommand::Distribution(dist) => dist::handle_dist(dist).await,
-        AptSubcommand::Package(pkg) => pkg::handle_pkg(pkg).await,
+        AptSubcommand::Repository(repo) => repo::handle_repo(ctx, repo).await,
+        AptSubcommand::Distribution(dist) => dist::handle_dist(ctx, dist).await,
+        AptSubcommand::Package(pkg) => pkg::handle_pkg(ctx, pkg).await,
     }
 }

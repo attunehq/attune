@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand};
 
+use crate::config::Config;
+
 #[derive(Args)]
 pub struct PkgCommand {
     #[command(subcommand)]
@@ -19,7 +21,7 @@ pub enum PkgSubCommand {
     Remove,
 }
 
-pub async fn handle_pkg(command: PkgCommand) {
+pub async fn handle_pkg(ctx: Config, command: PkgCommand) {
     match command.subcommand {
         PkgSubCommand::Add => {}
         PkgSubCommand::List => println!("Listing packages"),

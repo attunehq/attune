@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand};
 
+use crate::config::Config;
+
 #[derive(Args)]
 pub struct DistCommand {
     #[command(subcommand)]
@@ -28,7 +30,7 @@ pub enum DistSubCommand {
     Delete,
 }
 
-pub async fn handle_dist(command: DistCommand) {
+pub async fn handle_dist(ctx: Config, command: DistCommand) {
     match command.subcommand {
         DistSubCommand::Create => {}
         DistSubCommand::List => println!("Listing distributions"),

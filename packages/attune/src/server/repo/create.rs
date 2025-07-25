@@ -11,15 +11,15 @@ pub struct Repository {
     name: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateRepositoryRequest {
-    name: String,
+    pub name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateRepositoryResponse {
-    id: i64,
-    name: String,
+    pub id: i64,
+    pub name: String,
 }
 
 #[axum::debug_handler]
@@ -32,63 +32,59 @@ pub async fn handler(
     let mut tx = state.db.begin().await.unwrap();
 
     // Find or create a repository with the given name. If a repository already
-    // exists under a different tenant, abort.
+    // exists, abort.
     let existing = sqlx::query!(
         r#"
-        SELECT id, name, tenant_id
+        SELECT id, name
         FROM debian_repository
-        WHERE name = $1
+        WHERE tenant_id = $1 AND name = $2
         "#,
+        tenant_id.0,
         req.name,
     )
     .fetch_optional(&mut *tx)
     .await
     .unwrap();
-    let repo = match existing {
-        Some(existing) => {
-            if existing.tenant_id != tenant_id.0 {
-                return Err(ErrorResponse::new(
-                    axum::http::StatusCode::NOT_FOUND,
-                    "REPO_NOT_FOUND".to_string(),
-                    "Repository not found".to_string(),
-                ));
-            }
-            (existing.id, existing.name)
-        }
-        None => {
-            let inserted = sqlx::query!(
-                r#"
-                INSERT INTO debian_repository (
-                    tenant_id,
-                    s3_bucket,
-                    s3_prefix,
-                    created_at,
-                    updated_at
-                )
-                VALUES ($1, $2, $3, NOW(), NOW())
-                RETURNING id, name
-                "#,
-                tenant_id.0,
-                state.s3_bucket_name,
-                format!(
-                    "{}/{}",
-                    tenant_id.0,
-                    hex::encode(Sha256::digest(
-                        format!("{}/{}", tenant_id.0, req.name).as_bytes()
-                    ))
-                ),
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
-            (inserted.id, inserted.name)
-        }
-    };
+    if let Some(_) = existing {
+        return Err(ErrorResponse::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            "REPO_ALREADY_EXISTS".to_string(),
+            "repository already exists".to_string(),
+        ));
+    }
+
+    let inserted = sqlx::query!(
+        r#"
+        INSERT INTO debian_repository (
+            name,
+            tenant_id,
+            s3_bucket,
+            s3_prefix,
+            created_at,
+            updated_at
+        )
+        VALUES ($1, $2, $3, $4, NOW(), NOW())
+        RETURNING id, name
+        "#,
+        req.name,
+        tenant_id.0,
+        state.s3_bucket_name,
+        format!(
+            "{}/{}",
+            tenant_id.0,
+            hex::encode(Sha256::digest(
+                format!("{}/{}", tenant_id.0, req.name).as_bytes()
+            ))
+        ),
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
 
     tx.commit().await.unwrap();
 
     Ok(Json(CreateRepositoryResponse {
-        id: repo.0,
-        name: repo.1,
+        id: inserted.id,
+        name: inserted.name,
     }))
 }

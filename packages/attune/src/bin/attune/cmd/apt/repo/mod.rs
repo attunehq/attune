@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand};
 
+use crate::config::Config;
+
 mod create;
 
 #[derive(Args)]
@@ -24,9 +26,9 @@ pub enum RepoSubCommand {
     Delete,
 }
 
-pub async fn handle_repo(command: RepoCommand) {
+pub async fn handle_repo(ctx: Config, command: RepoCommand) {
     match command.subcommand {
-        RepoSubCommand::Create(create) => create::handle_repo_create(create).await,
+        RepoSubCommand::Create(create) => create::handle_repo_create(ctx, create).await,
         RepoSubCommand::List => println!("Listing repositories"),
         RepoSubCommand::Edit => println!("Editing repository"),
         RepoSubCommand::Delete => println!("Deleting repository"),
