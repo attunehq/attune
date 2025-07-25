@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -21,10 +23,11 @@ pub enum PkgSubCommand {
     Remove,
 }
 
-pub async fn handle_pkg(ctx: Config, command: PkgCommand) {
+pub async fn handle_pkg(ctx: Config, command: PkgCommand) -> ExitCode {
     match command.subcommand {
         PkgSubCommand::Add => {}
         PkgSubCommand::List => println!("Listing packages"),
         PkgSubCommand::Remove => println!("Removing package"),
     }
+    ExitCode::FAILURE
 }

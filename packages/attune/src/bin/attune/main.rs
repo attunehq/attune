@@ -89,5 +89,4 @@ async fn main() -> ExitCode {
     match args.tool {
         ToolCommand::Apt(command) => cmd::apt::handle_apt(ctx, command).await,
     }
-    ExitCode::SUCCESS
 }

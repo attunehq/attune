@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -26,14 +28,14 @@ pub enum RepoSubCommand {
     Edit(edit::RepoEditCommand),
     /// Delete a repository
     #[command(visible_alias = "rm")]
-    Delete,
+    Delete(delete::RepoDeleteCommand),
 }
 
-pub async fn handle_repo(ctx: Config, command: RepoCommand) {
+pub async fn handle_repo(ctx: Config, command: RepoCommand) -> ExitCode {
     match command.subcommand {
         RepoSubCommand::Create(create) => create::run(ctx, create).await,
         RepoSubCommand::List(list) => list::run(ctx, list).await,
         RepoSubCommand::Edit(edit) => edit::run(ctx, edit).await,
-        RepoSubCommand::Delete => println!("Deleting repository"),
+        RepoSubCommand::Delete(delete) => delete::run(ctx, delete).await,
     }
 }

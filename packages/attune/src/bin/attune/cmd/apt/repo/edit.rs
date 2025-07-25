@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use axum::http::StatusCode;
 use clap::Args;
 use percent_encoding::percent_encode;
@@ -19,7 +21,7 @@ pub struct RepoEditCommand {
     new_name: Option<String>,
 }
 
-pub async fn run(ctx: Config, command: RepoEditCommand) {
+pub async fn run(ctx: Config, command: RepoEditCommand) -> ExitCode {
     let res = ctx
         .client
         .put(
@@ -46,6 +48,7 @@ pub async fn run(ctx: Config, command: RepoEditCommand) {
                 .await
                 .expect("Could not parse response");
             println!("Repository edited: {:?}", repo.result);
+            ExitCode::SUCCESS
         }
         _ => {
             let error = res
@@ -53,6 +56,7 @@ pub async fn run(ctx: Config, command: RepoEditCommand) {
                 .await
                 .expect("Could not parse error response");
             eprintln!("Error editing repository: {}", error.message);
+            ExitCode::FAILURE
         }
     }
 }

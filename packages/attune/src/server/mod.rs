@@ -75,7 +75,7 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             "/repositories",
             get(repo::list::handler).post(repo::create::handler),
         )
-        .route("/repositories/{repository_name}", put(repo::edit::handler));
+        .route("/repositories/{repository_name}", put(repo::edit::handler).delete(repo::delete::handler));
     Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())

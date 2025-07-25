@@ -44,47 +44,28 @@ pub async fn handler(
         }
     };
 
-    let mut tx = state.db.begin().await.unwrap();
-
-    let existing = sqlx::query!(
+    let updated = sqlx::query!(
         r#"
-        SELECT id, name
-        FROM debian_repository
+        UPDATE debian_repository
+        SET name = $3
         WHERE tenant_id = $1 AND name = $2
-        LIMIT 1
+        RETURNING id, name
         "#,
         tenant_id.0,
         &name,
+        req.new_name.unwrap_or(name.to_string()),
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&state.db)
     .await
     .unwrap();
-    let updated = match existing {
-        Some(existing) => sqlx::query!(
-            r#"
-            UPDATE debian_repository
-            SET name = $1
-            WHERE id = $2
-            RETURNING id, name
-            "#,
-            req.new_name.unwrap_or(existing.name),
-            existing.id,
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap(),
-        None => {
-            return Err(ErrorResponse::new(
-                StatusCode::NOT_FOUND,
-                "REPO_NOT_FOUND".to_string(),
-                "repository not found".to_string(),
-            ));
-        }
-    };
-
-    tx.commit().await.unwrap();
-
-    Ok(Json(EditRepositoryResponse {
-        result: Repository { name: updated.name },
-    }))
+    match updated {
+        Some(updated) => Ok(Json(EditRepositoryResponse {
+            result: Repository { name: updated.name },
+        })),
+        None => Err(ErrorResponse::new(
+            StatusCode::NOT_FOUND,
+            "REPO_NOT_FOUND".to_string(),
+            "repository not found".to_string(),
+        )),
+    }
 }

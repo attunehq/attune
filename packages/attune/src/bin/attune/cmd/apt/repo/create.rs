@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use axum::http::StatusCode;
 use clap::Args;
 
@@ -13,7 +15,7 @@ pub struct RepoCreateCommand {
     name: String,
 }
 
-pub async fn run(ctx: Config, command: RepoCreateCommand) {
+pub async fn run(ctx: Config, command: RepoCreateCommand) -> ExitCode {
     let res = ctx
         .client
         .post(ctx.endpoint.join("/api/v0/repositories").unwrap())
@@ -28,6 +30,7 @@ pub async fn run(ctx: Config, command: RepoCreateCommand) {
                 .await
                 .expect("Could not parse response");
             println!("Repository created: {}", repo.name);
+            ExitCode::SUCCESS
         }
         _ => {
             let error = res
@@ -35,6 +38,7 @@ pub async fn run(ctx: Config, command: RepoCreateCommand) {
                 .await
                 .expect("Could not parse error response");
             eprintln!("Error creating repository: {}", error.message);
+            ExitCode::FAILURE
         }
     }
 }

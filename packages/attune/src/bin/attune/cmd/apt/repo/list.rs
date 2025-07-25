@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use axum::http::StatusCode;
 use clap::Args;
 use tabled::settings::Style;
@@ -11,7 +13,7 @@ use attune::{
 #[derive(Args)]
 pub struct RepoListCommand {}
 
-pub async fn run(ctx: Config, _command: RepoListCommand) {
+pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {
     let res = ctx
         .client
         .get(ctx.endpoint.join("/api/v0/repositories").unwrap())
@@ -26,13 +28,14 @@ pub async fn run(ctx: Config, _command: RepoListCommand) {
                 .await
                 .expect("Could not parse response");
             let mut builder = tabled::builder::Builder::new();
-            builder.push_record(["Repositories".to_string()]);
+            builder.push_record(["Name".to_string()]);
             for repo in repo.repositories {
                 builder.push_record([&repo.name]);
             }
             let mut table = builder.build();
-            table.with(Style::markdown());
+            table.with(Style::modern());
             println!("{table}");
+            ExitCode::SUCCESS
         }
         _ => {
             let error = res
@@ -40,6 +43,7 @@ pub async fn run(ctx: Config, _command: RepoListCommand) {
                 .await
                 .expect("Could not parse error response");
             eprintln!("Error listing repositories: {}", error.message);
+            ExitCode::FAILURE
         }
     }
 }

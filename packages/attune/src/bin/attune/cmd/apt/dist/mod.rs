@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -30,11 +32,12 @@ pub enum DistSubCommand {
     Delete,
 }
 
-pub async fn handle_dist(ctx: Config, command: DistCommand) {
+pub async fn handle_dist(ctx: Config, command: DistCommand) -> ExitCode {
     match command.subcommand {
         DistSubCommand::Create => {}
         DistSubCommand::List => println!("Listing distributions"),
         DistSubCommand::Edit => println!("Editing distribution"),
         DistSubCommand::Delete => println!("Deleting distribution"),
     }
+    ExitCode::FAILURE
 }

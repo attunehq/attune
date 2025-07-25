@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -29,7 +31,7 @@ pub enum AptSubcommand {
     Package(pkg::PkgCommand),
 }
 
-pub async fn handle_apt(ctx: Config, command: AptCommand) {
+pub async fn handle_apt(ctx: Config, command: AptCommand) -> ExitCode {
     match command.subcommand {
         AptSubcommand::Repository(repo) => repo::handle_repo(ctx, repo).await,
         AptSubcommand::Distribution(dist) => dist::handle_dist(ctx, dist).await,
