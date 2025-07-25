@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "types": [
+            "node"
+        ],
+        "target": "ES2024",
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "moduleResolution": "node"
+    }
+}
