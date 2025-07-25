@@ -7,7 +7,7 @@ use axum::{
     Router,
     extract::{DefaultBodyLimit, FromRef},
     handler::Handler,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
@@ -75,22 +75,7 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             "/repositories",
             get(repo::list::handler).post(repo::create::handler),
         )
-        .route(
-            "/repositories/{repository_id}/indexes",
-            get(sign::generate_indexes),
-        )
-        .route(
-            "/repositories/{repository_id}/sync",
-            post(sign::sync_repository),
-        )
-        .route(
-            "/repositories/{repository_id}/packages",
-            get(pkg::list).post(pkg::add.layer(DefaultBodyLimit::disable())),
-        )
-        .route(
-            "/repositories/{repository_id}/packages/{package_id}",
-            delete(pkg::remove),
-        );
+        .route("/repositories/{repository_name}", put(repo::edit::handler));
     Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())

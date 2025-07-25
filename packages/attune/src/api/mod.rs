@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -32,3 +33,17 @@ impl IntoResponse for ErrorResponse {
         (self.status, body).into_response()
     }
 }
+
+// This is taken from reqwest, see: https://docs.rs/url/2.5.4/src/url/parser.rs.html#38
+pub const PATH_SEGMENT_PERCENT_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'<')
+    .add(b'>')
+    .add(b'`')
+    .add(b'#')
+    .add(b'?')
+    .add(b'{')
+    .add(b'}')
+    .add(b'/')
+    .add(b'%');
