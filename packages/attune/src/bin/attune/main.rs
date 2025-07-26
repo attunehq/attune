@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use attune::{api::ErrorResponse, server::compatibility::CompatibilityResponse};
 use axum::http::StatusCode;
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 
 mod cmd;
 mod config;
@@ -58,11 +59,7 @@ async fn main() -> ExitCode {
             match compatibility {
                 CompatibilityResponse::Ok => {}
                 CompatibilityResponse::WarnUpgrade { latest } => {
-                    // TODO: Colorize these responses and make them look nice.
-                    eprintln!(
-                        "Warning: CLI version is outdated. Please upgrade to version {:?}.",
-                        latest
-                    );
+                    eprintln!("{} {}\n", "New version of attune available".blue(), latest);
                 }
                 CompatibilityResponse::Incompatible { minimum } => {
                     eprintln!(
@@ -86,6 +83,7 @@ async fn main() -> ExitCode {
         }
     }
 
+    // Execute subcommand.
     match args.tool {
         ToolCommand::Apt(command) => cmd::apt::handle_apt(ctx, command).await,
     }
