@@ -1,7 +1,7 @@
 pub mod compatibility;
 pub mod pkg;
 pub mod repo;
-pub mod sign;
+// pub mod sign;
 
 use axum::{
     Router,
@@ -75,7 +75,13 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             "/repositories",
             get(repo::list::handler).post(repo::create::handler),
         )
-        .route("/repositories/{repository_name}", put(repo::edit::handler).delete(repo::delete::handler));
+        .route(
+            "/repositories/{repository_name}",
+            put(repo::edit::handler).delete(repo::delete::handler),
+        )
+        // .route("/repositories/{repository_name}/index", get(repo::index::generate::handler).post(repo::index::sign::handler))
+        .route("/packages", post(pkg::upload::handler.layer(DefaultBodyLimit::disable())))
+        .route("/packages/{package_sha256sum}", get(pkg::info::handler));
     Router::new()
         .nest("/api/v0", api)
         .layer(TraceLayer::new_for_http())

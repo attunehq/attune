@@ -4,6 +4,8 @@ use clap::{Args, Subcommand};
 
 use crate::config::Config;
 
+mod add;
+
 #[derive(Args)]
 pub struct PkgCommand {
     #[command(subcommand)]
@@ -14,7 +16,7 @@ pub struct PkgCommand {
 pub enum PkgSubCommand {
     /// Upload a new package
     #[command(visible_aliases = ["new", "upload"])]
-    Add,
+    Add(add::PkgAddCommand),
     /// Show information about packages
     #[command(visible_alias = "ls")]
     List,
@@ -25,9 +27,14 @@ pub enum PkgSubCommand {
 
 pub async fn handle_pkg(ctx: Config, command: PkgCommand) -> ExitCode {
     match command.subcommand {
-        PkgSubCommand::Add => {}
-        PkgSubCommand::List => println!("Listing packages"),
-        PkgSubCommand::Remove => println!("Removing package"),
+        PkgSubCommand::Add(add) => add::run(ctx, add).await,
+        PkgSubCommand::List => {
+            println!("Listing packages");
+            ExitCode::FAILURE
+        }
+        PkgSubCommand::Remove => {
+            println!("Removing package");
+            ExitCode::FAILURE
+        }
     }
-    ExitCode::FAILURE
 }

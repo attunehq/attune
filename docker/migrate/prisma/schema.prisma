@@ -23,6 +23,7 @@ model AttuneTenant {
   subdomain String @unique
 
   repositories DebianRepository[]
+  packages     DebianRepositoryPackage[]
   api_tokens   AttuneTenantAPIToken[]
 
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -105,8 +106,7 @@ model DebianRepositoryRelease {
   // See https://wiki.debian.org/DebianRepository/Format#Overview:~:text=The%20distribution%20part,this%20enforced%20anyhow%3F
   distribution String
 
-  // Metadata for generating the Release file. Note that these fields track the
-  // _working_ state of the release, not the currently published release.
+  // Metadata for generating the Release file.
   description String?
   origin      String?
   label       String?
@@ -116,15 +116,19 @@ model DebianRepositoryRelease {
   suite       String
   codename    String
 
-  // The contents of the `Release` file. Similarly, these track the working
-  // state and not the currently published values.
+  // The contents of the `Release` file.
   contents    String
-  fingerprint String
   clearsigned String?
   detached    String?
 
-  // TODO: Would it be useful to track things like `last_generated_at` for the
-  // sake of index generation optimization?
+  // The `Release` file content's "fingerprint", which is just the SHA-256 hash
+  // of the contents.
+  //
+  // Index generation and index signing occurs in two separate steps that can't
+  // be performed transactionally since signing occurs on the client. We use
+  // this field to detect when the current index state has changed between
+  // generation and signing, and if so, retry the index signing.
+  fingerprint String
 
   // Each release's contents are divided into multiple components.
   components DebianRepositoryComponent[]
@@ -137,9 +141,6 @@ model DebianRepositoryRelease {
   @@map("debian_repository_release")
 }
 
-// TODO: Add a set of tables that tracks published releases? That way we can
-// diff between them and revert if necessary.
-
 // Each release is divided into components, each of which has its own
 // architecture-specific indexes.
 model DebianRepositoryComponent {
@@ -149,7 +150,7 @@ model DebianRepositoryComponent {
 
   name String
 
-  packages         DebianRepositoryPackage[]
+  packages         DebianRepositoryComponentPackage[]
   packages_indexes DebianRepositoryPackagesIndex[]
 
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -160,20 +161,36 @@ model DebianRepositoryComponent {
   @@map("debian_repository_component")
 }
 
+// A join table between components and packages.
+model DebianRepositoryComponentPackage {
+  component_id BigInt
+  component    DebianRepositoryComponent @relation(fields: [component_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+  package_id   BigInt
+  package      DebianRepositoryPackage   @relation(fields: [package_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+
+  // Each component has its own "pool" of packages, so a package may have
+  // multiple pool filenames if it is uploaded to multiple components.
+  filename String
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  @@id([component_id, package_id])
+  @@map("debian_repository_component_package")
+}
+
 // Each component contains individual Debian packages.
 model DebianRepositoryPackage {
-  id           BigInt                       @id @default(autoincrement())
-  // TODO: For now, when the same package is uploaded to two different
-  // components, it's counted as two different packages with different filenames
-  // (using the standard pool format). Is there a way we can avoid
-  // double-storing these packages e.g. using `Filename: ` in the Packages
-  // index?
-  component_id BigInt
-  component    DebianRepositoryComponent    @relation(fields: [component_id], references: [id], onUpdate: Cascade, onDelete: Cascade)
+  id           BigInt                             @id @default(autoincrement())
+  components   DebianRepositoryComponentPackage[]
   architecture DebianRepositoryArchitecture
 
-  // If set, this package is being newly added or removed in the next publish.
-  staging_status DebianRepositoryPackageStagingStatus?
+  // Packages also have tenants that own them, because packages can stand alone
+  // as a top-level entity for a tenant. Equivalently: a tenant might have
+  // packages that are not in any repository, so we need to mark which packages
+  // are owned directly by a tenant.
+  tenant_id BigInt
+  tenant    AttuneTenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   // For a list of available fields, see:
   // 1. https://wiki.debian.org/DebianRepository/Format#A.22Packages.22_Indices
@@ -198,7 +215,6 @@ model DebianRepositoryPackage {
   provides   String?
   replaces   String?
 
-  filename  String
   size      BigInt
   md5sum    String
   sha1sum   String
@@ -207,10 +223,16 @@ model DebianRepositoryPackage {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @updatedAt @db.Timestamptz(6)
 
-  // Within the same component, releases do not contain duplicate packages
-  // with the same (name, version, arch). See:
+  // Packages are uniquely identified by their (name, version, arch). See:
   // https://wiki.debian.org/DebianRepository/Format#Duplicate_Packages
-  @@unique([component_id, package, version, architecture])
+  @@unique([tenant_id, package, version, architecture])
+  // This index is a sanity check, since (package, version, architecture)
+  // uniqueness should be sufficient to ensure content uniqueness (i.e. it is
+  // impossible to upload two packages with the sha256sum that do not also have
+  // the same (package, version, architecture), since the metadata fields are
+  // one of the things hashed to produced the checksum and changing the metadata
+  // would therefore change the checksum).
+  @@unique([tenant_id, sha256sum])
   @@map("debian_repository_package")
 }
 
@@ -255,14 +277,6 @@ enum DebianRepositoryArchitecture {
   @@map("debian_repository_architecture")
 }
 
-// Changes to be resolved during the next publish.
-enum DebianRepositoryPackageStagingStatus {
-  add
-  remove
-
-  @@map("debian_repository_package_staging_status")
-}
-
 // Different types of compression supported by Debian repository indexes. Each
 // instance of an index file (i.e. with the same contents, but a different
 // compression scheme) is saved in the database as a separate index, because we
@@ -279,8 +293,7 @@ enum DebianRepositoryIndexCompression {
   @@map("debian_repository_index_compression")
 }
 
-// A Packages index file. This table tracks the _working_ state of indexes, and
-// may not necessarily contain the data of the indexes currently published.
+// A Packages index file.
 //
 // For more details, see:
 // - https://wiki.debian.org/DebianRepository/Format#A.22Packages.22_Indices
