@@ -3,9 +3,12 @@
         "types": [
             "node"
         ],
-        "target": "ES2024",
+        "target": "esnext",
         "outDir": "./dist",
         "rootDir": "./src",
-        "moduleResolution": "node"
+        "moduleResolution": "node",
+        "allowImportingTsExtensions": true,
+        "emitDeclarationOnly": true,
+        "composite": true
     }
 }

@@ -9,7 +9,7 @@
   "scripts": {
     "migrate": "prisma migrate deploy",
     "migrate:new": "prisma migrate dev",
-    "migrate:rds": "node ./src/migrate_rds.ts",
+    "migrate:authauth": "node --disable-warning=ExperimentalWarning ./src/main.ts",
     "reset": "prisma migrate reset",
     "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma"
   },
@@ -17,5 +17,6 @@
     "@aws-sdk/rds-signer": "^3.848.0",
     "@prisma/client": "^6.10.1",
     "pg-connection-string": "^2.9.1"
-  }
+  },
+  "type": "module"
 }
