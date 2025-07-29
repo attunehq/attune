@@ -1,5 +1,3 @@
-minor change to trigger a CI rebuild, removing in the next commit
-
 # Attune
 [![GitHub license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/attunehq/attune/blob/main/LICENSE)
 
