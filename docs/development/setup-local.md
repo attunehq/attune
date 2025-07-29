@@ -1,5 +1,4 @@
-
-# attune local dev setup
+# Attune local dev setup
 
 This document walks though setting up Attune to run locally outside of Docker,
 and then testing that it is working end-to-end using a Docker container.
