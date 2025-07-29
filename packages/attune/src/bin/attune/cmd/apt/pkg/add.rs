@@ -1,11 +1,14 @@
-use std::process::ExitCode;
+use std::{
+    io::{Read, Write, pipe},
+    process::{Command, ExitCode, Stdio},
+};
 
 use axum::http::StatusCode;
 use clap::Args;
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::config::Config;
 use attune::{
@@ -30,6 +33,10 @@ pub struct PkgAddCommand {
     /// Component to add the package to
     #[arg(long, short)]
     component: String,
+
+    /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
+    #[arg(long, short)]
+    key_id: String,
 
     // TODO: Implement.
     // /// Overwrite existing package, even if different
@@ -176,13 +183,14 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         .send()
         .await
         .expect("Could not send API request");
-    match res.status() {
+    let index = match res.status() {
         StatusCode::OK => {
             let res = res
                 .json::<GenerateIndexResponse>()
                 .await
                 .expect("Could not parse response");
             debug!(index = ?res.release, "generated index to sign");
+            res.release
         }
         status => {
             let body = res.text().await.expect("Could not read response");
@@ -192,7 +200,77 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             eprintln!("Error adding package to index: {}", error.message);
             return ExitCode::FAILURE;
         }
+    };
+
+    // Sign package locally.
+    debug!(?index, "clearsigning index");
+    let (reader, mut writer) = pipe().expect("could not create pipe");
+    trace!("spawning gpg");
+    let mut clearsigner = Command::new("gpg")
+        .arg("--clearsign")
+        .arg("--local-user")
+        .arg(&command.key_id)
+        .arg("--batch")
+        .arg("--yes")
+        .stdin(reader)
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("could not spawn gpg command");
+    trace!("gpg spawned");
+    writer
+        .write_all(index.as_bytes())
+        .expect("could not write to pipe");
+    writer.flush().expect("could not flush pipe");
+    trace!("wrote index to pipe");
+    drop(writer);
+    let status = clearsigner.wait().expect("gpg failed to finish");
+    if !status.success() {
+        eprintln!("Error clearsigning index: {}", status);
+        return ExitCode::FAILURE;
     }
+    let mut clearsigned = String::new();
+    clearsigner
+        .stdout
+        .unwrap()
+        .read_to_string(&mut clearsigned)
+        .expect("could not read clearsigned index");
+    debug!(?clearsigned, "clearsigned index");
+
+    debug!(?index, "detachsigning index");
+    let (reader, mut writer) = pipe().expect("could not create pipe");
+    trace!("spawning gpg");
+    let mut detachsigner = Command::new("gpg")
+        .arg("--detach-sign")
+        .arg("--armor")
+        .arg("--local-user")
+        .arg(&command.key_id)
+        .arg("--batch")
+        .arg("--yes")
+        .stdin(reader)
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("could not spawn gpg command");
+    trace!("gpg spawned");
+    writer
+        .write_all(index.as_bytes())
+        .expect("could not write to pipe");
+    writer.flush().expect("could not flush pipe");
+    trace!("wrote index to pipe");
+    drop(writer);
+    let status = detachsigner.wait().expect("gpg failed to finish");
+    if !status.success() {
+        eprintln!("Error detachsigning index: {}", status);
+        return ExitCode::FAILURE;
+    }
+    let mut detachsigned = String::new();
+    detachsigner
+        .stdout
+        .unwrap()
+        .read_to_string(&mut detachsigned)
+        .expect("could not read detachsigned index");
+    debug!(?detachsigned, "detachsigned index");
+
+    // Submit signatures.
 
     todo!()
 }
