@@ -82,7 +82,7 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         )
         .route(
             "/repositories/{repository_name}/index",
-            get(repo::index::generate::handler),
+            get(repo::index::generate::handler).post(repo::index::sign::handler),
         )
         .route(
             "/packages",

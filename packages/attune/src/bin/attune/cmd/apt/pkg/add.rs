@@ -1,14 +1,12 @@
-use std::{
-    io::{Read, Write, pipe},
-    process::{Command, ExitCode, Stdio},
-};
+use std::process::ExitCode;
 
 use axum::http::StatusCode;
 use clap::Args;
+use gpgme::{Context, Protocol};
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
-use tracing::{debug, trace};
+use tracing::debug;
 
 use crate::config::Config;
 use attune::{
@@ -16,7 +14,10 @@ use attune::{
     server::{
         pkg::{info::PackageInfoResponse, upload::PackageUploadResponse},
         repo::{
-            index::generate::{GenerateIndexRequest, GenerateIndexResponse, IndexChange},
+            index::{
+                generate::{GenerateIndexRequest, GenerateIndexResponse, IndexChange},
+                sign::{SignIndexRequest, SignIndexResponse},
+            },
             info::RepositoryInfoResponse,
         },
     },
@@ -160,6 +161,13 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
 
     // Add the package to the index, retrying if needed.
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
+    let generate_index_request = GenerateIndexRequest {
+        repository: command.repo.clone(),
+        distribution: command.distribution.clone(),
+        component: command.component.clone(),
+        package_sha256sum: sha256sum.clone(),
+        change: IndexChange::Add,
+    };
     let res = ctx
         .client
         .get(
@@ -173,13 +181,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
                 )
                 .unwrap(),
         )
-        .json(&GenerateIndexRequest {
-            repository: command.repo,
-            distribution: command.distribution,
-            component: command.component,
-            package_sha256sum: sha256sum,
-            change: IndexChange::Add,
-        })
+        .json(&generate_index_request)
         .send()
         .await
         .expect("Could not send API request");
@@ -202,75 +204,74 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         }
     };
 
-    // Sign package locally.
-    debug!(?index, "clearsigning index");
-    let (reader, mut writer) = pipe().expect("could not create pipe");
-    trace!("spawning gpg");
-    let mut clearsigner = Command::new("gpg")
-        .arg("--clearsign")
-        .arg("--local-user")
-        .arg(&command.key_id)
-        .arg("--batch")
-        .arg("--yes")
-        .stdin(reader)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("could not spawn gpg command");
-    trace!("gpg spawned");
-    writer
-        .write_all(index.as_bytes())
-        .expect("could not write to pipe");
-    writer.flush().expect("could not flush pipe");
-    trace!("wrote index to pipe");
-    drop(writer);
-    let status = clearsigner.wait().expect("gpg failed to finish");
-    if !status.success() {
-        eprintln!("Error clearsigning index: {}", status);
-        return ExitCode::FAILURE;
-    }
-    let mut clearsigned = String::new();
-    clearsigner
-        .stdout
-        .unwrap()
-        .read_to_string(&mut clearsigned)
-        .expect("could not read clearsigned index");
-    debug!(?clearsigned, "clearsigned index");
+    // Sign index locally.
+    debug!(?index, "signing index");
+    let mut gpg = Context::from_protocol(Protocol::OpenPgp).expect("could not create gpg context");
+    gpg.set_armor(true);
+    let key = gpg
+        .find_secret_keys(vec![command.key_id.as_str()])
+        .expect("could not find secret key")
+        .next()
+        .expect("could not find secret key")
+        .expect("could not find secret key");
+    gpg.add_signer(&key).expect("could not add signer");
+    // TODO: Configure passphrase provider?
 
-    debug!(?index, "detachsigning index");
-    let (reader, mut writer) = pipe().expect("could not create pipe");
-    trace!("spawning gpg");
-    let mut detachsigner = Command::new("gpg")
-        .arg("--detach-sign")
-        .arg("--armor")
-        .arg("--local-user")
-        .arg(&command.key_id)
-        .arg("--batch")
-        .arg("--yes")
-        .stdin(reader)
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("could not spawn gpg command");
-    trace!("gpg spawned");
-    writer
-        .write_all(index.as_bytes())
-        .expect("could not write to pipe");
-    writer.flush().expect("could not flush pipe");
-    trace!("wrote index to pipe");
-    drop(writer);
-    let status = detachsigner.wait().expect("gpg failed to finish");
-    if !status.success() {
-        eprintln!("Error detachsigning index: {}", status);
-        return ExitCode::FAILURE;
-    }
-    let mut detachsigned = String::new();
-    detachsigner
-        .stdout
-        .unwrap()
-        .read_to_string(&mut detachsigned)
-        .expect("could not read detachsigned index");
+    let mut clearsigned = Vec::new();
+    gpg.sign_clear(index.as_bytes(), &mut clearsigned)
+        .expect("could not clearsign index");
+    let clearsigned =
+        String::from_utf8(clearsigned).expect("clearsigned index contained invalid characters");
+    debug!(?clearsigned, "clearsigned index");
+    let mut detachsigned = Vec::new();
+    gpg.sign_detached(index.as_bytes(), &mut detachsigned)
+        .expect("could not detach sign index");
+    let detachsigned =
+        String::from_utf8(detachsigned).expect("detachsigned index contained invalid characters");
     debug!(?detachsigned, "detachsigned index");
 
     // Submit signatures.
-
-    todo!()
+    //
+    // TODO: Implement retries on conflict.
+    debug!("submitting signatures");
+    let res = ctx
+        .client
+        .post(
+            ctx.endpoint
+                .join(
+                    format!(
+                        "/api/v0/repositories/{}/index",
+                        percent_encode(&command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+                    )
+                    .as_str(),
+                )
+                .unwrap(),
+        )
+        .json(&SignIndexRequest {
+            diff: generate_index_request,
+            clearsigned,
+            detachsigned,
+        })
+        .send()
+        .await
+        .expect("Could not send API request");
+    match res.status() {
+        StatusCode::OK => {
+            let _ = res
+                .json::<SignIndexResponse>()
+                .await
+                .expect("Could not parse response");
+            debug!("signed index");
+            ExitCode::SUCCESS
+        }
+        // TODO: Handle 409 status code to signal retry.
+        status => {
+            let body = res.text().await.expect("Could not read response");
+            debug!(?body, ?status, "error response");
+            let error = serde_json::from_str::<ErrorResponse>(&body)
+                .expect("Could not parse error response");
+            eprintln!("Error signing index: {}", error.message);
+            ExitCode::FAILURE
+        }
+    }
 }

@@ -13,6 +13,7 @@ colored.workspace = true
 clap.workspace = true
 debian-packaging.workspace = true
 digest.workspace = true
+gpgme.workspace = true
 hex.workspace = true
 inquire.workspace = true
 md-5.workspace = true
