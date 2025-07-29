@@ -38,7 +38,7 @@ jobs:
         run: rm -r ./packages/attune-ee
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.8.0
         with:
           cache-workspace-crates: true
           cache-all-crates: true
