@@ -34,14 +34,14 @@ jobs:
       - name: Install Rust
         run: rustup show
 
+      - name: Remove empty EE crate
+        run: rm -r ./packages/attune-ee
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
           cache-workspace-crates: true
           cache-all-crates: true
-
-      - name: Remove empty EE crate
-        run: rm -r ./packages/attune-ee
 
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release
