@@ -63,7 +63,8 @@ pub async fn handler(
         .await
         .unwrap();
 
-    // Load the package to be either added or removed.
+    // Load the package to be either added or removed. If it does not exist,
+    // return an error.
     let changed_package = match sqlx::query!(
         r#"
             SELECT
@@ -97,6 +98,29 @@ pub async fn handler(
         }
     };
 
+    // Load the repository. If it does not exist, return an error.
+    let repo = match sqlx::query!(r#"
+        SELECT id, name
+        FROM debian_repository
+        WHERE tenant_id = $1 AND name = $2
+        "#,
+        tenant_id.0,
+        req.repository
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .unwrap()
+    {
+        Some(repo) => repo,
+        None => {
+            return Err(ErrorResponse::new(
+                StatusCode::NOT_FOUND,
+                "REPOSITORY_NOT_FOUND".to_string(),
+                "repository not found".to_string(),
+            ));
+        }
+    };
+
     // Load the release. Note that the release may not exist if no packages have
     // been added to this distribution.
     let release = sqlx::query_as!(Release, r#"
@@ -108,17 +132,13 @@ pub async fn handler(
             debian_repository_release.suite,
             debian_repository_release.codename,
             debian_repository_release.description
-        FROM
-            debian_repository
-            JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id
+        FROM debian_repository_release
         WHERE
-            debian_repository.tenant_id = $1
-            AND debian_repository.name = $2
-            AND debian_repository_release.distribution = $3
+            debian_repository_release.repository_id = $1
+            AND debian_repository_release.distribution = $2
         LIMIT 1
         "#,
-        tenant_id.0,
-        repo_name,
+        repo.id,
         req.distribution,
     )
     .fetch_optional(&mut *tx)

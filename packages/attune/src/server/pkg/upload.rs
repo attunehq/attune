@@ -73,7 +73,7 @@ pub async fn handler(
         .unwrap();
 
     // Insert the package row into the database. At this point, integrity checks
-    // may cause the upload to fail.
+    // may cause the upload to fail (e.g. if this package already exists).
     insert_package(
         &mut *tx,
         tenant_id,
@@ -92,6 +92,7 @@ pub async fn handler(
         .bucket(&state.s3_bucket_name)
         .key(format!("packages/{}", hashes.sha256sum))
         .body(value.into())
+        .content_md5(hashes.md5sum)
         .send()
         .await
         .unwrap();
@@ -99,6 +100,13 @@ pub async fn handler(
     // Commit the transaction. This must occur after the package is uploaded to
     // S3 so that a handler crash does not leave us in a state where the row
     // exists but the file is missing.
+    //
+    // The transaction may still abort at this time if a concurrent package
+    // upload has inserted the same package. This should be extremely unlikely,
+    // but will not leave us in a corrupted state. At least one of the
+    // transactions will successfully record the new package, and we know the
+    // package was successfully uploaded to S3 because the upload completed with
+    // the checksum header.
     tx.commit().await.unwrap();
 
     Ok(Json(PackageUploadResponse {
