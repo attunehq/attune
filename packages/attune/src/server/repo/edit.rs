@@ -3,11 +3,14 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
+use crate::{
+    api::ErrorResponse,
+    auth::TenantID,
+    server::{ServerState, repo::decode_repo_name},
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Repository {
@@ -33,16 +36,7 @@ pub async fn handler(
     Json(req): Json<EditRepositoryRequest>,
 ) -> Result<Json<EditRepositoryResponse>, ErrorResponse> {
     // The repository name in the path is percent-encoded.
-    let name = match percent_decode_str(name.as_str()).decode_utf8() {
-        Ok(name) => name,
-        Err(err) => {
-            return Err(ErrorResponse::new(
-                StatusCode::BAD_REQUEST,
-                "INVALID_REPO_NAME".to_string(),
-                format!("Invalid repository name: could not percent decode: {}", err).to_string(),
-            ));
-        }
-    };
+    let name = decode_repo_name(&name)?;
 
     let updated = sqlx::query!(
         r#"

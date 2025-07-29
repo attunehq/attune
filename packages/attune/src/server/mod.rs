@@ -77,10 +77,15 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         )
         .route(
             "/repositories/{repository_name}",
-            put(repo::edit::handler).delete(repo::delete::handler),
+            get(repo::info::handler)
+                .put(repo::edit::handler)
+                .delete(repo::delete::handler),
         )
         // .route("/repositories/{repository_name}/index", get(repo::index::generate::handler).post(repo::index::sign::handler))
-        .route("/packages", post(pkg::upload::handler.layer(DefaultBodyLimit::disable())))
+        .route(
+            "/packages",
+            post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
+        )
         .route("/packages/{package_sha256sum}", get(pkg::info::handler));
     Router::new()
         .nest("/api/v0", api)
@@ -88,6 +93,9 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         // FIXME: Use a custom ResponseForPanic so that the response body is a
         // valid `api::ErrorResponse` on 500, which is what all the CLI parsing
         // logic expects on a non-200 response.
+        //
+        // FIXME: We also need to return valid `api::ErrorResponse` on 404s,
+        // 405s, etc.
         .layer(CatchPanicLayer::new())
         .with_state(state)
 }

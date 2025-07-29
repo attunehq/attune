@@ -4,6 +4,9 @@ use attune::{api::ErrorResponse, server::compatibility::CompatibilityResponse};
 use axum::http::StatusCode;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use tracing_subscriber::{
+    fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
+};
 
 mod cmd;
 mod config;
@@ -39,6 +42,22 @@ enum ToolCommand {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // Set up logging.
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_writer(std::io::stderr)
+                .pretty(),
+        )
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     let args = Args::parse();
 
     let ctx = config::Config::new(args.api_token, args.api_endpoint);

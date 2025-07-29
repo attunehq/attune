@@ -24,7 +24,7 @@ pub struct PackageUploadResponse {
 }
 
 #[axum::debug_handler]
-#[instrument(skip(state))]
+#[instrument(skip(state, multipart))]
 pub async fn handler(
     State(state): State<ServerState>,
     tenant_id: TenantID,
@@ -74,14 +74,27 @@ pub async fn handler(
 
     // Insert the package row into the database. At this point, integrity checks
     // may cause the upload to fail.
-    insert_package(&mut *tx, tenant_id, control_file, &hashes, size)
-        .await
-        .unwrap();
+    insert_package(
+        &mut *tx,
+        tenant_id,
+        &state.s3_bucket_name,
+        control_file,
+        &hashes,
+        size,
+    )
+    .await
+    .unwrap();
 
     // Upload the package to S3.
-    todo!();
-    // state.s3
-    //     .put_object();
+    state
+        .s3
+        .put_object()
+        .bucket(&state.s3_bucket_name)
+        .key(format!("packages/{}", hashes.sha256sum))
+        .body(value.into())
+        .send()
+        .await
+        .unwrap();
 
     // Commit the transaction. This must occur after the package is uploaded to
     // S3 so that a handler crash does not leave us in a state where the row
@@ -148,6 +161,7 @@ async fn calculate_hashes(value: &Bytes) -> Hashes {
 async fn insert_package<'c, E>(
     executor: E,
     tenant_id: TenantID,
+    s3_bucket_name: &str,
     control_file: BinaryPackageControlFile<'static>,
     hashes: &Hashes,
     size: i64,
@@ -175,6 +189,8 @@ where
         r#"
         INSERT INTO debian_repository_package (
             tenant_id,
+            s3_bucket,
+
             package,
             version,
             architecture,
@@ -205,28 +221,30 @@ where
         VALUES (
             $1,
             $2,
-            $3,
-            $4::debian_repository_architecture,
 
-            $5,
+            $3,
+            $4,
+            $5::debian_repository_architecture,
+
             $6,
             $7,
             $8,
             $9,
             $10,
-
             $11,
 
             $12,
+
             $13,
             $14,
             $15,
             $16,
-
             $17,
+
             $18,
             $19,
             $20,
+            $21,
 
             NOW(),
             NOW()
@@ -234,6 +252,7 @@ where
         RETURNING id
         "#,
         tenant_id.0,
+        s3_bucket_name,
         package_name,
         &version,
         architecture as _,

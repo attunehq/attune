@@ -182,6 +182,10 @@ model DebianRepositoryComponentPackage {
 // Each component contains individual Debian packages.
 model DebianRepositoryPackage {
   id           BigInt                             @id @default(autoincrement())
+  // Note that this representation permits nonsensical constructions (e.g. a
+  // package being a part of components in different repositories, or in a
+  // repository different from the package's repository). The application layer
+  // is responsible for ensuring that this does not occur.
   components   DebianRepositoryComponentPackage[]
   architecture DebianRepositoryArchitecture
 
@@ -191,6 +195,10 @@ model DebianRepositoryPackage {
   // are owned directly by a tenant.
   tenant_id BigInt
   tenant    AttuneTenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // The S3 bucket in which the package file object is stored. The path in this
+  // bucket is fixed to `<prefix>/packages/<sha256sum>`.
+  s3_bucket String
 
   // For a list of available fields, see:
   // 1. https://wiki.debian.org/DebianRepository/Format#A.22Packages.22_Indices

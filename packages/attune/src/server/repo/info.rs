@@ -13,40 +13,39 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct DeleteRepositoryRequest {}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DeleteRepositoryResponse {}
+pub struct RepositoryInfoResponse {
+    pub name: String,
+}
 
 #[axum::debug_handler]
 #[instrument(skip(state))]
 pub async fn handler(
     State(state): State<ServerState>,
     tenant_id: TenantID,
-    Path(name): Path<String>,
-    Json(req): Json<DeleteRepositoryRequest>,
-) -> Result<Json<DeleteRepositoryResponse>, ErrorResponse> {
+    Path(repository_name): Path<String>,
+) -> Result<Json<RepositoryInfoResponse>, ErrorResponse> {
     // The repository name in the path is percent-encoded.
-    let name = decode_repo_name(&name)?;
+    let repository_name = decode_repo_name(&repository_name)?;
 
-    let deleted = sqlx::query!(
+    let repo = sqlx::query!(
         r#"
-        DELETE FROM debian_repository
+        SELECT name
+        FROM debian_repository
         WHERE tenant_id = $1 AND name = $2
+        LIMIT 1
         "#,
         tenant_id.0,
-        &name,
+        repository_name,
     )
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await
     .unwrap();
-    if deleted.rows_affected() > 0 {
-        Ok(Json(DeleteRepositoryResponse {}))
-    } else {
-        Err(ErrorResponse::new(
+    match repo {
+        Some(repo) => Ok(Json(RepositoryInfoResponse { name: repo.name })),
+        None => Err(ErrorResponse::new(
             StatusCode::NOT_FOUND,
             "REPO_NOT_FOUND".to_string(),
             "repository not found".to_string(),
-        ))
+        )),
     }
 }
