@@ -48,8 +48,6 @@ async fn main() {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    tracing::info!("minor change to trigger a ci rebuild");
-
     // Parse CLI arguments.
     let args = Args::parse();
 
