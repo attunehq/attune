@@ -121,15 +121,6 @@ model DebianRepositoryRelease {
   clearsigned String?
   detached    String?
 
-  // The `Release` file content's "fingerprint", which is just the SHA-256 hash
-  // of the contents.
-  //
-  // Index generation and index signing occurs in two separate steps that can't
-  // be performed transactionally since signing occurs on the client. We use
-  // this field to detect when the current index state has changed between
-  // generation and signing, and if so, retry the index signing.
-  fingerprint String
-
   // Each release's contents are divided into multiple components.
   components DebianRepositoryComponent[]
 
