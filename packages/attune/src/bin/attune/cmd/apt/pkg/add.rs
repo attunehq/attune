@@ -10,8 +10,13 @@ use tracing::debug;
 use crate::config::Config;
 use attune::{
     api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
-    server::pkg::{info::PackageInfoResponse, upload::PackageUploadResponse},
-    server::repo::info::RepositoryInfoResponse,
+    server::{
+        pkg::{info::PackageInfoResponse, upload::PackageUploadResponse},
+        repo::{
+            index::generate::{GenerateIndexRequest, GenerateIndexResponse, IndexChange},
+            info::RepositoryInfoResponse,
+        },
+    },
 };
 
 #[derive(Args)]
@@ -93,9 +98,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         .client
         .get(
             ctx.endpoint
-                .join("/api/v0/packages/")
-                .unwrap()
-                .join(&sha256sum)
+                .join(format!("/api/v0/packages/{}", sha256sum).as_str())
                 .unwrap(),
         )
         .send()
@@ -150,6 +153,46 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
 
     // Add the package to the index, retrying if needed.
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
+    let res = ctx
+        .client
+        .get(
+            ctx.endpoint
+                .join(
+                    format!(
+                        "/api/v0/repositories/{}/index",
+                        percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+                    )
+                    .as_str(),
+                )
+                .unwrap(),
+        )
+        .json(&GenerateIndexRequest {
+            repository: command.repo,
+            distribution: command.distribution,
+            component: command.component,
+            package_sha256sum: sha256sum,
+            change: IndexChange::Add,
+        })
+        .send()
+        .await
+        .expect("Could not send API request");
+    match res.status() {
+        StatusCode::OK => {
+            let res = res
+                .json::<GenerateIndexResponse>()
+                .await
+                .expect("Could not parse response");
+            debug!(index = ?res.release, "generated index to sign");
+        }
+        status => {
+            let body = res.text().await.expect("Could not read response");
+            debug!(?body, ?status, "error response");
+            let error = serde_json::from_str::<ErrorResponse>(&body)
+                .expect("Could not parse error response");
+            eprintln!("Error adding package to index: {}", error.message);
+            return ExitCode::FAILURE;
+        }
+    }
 
     todo!()
 }

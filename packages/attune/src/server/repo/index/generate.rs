@@ -186,7 +186,7 @@ pub async fn handler(
     };
 
     // Generate the `Release` file for the distribution.
-    let release = {
+    let release_file = {
         // Load all other `Packages` indexes for the release.
         let packages_indexes = if let Some(ref release) = release {
             sqlx::query_as!(PackageIndexMetadata, r#"
@@ -224,14 +224,30 @@ pub async fn handler(
         // Add the new `Packages` index.
         let packages_indexes = packages_indexes.chain(once(changed_packages_index));
 
-        // FIXME: Shouldn't be unwrapping here, should instead generate a
-        // Release when it's missing.
-        render_release_file(release.unwrap(), packages_indexes)
+        // When the Release is missing, we use one with default values instead.
+        let release = match release {
+            Some(release) => release,
+            None => Release {
+                // HACK: Can set `id` to whatever since it isn't used in
+                // rendering.
+                id: 0,
+                description: None,
+                origin: None,
+                label: None,
+                version: None,
+                suite: req.distribution.clone(),
+                codename: req.distribution.clone(),
+            },
+        };
+
+        render_release_file(release, packages_indexes)
     };
 
     tx.commit().await.unwrap();
 
-    Ok(Json(GenerateIndexResponse { release }))
+    Ok(Json(GenerateIndexResponse {
+        release: release_file,
+    }))
 }
 
 struct Package {
