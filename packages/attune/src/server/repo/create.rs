@@ -53,6 +53,7 @@ pub async fn handler(
         ));
     }
 
+    // Insert repository row.
     let inserted = sqlx::query!(
         r#"
         INSERT INTO debian_repository (

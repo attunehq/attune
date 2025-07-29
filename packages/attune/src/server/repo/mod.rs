@@ -6,6 +6,7 @@ use crate::api::ErrorResponse;
 pub mod create;
 pub mod delete;
 pub mod edit;
+pub mod index;
 pub mod info;
 pub mod list;
 

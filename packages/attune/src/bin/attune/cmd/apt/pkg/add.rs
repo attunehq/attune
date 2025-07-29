@@ -150,5 +150,6 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
 
     // Add the package to the index, retrying if needed.
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
+
     todo!()
 }
