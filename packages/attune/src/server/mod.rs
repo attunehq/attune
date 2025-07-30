@@ -97,9 +97,7 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             "/packages",
             post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
         )
-        .route("/packages/{package_sha256sum}", get(pkg::info::handler))
-        .route("/_test/error", get(test_error))
-        .route("/_test/panic", get(test_panic));
+        .route("/packages/{package_sha256sum}", get(pkg::info::handler));
 
     // The intention of error handling middleware here is that:
     // - `handle_non_success` handles responses from handlers and axum itself, converting errors to `ErrorResponse`.
@@ -198,16 +196,4 @@ async fn handle_middleware_error(err: BoxError) -> ErrorResponse {
         String::from("HTTP_SERVER_ERROR_GENERIC"),
         format!("internal server error: {err}"),
     )
-}
-
-async fn test_error() -> Result<(), ErrorResponse> {
-    Err(ErrorResponse::new(
-        StatusCode::IM_A_TEAPOT,
-        String::from("HTTP_CLIENT_ERROR_GENERIC"),
-        String::from("some test error"),
-    ))
-}
-
-async fn test_panic() {
-    panic!("some test panic message");
 }
