@@ -23,42 +23,49 @@ use super::super::decode_repo_name;
 /// Example in apt sources.list:
 /// `deb https://example.com/debian bookworm main contrib`
 /// where "bookworm" is the distribution name.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Builder)]
 pub struct CreateDistributionRequest {
     /// The distribution identifier that will appear in the repository structure.
     /// For APT repositories, this appears in the URL path under `/dists/`.
     /// This is typically either the suite name (e.g., "stable") or codename (e.g., "bullseye").
     /// Example usage: `deb https://example.com/debian {name} main`
+    #[builder(into)]
     pub name: String,
 
     /// The suite name indicates the stability level or release channel.
     /// Common patterns include stability tiers (stable, testing, unstable) or
     /// update channels (release, updates, security).
     /// APT examples: "stable", "testing", "unstable", "oldstable", "experimental"
+    #[builder(into)]
     pub suite: String,
 
     /// The codename is a unique identifier for a specific release version.
     /// This provides version stability - tools can reference a specific release
     /// regardless of its current stability status.
     /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal", "jammy"
+    #[builder(into)]
     pub codename: String,
 
     /// Human-readable description of this distribution.
     /// APT example: "Debian 11 (bullseye) - Stable Release"
+    #[builder(into)]
     pub description: Option<String>,
 
     /// The organization or entity that produces this distribution.
     /// This appears in package manager output and helps users identify the source.
     /// Examples: "Debian", "Ubuntu", "ACME Corp"
+    #[builder(into)]
     pub origin: Option<String>,
 
     /// A label for categorizing the distribution.
     /// Often the same as origin, but can differ for sub-projects or specialized channels.
     /// Examples: "Debian", "Debian-Security", "Ubuntu"
+    #[builder(into)]
     pub label: Option<String>,
 
     /// The version number of this distribution release.
     /// APT examples: "11.0" for Debian 11, "22.04" for Ubuntu 22.04 LTS
+    #[builder(into)]
     pub version: Option<String>,
 }
 
@@ -72,7 +79,7 @@ pub struct CreateDistributionResponse {
     /// Unique database identifier for this distribution.
     /// Use this ID for subsequent operations like editing or deleting the distribution.
     pub id: i64,
-    
+
     /// The distribution name as stored, matching the request.
     /// This confirms the exact identifier that will appear in the repository structure.
     #[builder(into)]
