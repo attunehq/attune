@@ -135,18 +135,6 @@ async fn handle_non_success(request: Request, next: Next) -> Response {
             format!("method not allowed: {uri}"),
         )
         .into_response(),
-        status if status.is_client_error() => ErrorResponse::new(
-            status,
-            String::from("HTTP_CLIENT_ERROR_GENERIC"),
-            format!("client error: {status}"),
-        )
-        .into_response(),
-        status if status.is_server_error() => ErrorResponse::new(
-            status,
-            String::from("HTTP_SERVER_ERROR_GENERIC"),
-            format!("server error: {status}"),
-        )
-        .into_response(),
         _ => response,
     }
 }
