@@ -17,8 +17,6 @@ use super::super::decode_repo_name;
 /// serving as a primary organizational structure. Each distribution can contain
 /// multiple components or sections for categorizing packages.
 ///
-/// While currently implemented for APT repositories, the concept generalizes
-/// across package management systems (e.g., YUM repositories have similar concepts).
 ///
 /// Example in apt sources.list:
 /// `deb https://example.com/debian bookworm main contrib`
