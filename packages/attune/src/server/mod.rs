@@ -2,16 +2,25 @@ pub mod compatibility;
 pub mod pkg;
 pub mod repo;
 
+use std::{any::Any, time::Duration, usize};
+
 use axum::{
-    Router,
-    extract::{DefaultBodyLimit, FromRef},
+    BoxError, Router,
+    error_handling::HandleErrorLayer,
+    extract::{DefaultBodyLimit, FromRef, Request},
     handler::Handler,
+    middleware::Next,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
+use http::StatusCode;
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
+use tower::ServiceBuilder;
 use tower_http::{catch_panic::CatchPanicLayer, trace::TraceLayer};
 use tracing::warn;
+
+use crate::api::ErrorResponse;
 
 #[derive(Clone, Debug, FromRef)]
 pub struct ServerState {
@@ -89,15 +98,102 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
         )
         .route("/packages/{package_sha256sum}", get(pkg::info::handler));
+
+    // The intention of error handling middleware here is that:
+    // - `handle_non_success` handles responses from handlers and axum itself, converting errors to `ErrorResponse`.
+    // - `handle_middleware_error` handles errors from the middleware stack, converting them to `ErrorResponse`.
+    // - `handle_panic` handles panics, converting them to `ErrorResponse`.
     Router::new()
         .nest("/api/v0", api)
-        .layer(TraceLayer::new_for_http())
-        // FIXME: Use a custom ResponseForPanic so that the response body is a
-        // valid `api::ErrorResponse` on 500, which is what all the CLI parsing
-        // logic expects on a non-200 response.
-        //
-        // FIXME: We also need to return valid `api::ErrorResponse` on 404s,
-        // 405s, etc.
-        .layer(CatchPanicLayer::new())
+        .layer(axum::middleware::from_fn(handle_non_success))
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(CatchPanicLayer::custom(handle_panic))
+                .layer(HandleErrorLayer::new(handle_middleware_error))
+                .timeout(Duration::from_secs(600)),
+        )
         .with_state(state)
+}
+
+async fn handle_non_success(request: Request, next: Next) -> Response {
+    let uri = request.uri().to_string();
+    let response = next.run(request).await;
+    let status = response.status();
+    if status.is_success() || status.is_redirection() || status.is_informational() {
+        return response;
+    }
+
+    // The intention here is to check if the response body is an `ErrorResponse` and, if so, return it as-is.
+    // If not, we convert the body to a string and use that as the error message, so long as it's not empty.
+    //
+    // Note that the response body should only fail to be read if it's larger than the limit we provide `to_bytes`.
+    // Since we're using `usize::MAX` as the limit, this should never happen, but may if the limit is changed.
+    let (parts, body) = response.into_parts();
+    let body = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(body) if !body.is_empty() => {
+            if serde_json::from_slice::<ErrorResponse>(&body).is_ok() {
+                return Response::from_parts(parts, axum::body::Body::from(body));
+            }
+
+            Some(String::from_utf8_lossy(&body).to_string())
+        }
+        Ok(_) => None,
+        Err(e) => {
+            warn!("unable to read response body for {uri}: {e}");
+            None
+        }
+    };
+
+    match status {
+        StatusCode::NOT_FOUND => ErrorResponse::new(
+            status,
+            String::from("HTTP_ROUTE_NOT_FOUND"),
+            body.unwrap_or_else(|| format!("not found: {uri}")),
+        )
+        .into_response(),
+        StatusCode::METHOD_NOT_ALLOWED => ErrorResponse::new(
+            status,
+            String::from("HTTP_METHOD_NOT_ALLOWED"),
+            body.unwrap_or_else(|| format!("method not allowed: {uri}")),
+        )
+        .into_response(),
+        status if status.is_client_error() => ErrorResponse::new(
+            status,
+            String::from("HTTP_CLIENT_ERROR_GENERIC"),
+            body.unwrap_or_else(|| format!("client error: {status}")),
+        )
+        .into_response(),
+        _ => ErrorResponse::new(
+            status,
+            String::from("HTTP_SERVER_ERROR_GENERIC"),
+            body.unwrap_or_else(|| format!("server error: {status}")),
+        )
+        .into_response(),
+    }
+}
+
+fn handle_panic(err: Box<dyn Any + Send + 'static>) -> Response {
+    let details = if let Some(s) = err.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = err.downcast_ref::<&str>() {
+        s.to_string()
+    } else {
+        String::from("unknown panic message")
+    };
+
+    ErrorResponse::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        String::from("HTTP_SERVER_ERROR_GENERIC"),
+        format!("internal server error (panic): {details}"),
+    )
+    .into_response()
+}
+
+async fn handle_middleware_error(err: BoxError) -> ErrorResponse {
+    ErrorResponse::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        String::from("HTTP_SERVER_ERROR_GENERIC"),
+        format!("internal server error: {err}"),
+    )
 }
