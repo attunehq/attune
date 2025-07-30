@@ -25,6 +25,9 @@ pub enum DistSubCommand {
     ///
     /// For details on the meanings of distribution ("Release") metadata fields,
     /// see <https://wiki.debian.org/DebianRepository/Format>.
+    ///
+    /// Note that this will not actually update the published Release file until
+    /// the next time you publish a package.
     #[command(visible_alias = "set")]
     Edit,
     /// Delete a distribution
