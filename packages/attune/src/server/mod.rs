@@ -2,7 +2,7 @@ pub mod compatibility;
 pub mod pkg;
 pub mod repo;
 
-use std::{any::Any, time::Duration};
+use std::{any::Any, time::Duration, usize};
 
 use axum::{
     BoxError, Router,
@@ -122,20 +122,56 @@ async fn handle_non_success(request: Request, next: Next) -> Response {
     let uri = request.uri().to_string();
     let response = next.run(request).await;
     let status = response.status();
+    if status.is_success() || status.is_redirection() || status.is_informational() {
+        return response;
+    }
+
+    // The intention here is to check if the response body is an `ErrorResponse` and, if so, return it as-is.
+    // If not, we convert the body to a string and use that as the error message, so long as it's not empty.
+    //
+    // Note that the response body should only fail to be read if it's larger than the limit we provide `to_bytes`.
+    // Since we're using `usize::MAX` as the limit, this should never happen, but may if the limit is changed.
+    let (parts, body) = response.into_parts();
+    let body = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(body) if !body.is_empty() => {
+            if serde_json::from_slice::<ErrorResponse>(&body).is_ok() {
+                return Response::from_parts(parts, axum::body::Body::from(body));
+            }
+
+            Some(String::from_utf8_lossy(&body).to_string())
+        }
+        Ok(_) => None,
+        Err(e) => {
+            warn!("unable to read response body for {uri}: {e}");
+            None
+        }
+    };
+
     match status {
         StatusCode::NOT_FOUND => ErrorResponse::new(
             status,
             String::from("HTTP_ROUTE_NOT_FOUND"),
-            format!("not found: {uri}"),
+            body.unwrap_or_else(|| format!("not found: {uri}")),
         )
         .into_response(),
         StatusCode::METHOD_NOT_ALLOWED => ErrorResponse::new(
             status,
             String::from("HTTP_METHOD_NOT_ALLOWED"),
-            format!("method not allowed: {uri}"),
+            body.unwrap_or_else(|| format!("method not allowed: {uri}")),
         )
         .into_response(),
-        _ => response,
+        status if status.is_client_error() => ErrorResponse::new(
+            status,
+            String::from("HTTP_CLIENT_ERROR_GENERIC"),
+            body.unwrap_or_else(|| format!("client error: {status}")),
+        )
+        .into_response(),
+        _ => ErrorResponse::new(
+            status,
+            String::from("HTTP_SERVER_ERROR_GENERIC"),
+            body.unwrap_or_else(|| format!("server error: {status}")),
+        )
+        .into_response(),
     }
 }
 
