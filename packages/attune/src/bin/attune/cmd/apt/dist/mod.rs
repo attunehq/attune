@@ -103,7 +103,7 @@ where
 
 /// Confirm destructive action with colored warning
 fn confirm_destructive_action(message: &str) -> Result<bool, ExitCode> {
-    println!("{}", format!("Warning: {message}").on_red());
+    println!("{}", format!("Warning: {message}").red());
     Confirm::new("Are you sure you want to proceed?")
         .with_default(false)
         .prompt()
