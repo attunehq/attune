@@ -3,20 +3,34 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
+use base64::Engine as _;
+use md5::{Digest as _, Md5};
+use pgp::composed::{
+    CleartextSignedMessage, Deserializable as _, SignedPublicKey, StandaloneSignature,
+};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
     api::ErrorResponse,
     auth::TenantID,
-    server::{ServerState, repo::decode_repo_name, repo::index::generate::GenerateIndexRequest},
+    server::{
+        ServerState,
+        repo::{
+            decode_repo_name,
+            index::{PackageChange, generate_release_file_with_change},
+        },
+    },
 };
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SignIndexRequest {
-    pub diff: GenerateIndexRequest,
+    pub change: PackageChange,
+    pub release_ts: OffsetDateTime,
     pub clearsigned: String,
     pub detachsigned: String,
+    pub public_key_cert: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -29,65 +43,72 @@ pub enum IndexChange {
 pub struct SignIndexResponse {}
 
 #[axum::debug_handler]
-#[instrument(skip(state))]
+#[instrument(skip(state, req))]
 pub async fn handler(
     State(state): State<ServerState>,
     tenant_id: TenantID,
-    Path(repository_name): Path<String>,
+    Path(repo_name): Path<String>,
     Json(req): Json<SignIndexRequest>,
 ) -> Result<Json<SignIndexResponse>, ErrorResponse> {
     // The repository name in the path is percent-encoded.
-    let repository_name = decode_repo_name(&repository_name)?;
+    let repo_name = decode_repo_name(&repo_name)?;
+    if repo_name != req.change.repository {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "REPOSITORY_MISMATCH".to_string(),
+            "repository name in path does not match repository name in request".to_string(),
+        ));
+    }
 
+    // Verify the index signatures.
+    let (public_key, _headers) = SignedPublicKey::from_string(&req.public_key_cert)
+        .expect("could not parse public key certificate");
+    if let Err(e) = public_key.verify() {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "PUBLIC_KEY_VERIFICATION_FAILED".to_string(),
+            format!("could not verify public key: {}", e),
+        ));
+    }
+    let (clearsigned, _headers) = CleartextSignedMessage::from_string(&req.clearsigned)
+        .expect("could not parse clearsigned index");
+    if let Err(e) = clearsigned.verify(&public_key) {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "CLEARSIGN_VERIFICATION_FAILED".to_string(),
+            format!("could not verify clearsigned index: {}", e),
+        ));
+    }
+    let contents = clearsigned.text();
+    let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
+        .expect("could not parse detached signature");
+    if let Err(e) = detachsigned.verify(&public_key, contents.as_bytes()) {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "DETACHED_SIGNATURE_VERIFICATION_FAILED".to_string(),
+            format!("could not verify detached signature: {}", e),
+        ));
+    }
+
+    // Start a Serializable database transaction.
     let mut tx = state.db.begin().await.unwrap();
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
         .unwrap();
 
-    // Load the package to be either added or removed. If it does not exist,
-    // return an error.
-    let changed_package = match sqlx::query!(
-        r#"
-            SELECT
-                paragraph,
-                package,
-                version,
-                architecture::TEXT AS "architecture!: String",
-                size,
-                md5sum,
-                sha1sum,
-                sha256sum
-            FROM debian_repository_package
-            WHERE
-                tenant_id = $1
-                AND sha256sum = $2
-        "#,
-        tenant_id.0,
-        req.diff.package_sha256sum
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .unwrap()
-    {
-        Some(pkg) => pkg,
-        None => {
-            return Err(ErrorResponse::new(
-                StatusCode::NOT_FOUND,
-                "PACKAGE_NOT_FOUND".to_string(),
-                "package not found".to_string(),
-            ));
-        }
-    };
-
     // Load the repository. If it does not exist, return an error.
-    let repo = match sqlx::query!(r#"
-        SELECT id, name
+    //
+    // TODO: This query is redundant with `generate_release_file_with_change`.
+    // Is there a better way to refactor this code?
+    let repo = match sqlx::query!(
+        r#"
+        SELECT id, name, s3_bucket, s3_prefix
         FROM debian_repository
         WHERE tenant_id = $1 AND name = $2
         "#,
         tenant_id.0,
-        req.diff.repository
+        repo_name
     )
     .fetch_optional(&mut *tx)
     .await
@@ -106,14 +127,287 @@ pub async fn handler(
     // Replay the diff onto the current state of the index. Since index
     // generation is deterministic, this should yield the same index that was
     // signed locally.
+    let result =
+        generate_release_file_with_change(&mut tx, &tenant_id, &req.change, req.release_ts).await?;
 
     // Compare the replayed index with the signed index. Accept the signature if
     // the index contents match. Otherwise, return an error.
+    if result.release_file.contents != contents {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "INDEX_CONTENTS_MISMATCH".to_string(),
+            "index contents do not match".to_string(),
+        ));
+    }
 
     // Save the new index state to the database.
+    //
+    // First, we update-or-create the Release. Remember, it's possible that no
+    // package has ever been added to this distribution, so the Release may not
+    // exist.
+    let release_id = match sqlx::query!(r#"
+        SELECT
+            debian_repository_release.id,
+            debian_repository_release.description,
+            debian_repository_release.origin,
+            debian_repository_release.label,
+            debian_repository_release.version,
+            debian_repository_release.suite,
+            debian_repository_release.codename,
+            debian_repository.s3_bucket,
+            debian_repository.s3_prefix
+        FROM
+            debian_repository
+            JOIN debian_repository_release ON debian_repository.id = debian_repository_release.repository_id
+        WHERE
+            debian_repository.tenant_id = $1
+            AND debian_repository.name = $2
+            AND debian_repository_release.distribution = $3
+        LIMIT 1
+        "#,
+        tenant_id.0,
+        repo_name,
+        req.change.distribution,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .unwrap() {
+        Some(release) => {
+            // If the release already exists, check whether any fields need to
+            // be updated. If so, update them.
+            if release.description != result.release_file.release.description ||
+                release.origin != result.release_file.release.origin ||
+                release.label != result.release_file.release.label ||
+                release.version != result.release_file.release.version ||
+                release.suite != result.release_file.release.suite ||
+                release.codename != result.release_file.release.codename {
+                sqlx::query!(
+                    r#"
+                    UPDATE
+                        debian_repository_release
+                    SET
+                        description = $2,
+                        origin = $3,
+                        label = $4,
+                        version = $5,
+                        suite = $6,
+                        codename = $7,
+                        updated_at = NOW()
+                    WHERE
+                        id = $1
+                    "#,
+                    release.id,
+                    result.release_file.release.description,
+                    result.release_file.release.origin,
+                    result.release_file.release.label,
+                    result.release_file.release.version,
+                    result.release_file.release.suite,
+                    result.release_file.release.codename,
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            }
+            release.id
+        },
+        None => {
+            // If the release doesn't exist, create it with default values.
+            let repo = sqlx::query!(
+                r#"
+                SELECT id, s3_bucket, s3_prefix
+                FROM debian_repository
+                WHERE tenant_id = $1
+                    AND name = $2
+                LIMIT 1
+                "#,
+                tenant_id.0,
+                repo_name,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            let release = sqlx::query!(
+                r#"
+                INSERT INTO debian_repository_release (
+                    repository_id,
+                    distribution,
+                    description,
+                    origin,
+                    label,
+                    version,
+                    suite,
+                    codename,
+                    contents,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    $8,
+                    '',
+                    NOW(),
+                    NOW()
+                )
+                RETURNING id
+                "#,
+                repo.id,
+                req.change.distribution,
+                result.release_file.release.description,
+                result.release_file.release.origin,
+                result.release_file.release.label,
+                result.release_file.release.version,
+                result.release_file.release.suite,
+                result.release_file.release.codename,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            release.id
+        }
+    };
+
+    // Then, we update-or-create the Packages index of the changed package.
+    match sqlx::query!(
+        r#"
+        SELECT debian_repository_index_packages.id
+        FROM
+            debian_repository_index_packages
+            JOIN debian_repository_component ON debian_repository_index_packages.component_id = debian_repository_component.id
+        WHERE
+            debian_repository_component.release_id = $1
+            AND debian_repository_component.name = $2
+            AND debian_repository_index_packages.architecture = $3::debian_repository_architecture
+            AND debian_repository_index_packages.compression IS NULL
+        LIMIT 1
+        "#,
+        release_id,
+        req.change.component,
+        result.changed_packages_index.architecture as _,
+    ).fetch_optional(&mut *tx)
+    .await
+    .unwrap() {
+        Some(index) => {
+            // No need to check whether an update is needed - we know already
+            // that the index has changed.
+            sqlx::query!(
+                r#"
+                UPDATE debian_repository_index_packages
+                SET
+                    contents = $2,
+                    size = $3,
+                    md5sum = $4,
+                    sha1sum = $5,
+                    sha256sum = $6,
+                    updated_at = NOW()
+                WHERE id = $1
+                "#,
+                index.id,
+                result.changed_packages_index_contents.as_bytes(),
+                result.changed_packages_index.size,
+                result.changed_packages_index.md5sum,
+                result.changed_packages_index.sha1sum,
+                result.changed_packages_index.sha256sum,
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        },
+        None => {
+            // Otherwise, create the index. First, we need to find-or-create the
+            // component.
+            let component_id = match sqlx::query!(
+                r#"
+                SELECT id
+                FROM debian_repository_component
+                WHERE release_id = $1 AND name = $2
+                LIMIT 1
+                "#,
+                release_id,
+                req.change.component,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap() {
+                Some(component) => component.id,
+                None => {
+                    sqlx::query!(
+                        r#"
+                        INSERT INTO debian_repository_component (
+                            release_id,
+                            name,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (
+                            $1,
+                            $2,
+                            NOW(),
+                            NOW()
+                        )
+                        RETURNING id
+                        "#,
+                        release_id,
+                        req.change.component,
+                    )
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap()
+                    .id
+                }
+            };
+            sqlx::query!(
+                r#"
+                INSERT INTO debian_repository_index_packages (
+                    component_id,
+                    architecture,
+                    compression,
+                    size,
+                    contents,
+                    md5sum,
+                    sha1sum,
+                    sha256sum,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    $1,
+                    $2::debian_repository_architecture,
+                    NULL,
+                    $3,
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    NOW(),
+                    NOW()
+                )
+                "#,
+                component_id,
+                result.changed_packages_index.architecture as _,
+                // compression = NULL,
+                result.changed_packages_index.size,
+                result.changed_packages_index_contents.as_bytes(),
+                result.changed_packages_index.md5sum,
+                result.changed_packages_index.sha1sum,
+                result.changed_packages_index.sha256sum,
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+    }
 
     // Commit the transaction. At this point, the transaction may abort because
-    // of a concurrent index change. This should trigger the handler to retry.
+    // of a concurrent index change. This should trigger the client to retry.
+    //
+    // TODO: Add special handling for aborts to signal the client to retry.
+    tx.commit().await.unwrap();
 
     // Save the new index state to S3. This must occur after the transaction
     // commits so that we are sure that we are not incorrectly overwriting a
@@ -123,6 +417,104 @@ pub async fn handler(
     // transaction commits and _before_ the index update in S3 completes. This
     // will leave the repository in an inconsistent state, but can be fixed by
     // redoing the S3 upload from database state.
+    //
+    // There's also a small risk that two changes A and B will commit in order
+    // `A -> B`, but will upload indexes to S3 in order `B -> A`, which will
+    // cause the older index to overwrite the newer one. This is also very
+    // unlikely, but there is no good mitigation here besides a cron job. Note
+    // that any _subsequent_ upload will still upload the correct indexes,
+    // because the _database_ state is transactionally consistent.
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/dists/{}/{}/binary-{}/Packages",
+            repo.s3_prefix,
+            req.change.distribution,
+            result.changed_packages_index.component,
+            result.changed_packages_index.architecture
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
+                result.changed_packages_index_contents.as_bytes(),
+            )),
+        )
+        .body(
+            result
+                .changed_packages_index_contents
+                .as_bytes()
+                .to_vec()
+                .into(),
+        )
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/dists/{}/Release",
+            repo.s3_prefix, req.change.distribution
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD
+                .encode(Md5::digest(result.release_file.contents.as_bytes())),
+        )
+        .body(result.release_file.contents.as_bytes().to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/dists/{}/InRelease",
+            repo.s3_prefix, req.change.distribution
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD
+                .encode(Md5::digest(req.clearsigned.as_bytes())),
+        )
+        .body(req.clearsigned.as_bytes().to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/dists/{}/Release.gpg",
+            repo.s3_prefix, req.change.distribution
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD
+                .encode(Md5::digest(req.detachsigned.as_bytes())),
+        )
+        .body(req.detachsigned.as_bytes().to_vec().into())
+        .send()
+        .await
+        .unwrap();
+    // Copy the object from its canonical storage location into the repository
+    // pool.
+    state
+        .s3
+        .copy_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/{}",
+            repo.s3_prefix, result.changed_package.filename
+        ))
+        .copy_source(format!(
+            "{}/packages/{}",
+            result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
+        ))
+        .send()
+        .await
+        .unwrap();
 
     Ok(Json(SignIndexResponse {}))
 }

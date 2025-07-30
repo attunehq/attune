@@ -188,7 +188,7 @@ model DebianRepositoryPackage {
   tenant    AttuneTenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   // The S3 bucket in which the package file object is stored. The path in this
-  // bucket is fixed to `<prefix>/packages/<sha256sum>`.
+  // bucket is fixed to `/packages/<sha256sum>`.
   s3_bucket String
 
   // For a list of available fields, see:

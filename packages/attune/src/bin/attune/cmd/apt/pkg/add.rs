@@ -1,8 +1,8 @@
-use std::process::ExitCode;
+use std::{iter::once, process::ExitCode};
 
 use axum::http::StatusCode;
 use clap::Args;
-use gpgme::{Context, Protocol};
+use gpgme::{Context, ExportMode, Protocol};
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
@@ -15,7 +15,8 @@ use attune::{
         pkg::{info::PackageInfoResponse, upload::PackageUploadResponse},
         repo::{
             index::{
-                generate::{GenerateIndexRequest, GenerateIndexResponse, IndexChange},
+                PackageChange, PackageChangeAction,
+                generate::{GenerateIndexRequest, GenerateIndexResponse},
                 sign::{SignIndexRequest, SignIndexResponse},
             },
             info::RepositoryInfoResponse,
@@ -162,11 +163,13 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // Add the package to the index, retrying if needed.
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
     let generate_index_request = GenerateIndexRequest {
-        repository: command.repo.clone(),
-        distribution: command.distribution.clone(),
-        component: command.component.clone(),
-        package_sha256sum: sha256sum.clone(),
-        change: IndexChange::Add,
+        change: PackageChange {
+            repository: command.repo.clone(),
+            distribution: command.distribution.clone(),
+            component: command.component.clone(),
+            package_sha256sum: sha256sum.clone(),
+            action: PackageChangeAction::Add,
+        },
     };
     let res = ctx
         .client
@@ -185,14 +188,14 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         .send()
         .await
         .expect("Could not send API request");
-    let index = match res.status() {
+    let (index, release_ts) = match res.status() {
         StatusCode::OK => {
             let res = res
                 .json::<GenerateIndexResponse>()
                 .await
                 .expect("Could not parse response");
             debug!(index = ?res.release, "generated index to sign");
-            res.release
+            (res.release, res.release_ts)
         }
         status => {
             let body = res.text().await.expect("Could not read response");
@@ -230,6 +233,13 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         String::from_utf8(detachsigned).expect("detachsigned index contained invalid characters");
     debug!(?detachsigned, "detachsigned index");
 
+    let mut public_key_cert = Vec::new();
+    gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
+        .expect("could not export key");
+    let public_key_cert = String::from_utf8(public_key_cert)
+        .expect("public key cert contained invalid characters");
+    debug!(?public_key_cert, "public key cert");
+
     // Submit signatures.
     //
     // TODO: Implement retries on conflict.
@@ -248,9 +258,11 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
                 .unwrap(),
         )
         .json(&SignIndexRequest {
-            diff: generate_index_request,
+            change: generate_index_request.change,
+            release_ts,
             clearsigned,
             detachsigned,
+            public_key_cert,
         })
         .send()
         .await
