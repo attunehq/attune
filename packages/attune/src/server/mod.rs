@@ -100,6 +100,11 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         .route("/packages/{package_sha256sum}", get(pkg::info::handler))
         .route("/_test/error", get(test_error))
         .route("/_test/panic", get(test_panic));
+
+    // The intention of error handling middleware here is that:
+    // - `handle_non_success` handles responses from handlers and axum itself, converting errors to `ErrorResponse`.
+    // - `handle_middleware_error` handles errors from the middleware stack, converting them to `ErrorResponse`.
+    // - `handle_panic` handles panics, converting them to `ErrorResponse`.
     Router::new()
         .nest("/api/v0", api)
         .layer(axum::middleware::from_fn(handle_non_success))
@@ -107,8 +112,8 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
                 .layer(CatchPanicLayer::custom(handle_panic))
-                .layer(HandleErrorLayer::new(handle_error_generic))
-                .timeout(Duration::from_secs(60)),
+                .layer(HandleErrorLayer::new(handle_middleware_error))
+                .timeout(Duration::from_secs(600)),
         )
         .with_state(state)
 }
@@ -152,7 +157,7 @@ fn handle_panic(err: Box<dyn Any + Send + 'static>) -> Response {
     } else if let Some(s) = err.downcast_ref::<&str>() {
         s.to_string()
     } else {
-        String::from("Unknown panic message")
+        String::from("unknown panic message")
     };
 
     ErrorResponse::new(
@@ -163,7 +168,7 @@ fn handle_panic(err: Box<dyn Any + Send + 'static>) -> Response {
     .into_response()
 }
 
-async fn handle_error_generic(err: BoxError) -> ErrorResponse {
+async fn handle_middleware_error(err: BoxError) -> ErrorResponse {
     ErrorResponse::new(
         StatusCode::INTERNAL_SERVER_ERROR,
         String::from("HTTP_SERVER_ERROR_GENERIC"),
