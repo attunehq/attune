@@ -2,20 +2,22 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use bon::Builder;
 use serde::{Deserialize, Serialize};
 use tap::Pipe;
 use tracing::instrument;
 
 use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
 
-use super::{decode_dist_name, super::decode_repo_name};
+use super::{super::decode_repo_name, decode_dist_name};
 
-#[derive(Serialize, Deserialize, Debug, Builder)]
-pub struct DeleteDistributionResponse {
-    #[builder(into)]
-    pub message: String,
-}
+/// Response after successfully deleting a distribution from a repository.
+///
+/// Deletion is permanent and will cascade to remove all associated components,
+/// package indexes, and package associations. Any packages that were only
+/// available through this distribution will become inaccessible until added
+/// to another distribution.
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct DeleteDistributionResponse {}
 
 #[axum::debug_handler]
 #[instrument(skip(state))]
@@ -72,9 +74,5 @@ pub async fn handler(
 
     tx.commit().await.unwrap();
 
-    DeleteDistributionResponse::builder()
-        .message(format!("Distribution '{}' deleted successfully", distribution_name))
-        .build()
-        .pipe(Json)
-        .pipe(Ok)
+    DeleteDistributionResponse::default().pipe(Json).pipe(Ok)
 }
