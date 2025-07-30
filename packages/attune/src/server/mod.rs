@@ -2,16 +2,25 @@ pub mod compatibility;
 pub mod pkg;
 pub mod repo;
 
+use std::{any::Any, time::Duration};
+
 use axum::{
-    Router,
-    extract::{DefaultBodyLimit, FromRef},
+    BoxError, Router,
+    error_handling::HandleErrorLayer,
+    extract::{DefaultBodyLimit, FromRef, Request},
     handler::Handler,
+    middleware::Next,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
+use http::StatusCode;
 use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
+use tower::ServiceBuilder;
 use tower_http::{catch_panic::CatchPanicLayer, trace::TraceLayer};
 use tracing::warn;
+
+use crate::api::ErrorResponse;
 
 #[derive(Clone, Debug, FromRef)]
 pub struct ServerState {
@@ -88,16 +97,88 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             "/packages",
             post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
         )
-        .route("/packages/{package_sha256sum}", get(pkg::info::handler));
+        .route("/packages/{package_sha256sum}", get(pkg::info::handler))
+        .route("/_test/error", get(test_error))
+        .route("/_test/panic", get(test_panic));
     Router::new()
         .nest("/api/v0", api)
-        .layer(TraceLayer::new_for_http())
-        // FIXME: Use a custom ResponseForPanic so that the response body is a
-        // valid `api::ErrorResponse` on 500, which is what all the CLI parsing
-        // logic expects on a non-200 response.
-        //
-        // FIXME: We also need to return valid `api::ErrorResponse` on 404s,
-        // 405s, etc.
-        .layer(CatchPanicLayer::new())
+        .layer(axum::middleware::from_fn(handle_non_success))
+        .layer(
+            ServiceBuilder::new()
+                .layer(TraceLayer::new_for_http())
+                .layer(CatchPanicLayer::custom(handle_panic))
+                .layer(HandleErrorLayer::new(handle_error_generic))
+                .timeout(Duration::from_secs(60)),
+        )
         .with_state(state)
+}
+
+async fn handle_non_success(request: Request, next: Next) -> Response {
+    let uri = request.uri().to_string();
+    let response = next.run(request).await;
+    let status = response.status();
+    match status {
+        StatusCode::NOT_FOUND => ErrorResponse::new(
+            status,
+            String::from("HTTP_ROUTE_NOT_FOUND"),
+            format!("not found: {uri}"),
+        )
+        .into_response(),
+        StatusCode::METHOD_NOT_ALLOWED => ErrorResponse::new(
+            status,
+            String::from("HTTP_METHOD_NOT_ALLOWED"),
+            format!("method not allowed: {uri}"),
+        )
+        .into_response(),
+        status if status.is_client_error() => ErrorResponse::new(
+            status,
+            String::from("HTTP_CLIENT_ERROR_GENERIC"),
+            format!("client error: {status}"),
+        )
+        .into_response(),
+        status if status.is_server_error() => ErrorResponse::new(
+            status,
+            String::from("HTTP_SERVER_ERROR_GENERIC"),
+            format!("server error: {status}"),
+        )
+        .into_response(),
+        _ => response,
+    }
+}
+
+fn handle_panic(err: Box<dyn Any + Send + 'static>) -> Response {
+    let details = if let Some(s) = err.downcast_ref::<String>() {
+        s.clone()
+    } else if let Some(s) = err.downcast_ref::<&str>() {
+        s.to_string()
+    } else {
+        String::from("Unknown panic message")
+    };
+
+    ErrorResponse::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        String::from("HTTP_SERVER_ERROR_GENERIC"),
+        format!("internal server error (panic): {details}"),
+    )
+    .into_response()
+}
+
+async fn handle_error_generic(err: BoxError) -> ErrorResponse {
+    ErrorResponse::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        String::from("HTTP_SERVER_ERROR_GENERIC"),
+        format!("internal server error: {err}"),
+    )
+}
+
+async fn test_error() -> Result<(), ErrorResponse> {
+    Err(ErrorResponse::new(
+        StatusCode::IM_A_TEAPOT,
+        String::from("HTTP_CLIENT_ERROR_GENERIC"),
+        String::from("some test error"),
+    ))
+}
+
+async fn test_panic() {
+    panic!("some test panic message");
 }
