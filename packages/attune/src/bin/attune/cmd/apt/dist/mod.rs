@@ -1,8 +1,13 @@
 use std::process::ExitCode;
 
+use axum::http::StatusCode;
 use clap::{Args, Subcommand};
+use colored::Colorize as _;
+use inquire::Confirm;
+use percent_encoding::percent_encode;
 
 use crate::config::Config;
+use attune::api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET};
 
 mod create;
 mod delete;
@@ -23,9 +28,11 @@ pub enum DistSubCommand {
     /// see <https://wiki.debian.org/DebianRepository/Format>.
     #[command(visible_aliases = ["new", "add"])]
     Create(create::CreateArgs),
+
     /// Show information about distributions
     #[command(visible_alias = "ls")]
     List(list::ListArgs),
+
     /// Edit distribution metadata
     ///
     /// For details on the meanings of distribution ("Release") metadata fields,
@@ -35,6 +42,7 @@ pub enum DistSubCommand {
     /// the next time you publish a package.
     #[command(visible_alias = "set")]
     Edit(edit::EditArgs),
+
     /// Delete a distribution
     #[command(visible_alias = "rm")]
     Delete(delete::DeleteArgs),
@@ -47,4 +55,60 @@ pub async fn handle_dist(ctx: Config, command: DistCommand) -> ExitCode {
         DistSubCommand::Edit(args) => edit::run(ctx, args).await,
         DistSubCommand::Delete(args) => delete::run(ctx, args).await,
     }
+}
+
+/// Build URL for distribution API endpoints
+fn build_distribution_url(
+    config: &Config,
+    repository: &str,
+    distribution: Option<&str>,
+) -> reqwest::Url {
+    let path = match distribution {
+        Some(dist) => format!(
+            "/api/v0/repositories/{}/distributions/{}",
+            percent_encode(repository.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET),
+            percent_encode(dist.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+        ),
+        None => format!(
+            "/api/v0/repositories/{}/distributions",
+            percent_encode(repository.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+        ),
+    };
+    config
+        .endpoint
+        .join(&path)
+        .expect("Invalid URL construction")
+}
+
+/// Handle API response in functional style
+async fn handle_api_response<T>(response: reqwest::Response) -> Result<T, ExitCode>
+where
+    T: for<'de> serde::Deserialize<'de>,
+{
+    match response.status() {
+        StatusCode::OK => response.json::<T>().await.map_err(|e| {
+            eprintln!("Failed to parse API response: {e}");
+            ExitCode::FAILURE
+        }),
+        _ => {
+            let error = response.json::<ErrorResponse>().await.map_err(|e| {
+                eprintln!("Failed to parse error response: {e}");
+                ExitCode::FAILURE
+            })?;
+            eprintln!("API error: {}", error.message);
+            Err(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Confirm destructive action with colored warning
+fn confirm_destructive_action(message: &str) -> Result<bool, ExitCode> {
+    println!("{}", format!("Warning: {message}").on_red());
+    Confirm::new("Are you sure you want to proceed?")
+        .with_default(false)
+        .prompt()
+        .map_err(|e| {
+            eprintln!("Confirmation failed: {e}");
+            ExitCode::FAILURE
+        })
 }
