@@ -48,22 +48,17 @@ async fn generate_release_file_with_change(
 ) -> Result<PackageChangeResult, ErrorResponse> {
     // Load the package to be either added or removed. If it does not exist,
     // return an error.
-    let changed_package = match Package::query_from_sha256sum(
-        &mut *tx,
-        tenant_id,
-        &change.package_sha256sum,
-    )
-    .await
-    {
-        Some(pkg) => pkg,
-        None => {
-            return Err(ErrorResponse::new(
-                StatusCode::NOT_FOUND,
-                "PACKAGE_NOT_FOUND".to_string(),
-                "package not found".to_string(),
-            ));
-        }
-    };
+    let changed_package =
+        match Package::query_from_sha256sum(&mut *tx, tenant_id, &change.package_sha256sum).await {
+            Some(pkg) => pkg,
+            None => {
+                return Err(ErrorResponse::new(
+                    StatusCode::NOT_FOUND,
+                    "PACKAGE_NOT_FOUND".to_string(),
+                    "package not found".to_string(),
+                ));
+            }
+        };
 
     // Load the repository. If it does not exist, return an error.
     let repo = match sqlx::query!(
