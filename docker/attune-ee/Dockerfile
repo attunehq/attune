@@ -17,7 +17,7 @@ RUN cargo build --release
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update
-RUN apt-get install libssl3
+RUN apt-get install -y libssl3 ca-certificates
 
 COPY --from=build /target/release/attune-server-ee /usr/local/bin/attune-server-ee
 
