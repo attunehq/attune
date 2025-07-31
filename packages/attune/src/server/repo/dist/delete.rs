@@ -54,8 +54,7 @@ pub async fn handler(
             .build()
     })?;
 
-    // First, query all components and their architectures for this distribution.
-    // We use this to delete the actual files in S3 after we delete the distribution in the database.
+    // Query components and their architectures for S3 cleanup
     let components = sqlx::query!(
         r#"
         SELECT
@@ -92,40 +91,61 @@ pub async fn handler(
         return Ok(Json(DeleteDistributionResponse::default()));
     }
 
+    // Find and delete orphaned packages in a single operation using DELETE ... RETURNING
+    let orphaned = sqlx::query!(
+        r#"
+        DELETE FROM debian_repository_package p
+        WHERE p.tenant_id = $1
+        AND NOT EXISTS (
+            SELECT 1 FROM debian_repository_component_package cp
+            WHERE cp.package_id = p.id
+        )
+        RETURNING p.id, p.s3_bucket, p.sha256sum
+        "#,
+        tenant_id.0,
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+
+    // Database state is correct, so we can commit the transaction.
+    // Now all we need to do is clean up S3 objects.
     tx.commit().await.unwrap();
 
     // Clean up S3 objects for this distribution based on known paths.
-    //
-    // Note: We don't delete the actual package files (under `/packages/`) because
-    // they might be referenced by other distributions in the same or different repositories.
-    //
-    // As a future improvement we could do garbage collection to delete the actual package files.
-
-    // Build the list of S3 keys to delete based on the known repository structure
     let prefix = format!("{}/dists/{}", repo.s3_prefix, distribution_name);
-    let mut keys = vec![
-        format!("{prefix}/Release"),
-        format!("{prefix}/Release.gpg"),
-        format!("{prefix}/InRelease"),
-    ];
+    let keys = {
+        // Deletes distribution metadata files.
+        let mut keys = vec![
+            format!("{prefix}/Release"),
+            format!("{prefix}/Release.gpg"),
+            format!("{prefix}/InRelease"),
+        ];
 
-    for record in components {
-        let component_prefix = format!(
-            "{}/{}/binary-{}",
-            prefix,
-            record.component_name,
-            record.architecture.as_ref().unwrap().replace('_', "-")
+        // Deletes component metadata files.
+        keys.extend(components.iter().flat_map(|record| {
+            let prefix = format!(
+                "{}/{}/binary-{}",
+                prefix,
+                record.component_name,
+                record.architecture.as_ref().unwrap().replace('_', "-")
+            );
+            // TODO: When compressed indexes are implemented, add their deletion here.
+            [format!("{prefix}/Packages"), format!("{prefix}/Release")]
+        }));
+
+        // Deletes orphaned package files.
+        keys.extend(
+            orphaned
+                .iter()
+                .map(|pkg| format!("packages/{}", pkg.sha256sum)),
         );
+        keys
+    };
 
-        // Add the uncompressed Packages file (currently we only create uncompressed indexes)
-        // TODO: When compressed indexes are implemented, add their deletion here
-        keys.push(format!("{component_prefix}/Packages"));
-        keys.push(format!("{component_prefix}/Release"));
-    }
-
-    // Delete the objects in batches (S3 delete_objects supports up to 1000 objects per request)
+    // Delete all objects in batches.
     for chunk in keys.chunks(1000) {
-        let objects: Vec<_> = chunk
+        let objects = chunk
             .iter()
             .map(|key| {
                 aws_sdk_s3::types::ObjectIdentifier::builder()
@@ -133,7 +153,7 @@ pub async fn handler(
                     .build()
                     .unwrap()
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         let delete = aws_sdk_s3::types::Delete::builder()
             .set_objects(Some(objects))
