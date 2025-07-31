@@ -34,10 +34,6 @@ fn test_cli_binary_exists() {
     let cli = get_cli_binary();
     let sh = Shell::new().unwrap();
 
-    println!("Testing CLI binary at: {}", cli);
-
-    // Test that the CLI binary exists and can be executed.
-    println!("\nRunning CLI help command...");
     let version_result = cmd!(sh, "{cli} --help").run();
 
     match version_result {
@@ -46,12 +42,10 @@ fn test_cli_binary_exists() {
             println!("✅ Test completed successfully!\n");
         }
         Err(e) => {
-            eprintln!("❌ CLI binary test failed: {}", e);
+            eprintln!("❌ CLI binary test failed: {e}");
             eprintln!("Make sure the CLI is built and the path is correct.");
-            eprintln!("Current CLI path: {}", cli);
-            eprintln!(
-                "You can set ATTUNE_CLI_PATH environment variable to specify the correct path."
-            );
+            eprintln!("Current CLI path: {cli}");
+            eprintln!("You can set ATTUNE_CLI_PATH environment variable to specify the correct path.");
             panic!("CLI binary not accessible");
         }
     }
@@ -69,7 +63,7 @@ fn test_repo_create() {
     // Use fixed Debian repo name for testing.
     let debian_repo_url = "http://localhost:9000/debian";
 
-    println!("Testing with Debian repo URL: {}", debian_repo_url);
+    println!("Testing with Debian repo URL: {debian_repo_url}");
 
     // Step 1: Create a new Debian repo.
     println!("\nStep 1: Creating Debian repo...");
@@ -78,7 +72,7 @@ fn test_repo_create() {
     match create_result {
         Ok(_) => println!("✅ Repo creation command executed successfully"),
         Err(e) => {
-            eprintln!("❌ Repo creation failed: {}", e);
+            eprintln!("❌ Repo creation failed: {e}");
             panic!("Repo creation failed. Check your environment variables and CLI binary path.");
         }
     }
@@ -90,19 +84,19 @@ fn test_repo_create() {
     match list_output {
         Ok(output) => {
             println!("Repo list output:");
-            println!("{}", output);
+            println!("{output}");
 
             if output.contains(debian_repo_url) {
-                println!("✅ Repo '{}' found in list", debian_repo_url);
+                println!("✅ Repo '{debian_repo_url}' found in list");
                 println!("✅ Test completed successfully!\n");
             } else {
-                eprintln!("❌ Repo '{}' not found in list", debian_repo_url);
-                eprintln!("Available repos:\n{}", output);
+                eprintln!("❌ Repo '{debian_repo_url}' not found in list");
+                eprintln!("Available repos:\n{output}");
                 panic!("Created repo not found in list");
             }
         }
         Err(e) => {
-            eprintln!("❌ Failed to list repos: {}", e);
+            eprintln!("❌ Failed to list repos: {e}");
             panic!("Repo listing failed. Check your environment variables and CLI binary path.");
         }
     }
@@ -116,10 +110,9 @@ fn test_pkg_add() {
     setup_test_env(&sh);
 
     let cli = get_cli_binary();
-    let debian_repo_url = "http://localhost:9000/debian";
 
     // Test packages to download.
-    let test_packages = vec![
+    let test_packages = [
         (
             "v2.0.0",
             "amd64",
@@ -147,20 +140,17 @@ fn test_pkg_add() {
     // Step 1: Use repo ID 1 (for now).
     // TODO: Get repo ID from list command.
     let repo_id = "1";
-    println!("\nStep 1: Using repository ID: {}", repo_id);
+    println!("\nStep 1: Using repository ID: {repo_id}");
 
     // Step 2: Download and add each package.
-    for (i, (version, arch, url)) in test_packages.iter().enumerate() {
-        println!(
-            "\nStep 2: Testing pkg add with {} {} ({})...",
-            version, arch, url
-        );
+    for (version, arch, url) in test_packages.iter() {
+        println!("\nStep 2: Testing pkg add with {version} {arch} ({url})...");
 
-        let filename = format!("attune-test-package_{}_{}.deb", version, arch);
-        let filepath = format!("/tmp/{}", filename);
+        let filename = format!("attune-test-package_{version}_{arch}.deb");
+        let filepath = format!("/tmp/{filename}");
 
         // Download the package.
-        println!("  Downloading package to {}...", filepath);
+        println!("  Downloading package to {filepath}...");
         let download_result = cmd!(sh, "curl -L -o {filepath} {url}").run();
 
         match download_result {
@@ -173,21 +163,21 @@ fn test_pkg_add() {
                         let size = metadata.len();
                         if size > 1000 {
                             // At least 1KB.
-                            println!("  ✅ Package file size: {} bytes", size);
+                            println!("  ✅ Package file size: {size} bytes");
                         } else {
-                            eprintln!("  ❌ Package file too small: {} bytes", size);
+                            eprintln!("  ❌ Package file too small: {size} bytes");
                             panic!("Downloaded package file is too small");
                         }
                     }
                     Err(e) => {
-                        eprintln!("  ❌ Could not read package file metadata: {}", e);
+                        eprintln!("  ❌ Could not read package file metadata: {e}");
                         panic!("Package file not accessible after download");
                     }
                 }
             }
             Err(e) => {
-                eprintln!("  ❌ Package download failed: {}", e);
-                panic!("Failed to download package from {}", url);
+                eprintln!("  ❌ Package download failed: {e}");
+                panic!("Failed to download package from {url}");
             }
         }
 
@@ -200,20 +190,17 @@ fn test_pkg_add() {
                 println!("  ✅ Package added to repository successfully");
             }
             Err(e) => {
-                eprintln!("  ❌ Package add failed: {}", e);
+                eprintln!("  ❌ Package add failed: {e}");
                 eprintln!(
                     "  Make sure the repository exists and the CLI command syntax is correct"
                 );
-                panic!("Failed to add package {} {} to repository", version, arch);
+                panic!("Failed to add package {version} {arch} to repository");
             }
         }
 
         // Clean up downloaded file.
         if let Err(e) = fs::remove_file(&filepath) {
-            eprintln!(
-                "  ⚠️  Warning: Could not clean up downloaded file {}: {}",
-                filepath, e
-            );
+            eprintln!("  ⚠️  Warning: Could not clean up downloaded file {filepath}: {e}");
         }
     }
 }
