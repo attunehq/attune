@@ -62,13 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        run: rustup show
+
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.1'
 
       - name: Set up environment
         run: cp .env.example .env
@@ -81,12 +79,13 @@ jobs:
 
       - name: Build CLI
         run: |
-          cd cli
-          go install ./...
+          cargo build --release --bin attune
 
       - name: Run smoke tests
         env:
-          ATTUNE_CLI_PATH: ${{ env.HOME }}/go/bin/attune
+          ATTUNE_CLI_PATH: ${{ github.workspace }}/target/release/attune
+          ATTUNE_API_ENDPOINT: http://localhost:3000
+          ATTUNE_API_TOKEN: test-token
         run: cargo test --test smoke
 
       - name: Stop services
