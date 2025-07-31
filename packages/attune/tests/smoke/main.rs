@@ -206,3 +206,5 @@ fn test_pkg_add() {
         }
     }
 }
+
+// TODO: Update existing smoke tests and add more once v0.2.0 is released.

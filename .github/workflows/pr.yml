@@ -50,17 +50,46 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features
+        run: cargo test --workspace --all-targets --all-features --exclude smoke
 
       - name: Run full build
         run: cargo build --workspace --all-targets --all-features
 
-  # TODO: Add a job (maybe called `dev`?) that spins up the Docker Compose local
-  # development environment and runs some smoke tests (maybe ideally this would
-  # be an integration testing job?) to make sure we didn't break it (e.g. right
-  # now, we don't actually test that the `migrate` image builds and functions
-  # properly).
+  dev:
+    name: Set up Attune locally and run smoke tests
+    runs-on: ubuntu-latest
+    needs: ci  # Wait for main CI to pass.
+    steps:
+      - uses: actions/checkout@v4
 
-  # TODO: Add a job (maybe called `setup` or `onboarding`?) that literally
-  # performs the onboarding/setup/quickstart instructions we've documented to
-  # make sure they actually work as expected.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.1'
+
+      - name: Set up environment
+        run: cp .env.example .env
+
+      - name: Start services
+        run: |
+          docker compose up -d
+          # Wait for services to be healthy
+          timeout 300 bash -c 'until docker compose ps | grep -q "healthy"; do sleep 5; done'
+
+      - name: Build CLI
+        run: |
+          cd cli
+          go install ./...
+
+      - name: Run smoke tests
+        env:
+          ATTUNE_CLI_PATH: ${{ env.HOME }}/go/bin/attune
+        run: cargo test --test smoke
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+# TODO: Add a job (maybe called `setup` or `onboarding`?) that literally
+# performs the onboarding/setup/quickstart instructions we've documented to
+# make sure they actually work as expected.
