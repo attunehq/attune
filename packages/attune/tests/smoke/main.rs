@@ -3,7 +3,7 @@ use std::fs;
 use xshell::{Shell, cmd};
 
 /// Helper function to get the CLI binary path.
-fn get_cli_binary() -> String {
+fn smoke_get_cli_binary() -> String {
     env::var("ATTUNE_CLI_PATH").expect(
         "ATTUNE_CLI_PATH environment variable is required. Set it to the path of your CLI binary.\n\
          Example: export ATTUNE_CLI_PATH=/Users/xinding/go/bin/attune",
@@ -11,7 +11,7 @@ fn get_cli_binary() -> String {
 }
 
 /// Helper function to set up environment variables for testing.
-fn setup_test_env(sh: &Shell) {
+fn smoke_setup_test_env(sh: &Shell) {
     // Set API token.
     if let Ok(token) = env::var("ATTUNE_API_TOKEN") {
         sh.set_var("ATTUNE_API_TOKEN", token);
@@ -28,10 +28,10 @@ fn setup_test_env(sh: &Shell) {
 }
 
 #[test]
-fn test_cli_binary_exists() {
+fn smoke_test_cli_binary_exists() {
     println!("\n========== SMOKE TEST: Attune CLI Exists =========");
 
-    let cli = get_cli_binary();
+    let cli = smoke_get_cli_binary();
     let sh = Shell::new().unwrap();
 
     let version_result = cmd!(sh, "{cli} --help").run();
@@ -54,13 +54,13 @@ fn test_cli_binary_exists() {
 }
 
 #[test]
-fn test_repo_create() {
+fn smoke_test_repo_create() {
     println!("\n========== SMOKE TEST: Repository Create =========");
 
     let sh = Shell::new().unwrap();
-    setup_test_env(&sh);
+    smoke_setup_test_env(&sh);
 
-    let cli = get_cli_binary();
+    let cli = smoke_get_cli_binary();
 
     // Use fixed Debian repo name for testing.
     let debian_repo_url = "http://localhost:9000/debian";
@@ -105,13 +105,13 @@ fn test_repo_create() {
 }
 
 #[test]
-fn test_pkg_add() {
+fn smoke_test_pkg_add() {
     println!("\n========== SMOKE TEST: Package Add ==========");
 
     let sh = Shell::new().unwrap();
-    setup_test_env(&sh);
+    smoke_setup_test_env(&sh);
 
-    let cli = get_cli_binary();
+    let cli = smoke_get_cli_binary();
 
     // Test packages to download.
     let test_packages = [
