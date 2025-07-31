@@ -9,6 +9,7 @@ pub mod edit;
 pub mod index;
 pub mod info;
 pub mod list;
+pub mod sync;
 
 fn decode_repo_name(name: &str) -> Result<String, ErrorResponse> {
     // The repository name in the path is percent-encoded.

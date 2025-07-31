@@ -94,6 +94,10 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
             get(repo::index::generate::handler).post(repo::index::sign::handler),
         )
         .route(
+            "/repositories/{repository_name}/distributions/{distribution_name}/sync",
+            get(repo::sync::check::handler).post(repo::sync::resync::handler),
+        )
+        .route(
             "/packages",
             post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
         )

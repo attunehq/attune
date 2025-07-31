@@ -1,3 +1,4 @@
+use aws_sdk_s3::types::ChecksumAlgorithm;
 use axum::{
     Json,
     extract::{Path, State},
@@ -9,6 +10,7 @@ use pgp::composed::{
     CleartextSignedMessage, Deserializable as _, SignedPublicKey, StandaloneSignature,
 };
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use time::OffsetDateTime;
 use tracing::instrument;
 
@@ -140,7 +142,7 @@ pub async fn handler(
         ));
     }
 
-    // Save the new index state to the database.
+    // Save the new state to the database.
     //
     // First, we update-or-create the Release. Remember, it's possible that no
     // package has ever been added to this distribution, so the Release may not
@@ -154,6 +156,9 @@ pub async fn handler(
             debian_repository_release.version,
             debian_repository_release.suite,
             debian_repository_release.codename,
+            debian_repository_release.contents,
+            debian_repository_release.clearsigned,
+            debian_repository_release.detached,
             debian_repository.s3_bucket,
             debian_repository.s3_prefix
         FROM
@@ -180,7 +185,12 @@ pub async fn handler(
                 release.label != result.release_file.release.label ||
                 release.version != result.release_file.release.version ||
                 release.suite != result.release_file.release.suite ||
-                release.codename != result.release_file.release.codename {
+                release.codename != result.release_file.release.codename ||
+                release.contents != result.release_file.contents ||
+                release.clearsigned.is_none() ||
+                release.clearsigned.is_some_and(|clearsigned| clearsigned != req.clearsigned) ||
+                release.detached.is_none() ||
+                release.detached.is_some_and(|detached| detached != req.detachsigned) {
                 sqlx::query!(
                     r#"
                     UPDATE
@@ -192,6 +202,9 @@ pub async fn handler(
                         version = $5,
                         suite = $6,
                         codename = $7,
+                        contents = $8,
+                        clearsigned = $9,
+                        detached = $10,
                         updated_at = NOW()
                     WHERE
                         id = $1
@@ -203,6 +216,9 @@ pub async fn handler(
                     result.release_file.release.version,
                     result.release_file.release.suite,
                     result.release_file.release.codename,
+                    result.release_file.contents,
+                    req.clearsigned,
+                    req.detachsigned,
                 )
                 .execute(&mut *tx)
                 .await
@@ -238,6 +254,8 @@ pub async fn handler(
                     suite,
                     codename,
                     contents,
+                    clearsigned,
+                    detached,
                     created_at,
                     updated_at
                 )
@@ -250,7 +268,9 @@ pub async fn handler(
                     $6,
                     $7,
                     $8,
-                    '',
+                    $9,
+                    $10,
+                    $11,
                     NOW(),
                     NOW()
                 )
@@ -264,6 +284,9 @@ pub async fn handler(
                 result.release_file.release.version,
                 result.release_file.release.suite,
                 result.release_file.release.codename,
+                result.release_file.contents,
+                req.clearsigned,
+                req.detachsigned,
             )
             .fetch_one(&mut *tx)
             .await
@@ -272,26 +295,67 @@ pub async fn handler(
         }
     };
 
-    // Then, we update-or-create the Packages index of the changed package.
-    match sqlx::query!(
+    // Then, we find-or-create the Component.
+    let component_id = match sqlx::query!(
         r#"
-        SELECT debian_repository_index_packages.id
-        FROM
-            debian_repository_index_packages
-            JOIN debian_repository_component ON debian_repository_index_packages.component_id = debian_repository_component.id
-        WHERE
-            debian_repository_component.release_id = $1
-            AND debian_repository_component.name = $2
-            AND debian_repository_index_packages.architecture = $3::debian_repository_architecture
-            AND debian_repository_index_packages.compression IS NULL
+        SELECT id
+        FROM debian_repository_component
+        WHERE release_id = $1 AND name = $2
         LIMIT 1
         "#,
         release_id,
         req.change.component,
-        result.changed_packages_index.architecture as _,
-    ).fetch_optional(&mut *tx)
+    )
+    .fetch_optional(&mut *tx)
     .await
-    .unwrap() {
+    .unwrap()
+    {
+        Some(component) => component.id,
+        None => {
+            sqlx::query!(
+                r#"
+                INSERT INTO debian_repository_component (
+                    release_id,
+                    name,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    NOW(),
+                    NOW()
+                )
+                RETURNING id
+                "#,
+                release_id,
+                req.change.component,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap()
+            .id
+        }
+    };
+
+    // Then, we update-or-create the Packages index of the changed package.
+    match sqlx::query!(
+        r#"
+        SELECT id
+        FROM debian_repository_index_packages
+        WHERE
+            component_id = $1
+            AND architecture = $2::debian_repository_architecture
+            AND compression IS NULL
+        LIMIT 1
+        "#,
+        component_id,
+        result.changed_packages_index.architecture as _,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .unwrap()
+    {
         Some(index) => {
             // No need to check whether an update is needed - we know already
             // that the index has changed.
@@ -317,50 +381,9 @@ pub async fn handler(
             .execute(&mut *tx)
             .await
             .unwrap();
-        },
+        }
         None => {
-            // Otherwise, create the index. First, we need to find-or-create the
-            // component.
-            let component_id = match sqlx::query!(
-                r#"
-                SELECT id
-                FROM debian_repository_component
-                WHERE release_id = $1 AND name = $2
-                LIMIT 1
-                "#,
-                release_id,
-                req.change.component,
-            )
-            .fetch_optional(&mut *tx)
-            .await
-            .unwrap() {
-                Some(component) => component.id,
-                None => {
-                    sqlx::query!(
-                        r#"
-                        INSERT INTO debian_repository_component (
-                            release_id,
-                            name,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            $1,
-                            $2,
-                            NOW(),
-                            NOW()
-                        )
-                        RETURNING id
-                        "#,
-                        release_id,
-                        req.change.component,
-                    )
-                    .fetch_one(&mut *tx)
-                    .await
-                    .unwrap()
-                    .id
-                }
-            };
+            // Otherwise, create the index.
             sqlx::query!(
                 r#"
                 INSERT INTO debian_repository_index_packages (
@@ -403,6 +426,46 @@ pub async fn handler(
         }
     }
 
+    // Lastly, we create the component-package.
+    //
+    // This record should not previously exist, but we use ON CONFLICT DO
+    // NOTHING because we consider re-adding an identical package to be a no-op
+    // rather than an error.
+    sqlx::query!(
+        r#"
+        WITH package_cte AS (
+            SELECT id
+            FROM debian_repository_package
+            WHERE
+                tenant_id = $1
+                AND sha256sum = $2
+            LIMIT 1
+        )
+        INSERT INTO debian_repository_component_package (
+            component_id,
+            package_id,
+            filename,
+            created_at,
+            updated_at
+        )
+        SELECT
+            $3,
+            package_cte.id,
+            $4,
+            NOW(),
+            NOW()
+        FROM package_cte
+        ON CONFLICT DO NOTHING
+        "#,
+        tenant_id.0,
+        result.changed_package.package.sha256sum,
+        component_id,
+        result.changed_package.filename,
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
     //
@@ -424,6 +487,26 @@ pub async fn handler(
     // unlikely, but there is no good mitigation here besides a cron job. Note
     // that any _subsequent_ upload will still upload the correct indexes,
     // because the _database_ state is transactionally consistent.
+
+    // Copy the package from its canonical storage location into the repository
+    // pool.
+    state
+        .s3
+        .copy_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/{}",
+            repo.s3_prefix, result.changed_package.filename
+        ))
+        .copy_source(format!(
+            "{}/packages/{}",
+            result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    // Upload the updated Packages index file.
     state
         .s3
         .put_object()
@@ -440,6 +523,11 @@ pub async fn handler(
                 result.changed_packages_index_contents.as_bytes(),
             )),
         )
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
+            base64::engine::general_purpose::STANDARD
+                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
+        )
         .body(
             result
                 .changed_packages_index_contents
@@ -447,6 +535,30 @@ pub async fn handler(
                 .to_vec()
                 .into(),
         )
+        .send()
+        .await
+        .unwrap();
+
+    // Upload the updated Release files. This must happen last to take advantage
+    // of Acquire-By-Hash.
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/dists/{}/InRelease",
+            repo.s3_prefix, req.change.distribution
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD
+                .encode(Md5::digest(req.clearsigned.as_bytes())),
+        )
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
+            base64::engine::general_purpose::STANDARD
+                .encode(Sha256::digest(req.clearsigned.as_bytes())),
+        )
+        .body(req.clearsigned.as_bytes().to_vec().into())
         .send()
         .await
         .unwrap();
@@ -462,23 +574,12 @@ pub async fn handler(
             base64::engine::general_purpose::STANDARD
                 .encode(Md5::digest(result.release_file.contents.as_bytes())),
         )
-        .body(result.release_file.contents.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/InRelease",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
             base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.clearsigned.as_bytes())),
+                .encode(Sha256::digest(result.release_file.contents.as_bytes())),
         )
-        .body(req.clearsigned.as_bytes().to_vec().into())
+        .body(result.release_file.contents.as_bytes().to_vec().into())
         .send()
         .await
         .unwrap();
@@ -494,24 +595,12 @@ pub async fn handler(
             base64::engine::general_purpose::STANDARD
                 .encode(Md5::digest(req.detachsigned.as_bytes())),
         )
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
+            base64::engine::general_purpose::STANDARD
+                .encode(Sha256::digest(req.detachsigned.as_bytes())),
+        )
         .body(req.detachsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    // Copy the object from its canonical storage location into the repository
-    // pool.
-    state
-        .s3
-        .copy_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/{}",
-            repo.s3_prefix, result.changed_package.filename
-        ))
-        .copy_source(format!(
-            "{}/packages/{}",
-            result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
-        ))
         .send()
         .await
         .unwrap();

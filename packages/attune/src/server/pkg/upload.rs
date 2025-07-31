@@ -1,8 +1,10 @@
+use aws_sdk_s3::types::ChecksumAlgorithm;
 use axum::{
     Json,
     extract::{Multipart, State},
     http::StatusCode,
 };
+use base64::Engine;
 use bytes::Bytes;
 use debian_packaging::{
     binary_package_control::BinaryPackageControlFile,
@@ -14,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::Sha256;
 use sqlx::{Executor, Postgres, types::JsonValue};
-use tracing::{debug_span, instrument};
+use tracing::instrument;
 
 use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
 
@@ -53,7 +55,7 @@ pub async fn handler(
     // Parse Debian package for control fields.
     let value = field.bytes().await.unwrap();
     let control_file = parse_debian_package(&value).await;
-    let hashes = calculate_hashes(&value).await;
+    let hashes = Hashes::from_bytes(&value);
     let size = value.len() as i64;
 
     // Check that there are no more fields.
@@ -74,12 +76,13 @@ pub async fn handler(
 
     // Insert the package row into the database. At this point, integrity checks
     // may cause the upload to fail (e.g. if this package already exists).
+    let hex_hashes = hashes.hex();
     insert_package(
         &mut *tx,
         tenant_id,
         &state.s3_bucket_name,
         control_file,
-        &hashes,
+        &hex_hashes,
         size,
     )
     .await
@@ -90,9 +93,11 @@ pub async fn handler(
         .s3
         .put_object()
         .bucket(&state.s3_bucket_name)
-        .key(format!("packages/{}", hashes.sha256sum))
+        .key(format!("packages/{}", hex_hashes.sha256sum))
         .body(value.into())
-        .content_md5(hashes.md5sum)
+        .content_md5(base64::engine::general_purpose::STANDARD.encode(&hashes.md5sum))
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(base64::engine::general_purpose::STANDARD.encode(&hashes.sha256sum))
         .send()
         .await
         .unwrap();
@@ -110,7 +115,7 @@ pub async fn handler(
     tx.commit().await.unwrap();
 
     Ok(Json(PackageUploadResponse {
-        sha256sum: hashes.sha256sum,
+        sha256sum: hex_hashes.sha256sum,
     }))
 }
 
@@ -147,22 +152,38 @@ async fn parse_debian_package(value: &Bytes) -> BinaryPackageControlFile<'static
 
 #[derive(Debug)]
 struct Hashes {
+    sha256sum: Vec<u8>,
+    sha1sum: Vec<u8>,
+    md5sum: Vec<u8>,
+}
+
+impl Hashes {
+    fn from_bytes(bytes: &Bytes) -> Self {
+        // TODO: Can we make this faster? Parallelism? Streaming? Asynchrony?
+        let sha256sum = Sha256::digest(bytes).to_vec();
+        let sha1sum = Sha1::digest(bytes).to_vec();
+        let md5sum = Md5::digest(bytes).to_vec();
+        Self {
+            sha256sum,
+            sha1sum,
+            md5sum,
+        }
+    }
+
+    fn hex(&self) -> HashesHex {
+        HashesHex {
+            sha256sum: hex::encode(&self.sha256sum),
+            sha1sum: hex::encode(&self.sha1sum),
+            md5sum: hex::encode(&self.md5sum),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct HashesHex {
     sha256sum: String,
     sha1sum: String,
     md5sum: String,
-}
-
-#[instrument(skip(value))]
-async fn calculate_hashes(value: &Bytes) -> Hashes {
-    // TODO: Can we make this faster? Parallelism? Streaming? Asynchrony?
-    let sha256sum = debug_span!("sha256sum").in_scope(|| hex::encode(Sha256::digest(&value)));
-    let sha1sum = debug_span!("sha1sum").in_scope(|| hex::encode(Sha1::digest(&value)));
-    let md5sum = debug_span!("md5sum").in_scope(|| hex::encode(Md5::digest(&value)));
-    Hashes {
-        sha256sum,
-        sha1sum,
-        md5sum,
-    }
 }
 
 #[instrument(skip(executor, control_file))]
@@ -171,7 +192,7 @@ async fn insert_package<'c, E>(
     tenant_id: TenantID,
     s3_bucket_name: &str,
     control_file: BinaryPackageControlFile<'static>,
-    hashes: &Hashes,
+    hashes: &HashesHex,
     size: i64,
 ) -> Result<i64, sqlx::Error>
 where

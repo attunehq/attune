@@ -215,6 +215,8 @@ model DebianRepositoryPackage {
   replaces   String?
 
   size      BigInt
+
+  // These hashes are all hex-encoded.
   md5sum    String
   sha1sum   String
   sha256sum String
@@ -305,6 +307,11 @@ model DebianRepositoryPackagesIndex {
   compression DebianRepositoryIndexCompression?
   size        BigInt
   contents    Bytes
+
+  // These hashes are all hex-encoded.
+  //
+  // TODO: Should we store these as BYTES instead, since we sometimes use their
+  // base64-encoded representation with AWS S3 headers?
   md5sum      String
   sha1sum     String
   sha256sum   String

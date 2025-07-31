@@ -186,8 +186,11 @@ async fn generate_release_file_with_change(
 
     // Generate the `Packages` index for the `(distribution, component, arch)`
     // that is being changed.
-    let changed_packages_index =
-        PackagesIndex::from_packages(&change.component, &changed_package.package.architecture, packages);
+    let changed_packages_index = PackagesIndex::from_packages(
+        &change.component,
+        &changed_package.package.architecture,
+        packages,
+    );
 
     // Generate the `Release` file for the distribution.
     let release_file = {
