@@ -87,5 +87,6 @@ jobs:
         with:
           name: attune-${{ runner.os }}_${{ runner.arch }}_${{ github.sha }}
           path: |
+            target/release/attune
             target/release/attune-server
           if-no-files-found: error

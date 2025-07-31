@@ -50,6 +50,8 @@ jobs:
       - name: Run full build
         run: cargo build --workspace --all-targets --all-features
 
+  # TODO: Add CI check for Prisma formatting and schema/migration drift.
+
   # TODO: Add a job (maybe called `dev`?) that spins up the Docker Compose local
   # development environment and runs some smoke tests (maybe ideally this would
   # be an integration testing job?) to make sure we didn't break it (e.g. right
