@@ -50,7 +50,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features --skip smoke
+        run: cargo test --workspace --all-targets --all-features -- --skip smoke
 
       - name: Run full build
         run: cargo build --workspace --all-targets --all-features
