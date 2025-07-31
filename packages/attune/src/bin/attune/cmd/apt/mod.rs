@@ -34,7 +34,6 @@ pub enum AptSubcommand {
 pub async fn handle_apt(ctx: Config, command: AptCommand) -> ExitCode {
     match command.subcommand {
         AptSubcommand::Repository(repo) => repo::handle_repo(ctx, repo).await,
-        AptSubcommand::Package(pkg) => pkg::handle_pkg(ctx, pkg).await,
         // Here we handle the error responses to transform them into the way other subcommands work,
         // if we want to later we can do the same for other subcommands.
         //
@@ -49,5 +48,6 @@ pub async fn handle_apt(ctx: Config, command: AptCommand) -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        AptSubcommand::Package(pkg) => pkg::handle_pkg(ctx, pkg).await,
     }
 }
