@@ -45,7 +45,9 @@ fn test_cli_binary_exists() {
             eprintln!("❌ CLI binary test failed: {e}");
             eprintln!("Make sure the CLI is built and the path is correct.");
             eprintln!("Current CLI path: {cli}");
-            eprintln!("You can set ATTUNE_CLI_PATH environment variable to specify the correct path.");
+            eprintln!(
+                "You can set ATTUNE_CLI_PATH environment variable to specify the correct path."
+            );
             panic!("CLI binary not accessible");
         }
     }
