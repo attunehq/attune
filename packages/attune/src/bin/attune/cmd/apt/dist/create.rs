@@ -71,7 +71,7 @@ pub async fn run(ctx: Config, args: CreateArgs) -> Result<String, String> {
         .json(&request)
         .send()
         .await
-        .map(|res| handle_api_response::<CreateDistributionResponse>(res))
+        .map(handle_api_response::<CreateDistributionResponse>)
         .map_err(|err| format!("Failed to send request: {err}"))?
         .await
         .map(|CreateDistributionResponse { distribution, .. }| {

@@ -21,7 +21,7 @@ pub async fn run(ctx: Config, args: ListArgs) -> Result<String, String> {
         .get(url)
         .send()
         .await
-        .map(|res| handle_api_response::<ListDistributionsResponse>(res))
+        .map(handle_api_response::<ListDistributionsResponse>)
         .map_err(|err| format!("Failed to send request: {err}"))?
         .await?;
 
