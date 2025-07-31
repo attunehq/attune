@@ -4,3 +4,4 @@ WORKDIR /app
 COPY ./package.json ./package-lock.json ./
 RUN npm install
 COPY ./prisma ./
+ENTRYPOINT ["npm", "run", "migrate"]
