@@ -63,7 +63,7 @@ pub async fn run(ctx: Config, args: EditArgs) -> Result<String, String> {
         .json(&request)
         .send()
         .await
-        .map(|res| handle_api_response::<EditDistributionResponse>(res))
+        .map(handle_api_response::<EditDistributionResponse>)
         .map_err(|err| format!("Failed to send request: {err}"))?
         .await
         .map(|EditDistributionResponse { distribution, .. }| {

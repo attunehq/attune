@@ -44,7 +44,7 @@ pub async fn run(ctx: Config, args: DeleteArgs) -> Result<String, String> {
         .delete(url)
         .send()
         .await
-        .map(|res| handle_api_response::<DeleteDistributionResponse>(res))
+        .map(handle_api_response::<DeleteDistributionResponse>)
         .map_err(|err| format!("Failed to send request: {err}"))?
         .await
         .map(|_| format!("Distribution {:?} deleted successfully", args.name))
