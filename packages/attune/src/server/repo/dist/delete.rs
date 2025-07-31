@@ -3,12 +3,16 @@ use axum::{
     extract::{Path, State},
 };
 use serde::{Deserialize, Serialize};
-use tap::Pipe;
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
-
-use super::{super::decode_repo_name, decode_dist_name};
+use crate::{
+    api::ErrorResponse,
+    auth::TenantID,
+    server::{
+        ServerState,
+        repo::{decode_repo_name, dist::decode_dist_name},
+    },
+};
 
 /// Response after successfully deleting a distribution from a repository.
 ///
@@ -64,15 +68,14 @@ pub async fn handler(
     .unwrap();
 
     if result.rows_affected() == 0 {
-        return ErrorResponse::builder()
+        return Err(ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
             .error("DIST_NOT_FOUND")
             .message("distribution not found")
-            .build()
-            .pipe(Err);
+            .build());
     }
 
     tx.commit().await.unwrap();
 
-    DeleteDistributionResponse::default().pipe(Json).pipe(Ok)
+    Ok(Json(DeleteDistributionResponse::default()))
 }

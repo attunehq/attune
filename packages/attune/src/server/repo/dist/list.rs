@@ -4,12 +4,13 @@ use axum::{
 };
 use bon::Builder;
 use serde::{Deserialize, Serialize};
-use tap::Pipe;
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
-
-use super::super::decode_repo_name;
+use crate::{
+    api::ErrorResponse,
+    auth::TenantID,
+    server::{ServerState, repo::decode_repo_name},
+};
 
 /// A distribution within a package repository, representing a release channel or version.
 ///
@@ -19,41 +20,41 @@ use super::super::decode_repo_name;
 pub struct Distribution {
     /// Unique database identifier for this distribution.
     pub id: i64,
-    
+
     /// The distribution identifier that appears in the repository structure.
     /// For APT repositories, this appears in the URL path under `/dists/`.
     #[builder(into)]
     pub distribution: String,
-    
+
     /// Human-readable description of this distribution.
     /// APT example: "Debian 11 (bullseye) - Stable Release"
     #[builder(into)]
     pub description: Option<String>,
-    
+
     /// The organization or entity that produces this distribution.
     /// This appears in package manager output and helps users identify the source.
     /// Examples: "Debian", "Ubuntu", "ACME Corp"
     #[builder(into)]
     pub origin: Option<String>,
-    
+
     /// A label for categorizing the distribution.
     /// Often the same as origin, but can differ for sub-projects or specialized channels.
     /// Examples: "Debian", "Debian-Security", "Ubuntu"
     #[builder(into)]
     pub label: Option<String>,
-    
+
     /// The version number of this distribution release.
     /// APT examples: "11.0" for Debian 11, "22.04" for Ubuntu 22.04 LTS
     #[builder(into)]
     pub version: Option<String>,
-    
+
     /// The suite name indicates the stability level or release channel.
     /// Common patterns include stability tiers (stable, testing, unstable) or
     /// update channels (release, updates, security).
     /// APT examples: "stable", "testing", "unstable", "oldstable", "experimental"
     #[builder(into)]
     pub suite: String,
-    
+
     /// The codename is a unique identifier for a specific release version.
     /// This provides version stability - tools can reference a specific release
     /// regardless of its current stability status.
@@ -137,9 +138,9 @@ pub async fn handler(
     })
     .collect();
 
-    ListDistributionsResponse::builder()
-        .distributions(distributions)
-        .build()
-        .pipe(Json)
-        .pipe(Ok)
+    Ok(Json(
+        ListDistributionsResponse::builder()
+            .distributions(distributions)
+            .build(),
+    ))
 }

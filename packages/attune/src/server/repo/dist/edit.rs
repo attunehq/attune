@@ -4,12 +4,16 @@ use axum::{
 };
 use bon::Builder;
 use serde::{Deserialize, Serialize};
-use tap::Pipe;
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
-
-use super::{decode_dist_name, super::decode_repo_name};
+use crate::{
+    api::ErrorResponse,
+    auth::TenantID,
+    server::{
+        ServerState,
+        repo::{decode_repo_name, dist::decode_dist_name},
+    },
+};
 
 /// Request to update metadata for an existing distribution.
 ///
@@ -17,37 +21,55 @@ use super::{decode_dist_name, super::decode_repo_name};
 /// This allows partial updates without requiring all metadata to be resent.
 /// Changes take effect immediately but may not be visible in repository indexes
 /// until the next index generation.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Builder)]
 pub struct EditDistributionRequest {
     /// Human-readable description of this distribution.
     /// APT example: "Debian 11 (bullseye) - Stable Release"
+    #[builder(into)]
     pub description: Option<String>,
-    
+
     /// The organization or entity that produces this distribution.
     /// This appears in package manager output and helps users identify the source.
     /// Examples: "Debian", "Ubuntu", "ACME Corp"
+    #[builder(into)]
     pub origin: Option<String>,
-    
+
     /// A label for categorizing the distribution.
     /// Often the same as origin, but can differ for sub-projects or specialized channels.
     /// Examples: "Debian", "Debian-Security", "Ubuntu"
+    #[builder(into)]
     pub label: Option<String>,
-    
+
     /// The version number of this distribution release.
     /// APT examples: "11.0" for Debian 11, "22.04" for Ubuntu 22.04 LTS
+    #[builder(into)]
     pub version: Option<String>,
-    
+
     /// The suite name indicates the stability level or release channel.
     /// Common patterns include stability tiers (stable, testing, unstable) or
     /// update channels (release, updates, security).
     /// APT examples: "stable", "testing", "unstable", "oldstable", "experimental"
+    #[builder(into)]
     pub suite: Option<String>,
-    
+
     /// The codename is a unique identifier for a specific release version.
     /// This provides version stability - tools can reference a specific release
     /// regardless of its current stability status.
     /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal", "jammy"
+    #[builder(into)]
     pub codename: Option<String>,
+}
+
+impl EditDistributionRequest {
+    /// Check if any fields were provided.
+    pub fn any_some(&self) -> bool {
+        self.description.is_some()
+            || self.origin.is_some()
+            || self.label.is_some()
+            || self.version.is_some()
+            || self.suite.is_some()
+            || self.codename.is_some()
+    }
 }
 
 /// Response after successfully updating a distribution's metadata.
@@ -59,7 +81,7 @@ pub struct EditDistributionRequest {
 pub struct EditDistributionResponse {
     /// Unique database identifier for this distribution.
     pub id: i64,
-    
+
     /// The distribution name, confirming which distribution was updated.
     #[builder(into)]
     pub distribution: String,
@@ -147,10 +169,10 @@ pub async fn handler(
 
     tx.commit().await.unwrap();
 
-    EditDistributionResponse::builder()
-        .id(updated.id)
-        .distribution(updated.distribution)
-        .build()
-        .pipe(Json)
-        .pipe(Ok)
+    Ok(Json(
+        EditDistributionResponse::builder()
+            .id(updated.id)
+            .distribution(updated.distribution)
+            .build(),
+    ))
 }

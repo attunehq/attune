@@ -1,9 +1,5 @@
-use std::process::ExitCode;
-
 use axum::http::StatusCode;
 use clap::{Args, Subcommand};
-use colored::Colorize as _;
-use inquire::Confirm;
 use percent_encoding::percent_encode;
 
 use crate::config::Config;
@@ -48,7 +44,7 @@ pub enum DistSubCommand {
     Delete(delete::DeleteArgs),
 }
 
-pub async fn handle_dist(_ctx: Config, command: DistCommand) -> ExitCode {
+pub async fn handle_dist(ctx: Config, command: DistCommand) -> Result<String, String> {
     match command.subcommand {
         DistSubCommand::Create(args) => create::run(ctx, args).await,
         DistSubCommand::List(args) => list::run(ctx, args).await,
@@ -80,35 +76,21 @@ fn build_distribution_url(
         .expect("Invalid URL construction")
 }
 
-/// Handle API response in functional style
-async fn handle_api_response<T>(response: reqwest::Response) -> Result<T, ExitCode>
+/// Handle API response, accounting for the structured error type.
+async fn handle_api_response<T>(response: reqwest::Response) -> Result<T, String>
 where
     T: for<'de> serde::Deserialize<'de>,
 {
-    match response.status() {
-        StatusCode::OK => response.json::<T>().await.map_err(|e| {
-            eprintln!("Failed to parse API response: {e}");
-            ExitCode::FAILURE
-        }),
-        _ => {
-            let error = response.json::<ErrorResponse>().await.map_err(|e| {
-                eprintln!("Failed to parse error response: {e}");
-                ExitCode::FAILURE
-            })?;
-            eprintln!("API error: {}", error.message);
-            Err(ExitCode::FAILURE)
-        }
+    if response.status() == StatusCode::OK {
+        response
+            .json::<T>()
+            .await
+            .map_err(|e| format!("Failed to parse API response: {e}"))
+    } else {
+        response
+            .json::<ErrorResponse>()
+            .await
+            .map(|err| Err(format!("API error: {}", err.message)))
+            .map_err(|err| format!("Failed to parse error response: {err}"))?
     }
-}
-
-/// Confirm destructive action with colored warning
-fn confirm_destructive_action(message: &str) -> Result<bool, ExitCode> {
-    println!("{}", format!("Warning: {message}").red());
-    Confirm::new("Are you sure you want to proceed?")
-        .with_default(false)
-        .prompt()
-        .map_err(|e| {
-            eprintln!("Confirmation failed: {e}");
-            ExitCode::FAILURE
-        })
 }

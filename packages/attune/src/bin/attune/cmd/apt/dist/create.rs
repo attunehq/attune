@@ -1,11 +1,10 @@
-use std::process::ExitCode;
-
 use clap::Args;
 
-use crate::config::Config;
+use crate::{
+    cmd::apt::dist::{build_distribution_url, handle_api_response},
+    config::Config,
+};
 use attune::server::repo::dist::create::{CreateDistributionRequest, CreateDistributionResponse};
-
-use super::{build_distribution_url, handle_api_response};
 
 #[derive(Args, Debug)]
 pub struct CreateArgs {
@@ -22,12 +21,14 @@ pub struct CreateArgs {
     name: String,
 
     /// The suite name (e.g., "stable", "testing", "unstable").
+    /// Defaults to the same value as `name` if not provided.
     #[arg(long)]
-    suite: String,
+    suite: Option<String>,
 
     /// The codename (e.g., "bullseye", "bookworm", "jammy").
+    /// Defaults to the same value as `name` if not provided.
     #[arg(long)]
-    codename: String,
+    codename: Option<String>,
 
     /// Optional metadata for the distribution.
     #[command(flatten)]
@@ -53,11 +54,11 @@ pub struct DistMetadata {
     version: Option<String>,
 }
 
-pub async fn run(ctx: Config, args: CreateArgs) -> ExitCode {
+pub async fn run(ctx: Config, args: CreateArgs) -> Result<String, String> {
     let request = CreateDistributionRequest::builder()
+        .suite(args.suite.unwrap_or_else(|| args.name.clone()))
+        .codename(args.codename.unwrap_or_else(|| args.name.clone()))
         .name(args.name)
-        .suite(args.suite)
-        .codename(args.codename)
         .maybe_description(args.metadata.description)
         .maybe_origin(args.metadata.origin)
         .maybe_label(args.metadata.label)
@@ -65,19 +66,15 @@ pub async fn run(ctx: Config, args: CreateArgs) -> ExitCode {
         .build();
 
     let url = build_distribution_url(&ctx, &args.repo, None);
-    let response = ctx.client.post(url).json(&request).send().await;
-
-    match response {
-        Ok(resp) => match handle_api_response::<CreateDistributionResponse>(resp).await {
-            Ok(CreateDistributionResponse { distribution, .. }) => {
-                println!("Distribution '{distribution}' created successfully");
-                ExitCode::SUCCESS
-            }
-            Err(exit_code) => exit_code,
-        },
-        Err(e) => {
-            eprintln!("Failed to send request: {e}");
-            ExitCode::FAILURE
-        }
-    }
+    ctx.client
+        .post(url)
+        .json(&request)
+        .send()
+        .await
+        .map(|res| handle_api_response::<CreateDistributionResponse>(res))
+        .map_err(|err| format!("Failed to send request: {err}"))?
+        .await
+        .map(|CreateDistributionResponse { distribution, .. }| {
+            format!("Distribution {distribution:?} created successfully")
+        })
 }
