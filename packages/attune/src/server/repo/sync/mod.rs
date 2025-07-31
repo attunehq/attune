@@ -79,12 +79,14 @@ async fn check_consistency(
         .checksum_mode(ChecksumMode::Enabled)
         .send()
         .await
-        .unwrap()
-        .checksum_sha256()
-        .map(|checksum| {
-            checksum
-                != base64::engine::general_purpose::STANDARD
-                    .encode(Sha256::digest(&release.contents))
+        .map(|head| {
+            head.checksum_sha256()
+                .map(|checksum| {
+                    checksum
+                        != base64::engine::general_purpose::STANDARD
+                            .encode(Sha256::digest(&release.contents))
+                })
+                .unwrap_or(true)
         })
         .unwrap_or(true);
     let inconsistent_clearsigned = s3
@@ -97,15 +99,17 @@ async fn check_consistency(
         .checksum_mode(ChecksumMode::Enabled)
         .send()
         .await
-        .unwrap()
-        .checksum_sha256()
-        .map(|checksum| {
-            release
-                .clearsigned
-                .map(|clearsigned| {
-                    checksum
-                        != base64::engine::general_purpose::STANDARD
-                            .encode(Sha256::digest(&clearsigned))
+        .map(|head| {
+            head.checksum_sha256()
+                .map(|checksum| {
+                    release
+                        .clearsigned
+                        .map(|clearsigned| {
+                            checksum
+                                != base64::engine::general_purpose::STANDARD
+                                    .encode(Sha256::digest(&clearsigned))
+                        })
+                        .unwrap_or(true)
                 })
                 .unwrap_or(true)
         })
@@ -120,15 +124,17 @@ async fn check_consistency(
         .checksum_mode(ChecksumMode::Enabled)
         .send()
         .await
-        .unwrap()
-        .checksum_sha256()
-        .map(|checksum| {
-            release
-                .detached
-                .map(|detached| {
-                    checksum
-                        != base64::engine::general_purpose::STANDARD
-                            .encode(Sha256::digest(&detached))
+        .map(|head| {
+            head.checksum_sha256()
+                .map(|checksum| {
+                    release
+                        .detached
+                        .map(|detached| {
+                            checksum
+                                != base64::engine::general_purpose::STANDARD
+                                    .encode(Sha256::digest(&detached))
+                        })
+                        .unwrap_or(true)
                 })
                 .unwrap_or(true)
         })
@@ -166,13 +172,15 @@ async fn check_consistency(
             .checksum_mode(ChecksumMode::Enabled)
             .send()
             .await
-            .unwrap()
-            .checksum_sha256()
-            .map(|checksum| {
-                let expected = hex::decode(&packages_index.sha256sum)
-                    .expect("could not decode Packages index SHA256 sum");
-                let expected = base64::engine::general_purpose::STANDARD.encode(expected);
-                checksum != expected
+            .map(|head| {
+                head.checksum_sha256()
+                    .map(|checksum| {
+                        let expected = hex::decode(&packages_index.sha256sum)
+                            .expect("could not decode Packages index SHA256 sum");
+                        let expected = base64::engine::general_purpose::STANDARD.encode(expected);
+                        checksum != expected
+                    })
+                    .unwrap_or(true)
             })
             .unwrap_or(true)
         {
@@ -210,13 +218,15 @@ async fn check_consistency(
             .checksum_mode(ChecksumMode::Enabled)
             .send()
             .await
-            .unwrap()
-            .checksum_sha256()
-            .map(|checksum| {
-                let expected =
-                    hex::decode(&package.sha256sum).expect("could not decode package SHA256 sum");
-                let expected = base64::engine::general_purpose::STANDARD.encode(expected);
-                checksum != expected
+            .map(|head| {
+                head.checksum_sha256()
+                    .map(|checksum| {
+                        let expected = hex::decode(&package.sha256sum)
+                            .expect("could not decode package SHA256 sum");
+                        let expected = base64::engine::general_purpose::STANDARD.encode(expected);
+                        checksum != expected
+                    })
+                    .unwrap_or(true)
             })
             .unwrap_or(true)
         {
