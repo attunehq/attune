@@ -99,7 +99,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // the file in memory might be faster.
     debug!(package_file = ?command.package_file, "calculating SHA256 sum");
     let package_file = std::fs::read(command.package_file).unwrap();
-    let sha256sum = hex::encode(Sha256::digest(&package_file).as_slice().to_vec());
+    let sha256sum = hex::encode(Sha256::digest(&package_file).as_slice());
     debug!(sha256sum = ?sha256sum, "calculated SHA256 sum");
 
     debug!(sha256sum = ?sha256sum, "checking whether package exists");
@@ -107,7 +107,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         .client
         .get(
             ctx.endpoint
-                .join(format!("/api/v0/packages/{}", sha256sum).as_str())
+                .join(format!("/api/v0/packages/{sha256sum}").as_str())
                 .unwrap(),
         )
         .send()
@@ -251,7 +251,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
                 .join(
                     format!(
                         "/api/v0/repositories/{}/index",
-                        percent_encode(&command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+                        percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
                     )
                     .as_str(),
                 )

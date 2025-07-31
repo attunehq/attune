@@ -35,7 +35,7 @@ pub async fn handler(headers: HeaderMap) -> Result<Json<CompatibilityResponse>, 
                 return Err(ErrorResponse::new(
                     StatusCode::BAD_REQUEST,
                     "API_VERSION_HEADER_INVALID".to_string(),
-                    format!("API version header invalid: {}", err),
+                    format!("API version header invalid: {err}"),
                 ));
             }
         },
@@ -53,7 +53,7 @@ pub async fn handler(headers: HeaderMap) -> Result<Json<CompatibilityResponse>, 
             return Err(ErrorResponse::new(
                 StatusCode::BAD_REQUEST,
                 "API_VERSION_HEADER_INVALID".to_string(),
-                format!("could not parse API version header: {}", err),
+                format!("could not parse API version header: {err}"),
             ));
         }
     };

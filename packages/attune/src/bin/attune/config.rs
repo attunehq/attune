@@ -30,7 +30,7 @@ impl Config {
         );
         headers.insert(
             "Authorization",
-            format!("Bearer {}", api_token).parse().unwrap(),
+            format!("Bearer {api_token}").parse().unwrap(),
         );
 
         // Build default client.

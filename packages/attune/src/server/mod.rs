@@ -2,7 +2,7 @@ pub mod compatibility;
 pub mod pkg;
 pub mod repo;
 
-use std::{any::Any, time::Duration, usize};
+use std::{any::Any, time::Duration};
 
 use axum::{
     BoxError, Router,

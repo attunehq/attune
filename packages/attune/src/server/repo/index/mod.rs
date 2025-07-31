@@ -50,7 +50,7 @@ async fn generate_release_file_with_change(
     // return an error.
     let changed_package = match Package::query_from_sha256sum(
         &mut *tx,
-        &tenant_id,
+        tenant_id,
         &change.package_sha256sum,
     )
     .await
@@ -443,10 +443,10 @@ impl ReleaseFile {
         }
         let archs = arch_set
             .into_iter()
-            .fold(String::new(), |acc_archs, arch| acc_archs + " " + &arch);
+            .fold(String::new(), |acc_archs, arch| acc_archs + " " + arch);
         let comps = comp_set
             .into_iter()
-            .fold(String::new(), |acc_comps, comp| acc_comps + " " + &comp);
+            .fold(String::new(), |acc_comps, comp| acc_comps + " " + comp);
 
         // Write release fields.
         let release_fields: Vec<(&str, Option<String>)> = vec![

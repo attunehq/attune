@@ -82,8 +82,7 @@ async fn main() -> ExitCode {
                 }
                 CompatibilityResponse::Incompatible { minimum } => {
                     eprintln!(
-                        "Error: CLI version is incompatible with API server. Please upgrade to version {:?} or newer.",
-                        minimum
+                        "Error: CLI version is incompatible with API server. Please upgrade to version {minimum:?} or newer."
                     );
                     return ExitCode::FAILURE;
                 }

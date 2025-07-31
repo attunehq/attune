@@ -69,7 +69,7 @@ pub async fn handler(
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "PUBLIC_KEY_VERIFICATION_FAILED".to_string(),
-            format!("could not verify public key: {}", e),
+            format!("could not verify public key: {e}"),
         ));
     }
     let (clearsigned, _headers) = CleartextSignedMessage::from_string(&req.clearsigned)
@@ -78,7 +78,7 @@ pub async fn handler(
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "CLEARSIGN_VERIFICATION_FAILED".to_string(),
-            format!("could not verify clearsigned index: {}", e),
+            format!("could not verify clearsigned index: {e}"),
         ));
     }
     let contents = clearsigned.text();
@@ -88,7 +88,7 @@ pub async fn handler(
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "DETACHED_SIGNATURE_VERIFICATION_FAILED".to_string(),
-            format!("could not verify detached signature: {}", e),
+            format!("could not verify detached signature: {e}"),
         ));
     }
 

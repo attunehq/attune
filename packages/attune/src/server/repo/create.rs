@@ -45,7 +45,7 @@ pub async fn handler(
     .fetch_optional(&mut *tx)
     .await
     .unwrap();
-    if let Some(_) = existing {
+    if existing.is_some() {
         return Err(ErrorResponse::new(
             axum::http::StatusCode::BAD_REQUEST,
             "REPO_ALREADY_EXISTS".to_string(),

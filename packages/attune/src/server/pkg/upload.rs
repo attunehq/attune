@@ -48,7 +48,7 @@ pub async fn handler(
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "COULD_NOT_PARSE_UPLOAD".to_string(),
-            format!("expected field named \"file\", got {:?}", name),
+            format!("expected field named \"file\", got {name:?}"),
         ));
     }
 
@@ -63,7 +63,7 @@ pub async fn handler(
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "COULD_NOT_PARSE_UPLOAD".to_string(),
-            format!("unexpected unknown field {:?}", name),
+            format!("unexpected unknown field {name:?}"),
         ));
     };
 
