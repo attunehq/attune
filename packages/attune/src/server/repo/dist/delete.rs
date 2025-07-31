@@ -36,7 +36,7 @@ pub async fn handler(
     let mut tx = state.db.begin().await.unwrap();
     let repo = sqlx::query!(
         r#"
-        SELECT id
+        SELECT id, s3_bucket, s3_prefix
         FROM debian_repository
         WHERE tenant_id = $1 AND name = $2
         "#,
@@ -76,6 +76,63 @@ pub async fn handler(
     }
 
     tx.commit().await.unwrap();
+
+    // Clean up S3 objects for this distribution using prefix-based deletion.
+    //
+    // Note: We don't delete the actual package files (under `/packages/`) because
+    // they might be referenced by other distributions in the same or different repositories.
+    //
+    // As a future improvement we could do garbage collection to delete the actual package files.
+    let s3_prefix = format!("{}/dists/{}/", repo.s3_prefix, distribution_name);
+
+    // The continuation token is used to paginate through all the objects.
+    let mut continuation_token = None;
+    loop {
+        let res = state
+            .s3
+            .list_objects_v2()
+            .bucket(&repo.s3_bucket)
+            .prefix(&s3_prefix)
+            .set_continuation_token(continuation_token)
+            .send()
+            .await
+            .unwrap();
+
+        let targets = res
+            .contents()
+            .into_iter()
+            .filter_map(|obj| obj.key())
+            .map(|key| {
+                aws_sdk_s3::types::ObjectIdentifier::builder()
+                    .key(key)
+                    .build()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        if !targets.is_empty() {
+            let delete = aws_sdk_s3::types::Delete::builder()
+                .set_objects(Some(targets))
+                .build()
+                .unwrap();
+
+            let deleted = state
+                .s3
+                .delete_objects()
+                .bucket(&repo.s3_bucket)
+                .delete(delete)
+                .send()
+                .await;
+            if let Err(err) = deleted {
+                tracing::error!("Failed to delete objects: {err:?}");
+            }
+        }
+
+        if res.is_truncated() == Some(true) {
+            continuation_token = res.next_continuation_token().map(|s| s.to_string());
+        } else {
+            break;
+        }
+    }
 
     Ok(Json(DeleteDistributionResponse::default()))
 }
