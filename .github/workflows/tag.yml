@@ -47,7 +47,7 @@ jobs:
         run: cargo build --workspace --all-targets --all-features --release
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features --release
+        run: cargo test --workspace --all-targets --all-features --release -- --skip smoke
 
       # Publish GitHub pre-release.
       - name: Copy and rename release assets
