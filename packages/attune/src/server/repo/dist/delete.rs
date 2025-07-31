@@ -91,7 +91,7 @@ pub async fn handler(
         return Ok(Json(DeleteDistributionResponse::default()));
     }
 
-    // Find and delete orphaned packages in a single operation using DELETE ... RETURNING
+    // Find and delete orphaned packages; the returning clause is for S3 cleanup.
     let orphaned = sqlx::query!(
         r#"
         DELETE FROM debian_repository_package p
@@ -144,6 +144,7 @@ pub async fn handler(
     };
 
     // Delete all objects in batches.
+    // TODO: make concurrent with `futures`' `BufferUnordered`.
     for chunk in keys.chunks(1000) {
         let objects = chunk
             .iter()
