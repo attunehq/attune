@@ -4,12 +4,13 @@ use axum::{
 };
 use bon::Builder;
 use serde::{Deserialize, Serialize};
-use tap::Pipe;
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
-
-use super::super::decode_repo_name;
+use crate::{
+    api::ErrorResponse,
+    auth::TenantID,
+    server::{ServerState, repo::decode_repo_name},
+};
 
 /// Request to create a new distribution (release) within a package repository.
 ///
@@ -128,12 +129,11 @@ pub async fn handler(
     .await
     .unwrap();
     if existing.is_some() {
-        return ErrorResponse::builder()
+        return Err(ErrorResponse::builder()
             .status(axum::http::StatusCode::BAD_REQUEST)
             .error("DIST_ALREADY_EXISTS")
             .message("distribution already exists")
-            .build()
-            .pipe(Err);
+            .build());
     }
 
     // Insert new distribution
@@ -170,10 +170,10 @@ pub async fn handler(
 
     tx.commit().await.unwrap();
 
-    CreateDistributionResponse::builder()
-        .id(inserted.id)
-        .distribution(inserted.distribution)
-        .build()
-        .pipe(Json)
-        .pipe(Ok)
+    Ok(Json(
+        CreateDistributionResponse::builder()
+            .id(inserted.id)
+            .distribution(inserted.distribution)
+            .build(),
+    ))
 }

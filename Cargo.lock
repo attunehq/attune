@@ -416,7 +416,6 @@ dependencies = [
  "sqlx",
  "tabled",
  "tabwriter",
- "tap",
  "time",
  "tokio",
  "tower",

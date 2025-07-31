@@ -30,7 +30,6 @@ sha2.workspace = true
 sqlx.workspace = true
 tabled.workspace = true
 tabwriter.workspace = true
-tap.workspace = true
 time.workspace = true
 tokio.workspace = true
 tower.workspace = true

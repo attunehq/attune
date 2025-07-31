@@ -1,11 +1,18 @@
-use std::process::ExitCode;
-
 use clap::Args;
+use colored::Colorize;
+use inquire::Confirm;
 
-use crate::config::Config;
+use crate::{
+    cmd::apt::dist::{build_distribution_url, handle_api_response},
+    config::Config,
+};
 use attune::server::repo::dist::delete::DeleteDistributionResponse;
 
-use super::{build_distribution_url, handle_api_response, confirm_destructive_action};
+macro_rules! println_warning {
+    ($($arg:tt)*) => {
+        println!("Warning: {}", format!($($arg)*).red());
+    };
+}
 
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
@@ -17,39 +24,28 @@ pub struct DeleteArgs {
     name: String,
 }
 
-pub async fn run(ctx: Config, args: DeleteArgs) -> ExitCode {
-    let warning_message = format!(
-        "this will irreversibly delete distribution '{}' from repository '{}' and all its components, package indexes, and package associations",
-        args.name, args.repo
+pub async fn run(ctx: Config, args: DeleteArgs) -> Result<String, String> {
+    println_warning!(
+        "This will irreversibly delete distribution {:?} from repository {:?} and all its components, package indexes, and package associations.",
+        args.name,
+        args.repo
     );
 
-    match confirm_destructive_action(&warning_message) {
-        Ok(true) => {}, // User confirmed, proceed
-        Ok(false) => {
-            println!("Operation cancelled");
-            return ExitCode::SUCCESS;
-        },
-        Err(exit_code) => return exit_code,
+    let confirmed = Confirm::new("Are you sure you want to proceed?")
+        .with_default(false)
+        .prompt()
+        .map_err(|e| format!("Confirmation failed: {e}"))?;
+    if !confirmed {
+        return Ok(String::from("Operation cancelled"));
     }
 
     let url = build_distribution_url(&ctx, &args.repo, Some(&args.name));
-    let response = ctx
-        .client
+    ctx.client
         .delete(url)
         .send()
-        .await;
-
-    match response {
-        Ok(resp) => match handle_api_response::<DeleteDistributionResponse>(resp).await {
-            Ok(_) => {
-                println!("Distribution '{}' deleted successfully", args.name);
-                ExitCode::SUCCESS
-            }
-            Err(exit_code) => exit_code,
-        },
-        Err(e) => {
-            eprintln!("Failed to send request: {}", e);
-            ExitCode::FAILURE
-        }
-    }
+        .await
+        .map(|res| handle_api_response::<DeleteDistributionResponse>(res))
+        .map_err(|err| format!("Failed to send request: {err}"))?
+        .await
+        .map(|_| format!("Distribution {:?} deleted successfully", args.name))
 }

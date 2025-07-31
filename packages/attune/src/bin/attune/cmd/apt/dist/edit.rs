@@ -1,11 +1,10 @@
-use std::process::ExitCode;
-
 use clap::Args;
 
-use crate::config::Config;
+use crate::{
+    cmd::apt::dist::{build_distribution_url, handle_api_response},
+    config::Config,
+};
 use attune::server::repo::dist::edit::{EditDistributionRequest, EditDistributionResponse};
-
-use super::{build_distribution_url, handle_api_response};
 
 #[derive(Args, Debug)]
 pub struct EditArgs {
@@ -42,43 +41,38 @@ pub struct EditMetadata {
     codename: Option<String>,
 }
 
-pub async fn run(ctx: Config, args: EditArgs) -> ExitCode {
-    let request = EditDistributionRequest {
-        description: args.metadata.description,
-        origin: args.metadata.origin,
-        label: args.metadata.label,
-        version: args.metadata.version,
-        suite: args.metadata.suite,
-        codename: args.metadata.codename,
-    };
+pub async fn run(ctx: Config, args: EditArgs) -> Result<String, String> {
+    let request = EditDistributionRequest::builder()
+        .maybe_description(args.metadata.description)
+        .maybe_origin(args.metadata.origin)
+        .maybe_label(args.metadata.label)
+        .maybe_version(args.metadata.version)
+        .maybe_suite(args.metadata.suite)
+        .maybe_codename(args.metadata.codename)
+        .build();
 
-    // Check if any fields were provided
-    if request.description.is_none() && request.origin.is_none() && request.label.is_none() 
-        && request.version.is_none() && request.suite.is_none() && request.codename.is_none() {
-        eprintln!("No fields to update provided. Use --help to see available options.");
-        return ExitCode::FAILURE;
+    if !request.any_some() {
+        return Err(String::from(
+            "No fields to update provided. Use --help to see available options.",
+        ));
     }
 
     let url = build_distribution_url(&ctx, &args.repo, Some(&args.name));
-    let response = ctx
-        .client
+    ctx.client
         .put(url)
         .json(&request)
         .send()
-        .await;
-
-    match response {
-        Ok(resp) => match handle_api_response::<EditDistributionResponse>(resp).await {
-            Ok(dist) => {
-                println!("Distribution '{}' updated successfully", dist.distribution);
-                println!("Note: Changes will be reflected in repository indexes after the next sync.");
-                ExitCode::SUCCESS
-            }
-            Err(exit_code) => exit_code,
-        },
-        Err(e) => {
-            eprintln!("Failed to send request: {}", e);
-            ExitCode::FAILURE
-        }
-    }
+        .await
+        .map(|res| handle_api_response::<EditDistributionResponse>(res))
+        .map_err(|err| format!("Failed to send request: {err}"))?
+        .await
+        .map(|EditDistributionResponse { distribution, .. }| {
+            format!(
+                concat!(
+                    "Distribution {:?} updated successfully\n",
+                    "Note: Changes will be reflected in repository indexes after the next sync."
+                ),
+                distribution
+            )
+        })
 }
