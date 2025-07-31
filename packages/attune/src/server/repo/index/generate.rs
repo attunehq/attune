@@ -66,7 +66,8 @@ pub async fn handler(
         .unwrap();
 
     let release_ts = OffsetDateTime::now_utc();
-    let result = generate_release_file_with_change(&mut tx, &tenant_id, &req.change, release_ts).await?;
+    let result =
+        generate_release_file_with_change(&mut tx, &tenant_id, &req.change, release_ts).await?;
 
     tx.commit().await.unwrap();
 

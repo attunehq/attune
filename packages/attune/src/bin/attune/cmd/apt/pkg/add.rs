@@ -236,8 +236,8 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     let mut public_key_cert = Vec::new();
     gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
         .expect("could not export key");
-    let public_key_cert = String::from_utf8(public_key_cert)
-        .expect("public key cert contained invalid characters");
+    let public_key_cert =
+        String::from_utf8(public_key_cert).expect("public key cert contained invalid characters");
     debug!(?public_key_cert, "public key cert");
 
     // Submit signatures.

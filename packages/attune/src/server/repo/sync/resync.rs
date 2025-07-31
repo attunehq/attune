@@ -10,10 +10,7 @@ use tracing::instrument;
 use crate::{
     api::ErrorResponse,
     auth::TenantID,
-    server::{
-        ServerState,
-        repo::decode_repo_name,
-    },
+    server::{ServerState, repo::decode_repo_name},
 };
 
 #[axum::debug_handler]
