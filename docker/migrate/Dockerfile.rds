@@ -4,5 +4,6 @@ WORKDIR /app
 COPY ./package.json ./package-lock.json ./
 RUN npm install
 COPY . .
+RUN npm run build
 
-ENTRYPOINT ["npm", "run", "migraterds", "--silent"]
+ENTRYPOINT ["npm", "run", "migraterds"]
