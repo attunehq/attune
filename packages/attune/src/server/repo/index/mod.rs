@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Transaction, prelude::FromRow, types::JsonValue};
 use tabwriter::{Alignment, TabWriter};
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{api::ErrorResponse, auth::TenantID};
 
@@ -200,15 +200,16 @@ async fn generate_release_file_with_change(
                 packages
                     .into_iter()
                     .filter(|p| {
-                        p.package.name != changed_package.name
-                            && p.package.version != changed_package.version
-                            && p.package.architecture != changed_package.architecture
+                        !(p.package.name == changed_package.name
+                            && p.package.version == changed_package.version
+                            && p.package.architecture == changed_package.architecture)
                     })
                     .collect(),
                 removed,
             )
         }
     };
+    debug!(?packages, ?changed_package, "index package set");
 
     // Generate the `Packages` index for the `(distribution, component, arch)`
     // that is being changed.
@@ -217,6 +218,7 @@ async fn generate_release_file_with_change(
         &changed_package.package.architecture,
         packages.into_iter(),
     );
+    debug!(?changed_packages_index, "changed packages index");
 
     // Generate the `Release` file for the distribution.
     let release_file = {
@@ -519,11 +521,11 @@ impl ReleaseFile {
         let archs = arch_set
             .into_iter()
             .fold(String::new(), |acc_archs, arch| acc_archs + " " + arch);
-        let archs = archs.strip_prefix(" ").unwrap();
+        let archs = archs.strip_prefix(" ").unwrap_or("");
         let comps = comp_set
             .into_iter()
             .fold(String::new(), |acc_comps, comp| acc_comps + " " + comp);
-        let comps = comps.strip_prefix(" ").unwrap();
+        let comps = comps.strip_prefix(" ").unwrap_or("");
 
         // Write release fields.
         let release_fields: Vec<(&str, Option<String>)> = vec![
