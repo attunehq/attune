@@ -59,10 +59,11 @@ pub async fn handler(
         r#"
         SELECT
             c.name as component_name,
-            pi.architecture::text as architecture
+            p.architecture::text as architecture
         FROM debian_repository_release r
         JOIN debian_repository_component c ON c.release_id = r.id
-        JOIN debian_repository_index_packages pi ON pi.component_id = c.id
+        JOIN debian_repository_component_package cp ON cp.component_id = c.id
+        JOIN debian_repository_package p ON p.id = cp.package_id
         WHERE r.repository_id = $1 AND r.distribution = $2
         "#,
         repo.id,
@@ -85,10 +86,13 @@ pub async fn handler(
     .await
     .unwrap();
 
-    // If no rows were affected, the distribution was already deleted.
-    // We return an OK response here because the user's goal was accomplished regardless.
+    // If no rows were affected, the distribution was already deleted or never existed.
     if result.rows_affected() == 0 {
-        return Ok(Json(DeleteDistributionResponse::default()));
+        return Err(ErrorResponse::builder()
+            .status(axum::http::StatusCode::NOT_FOUND)
+            .error("REPO_NOT_FOUND")
+            .message("repository not found")
+            .build());
     }
 
     // Find and delete orphaned packages; the returning clause is for S3 cleanup.
