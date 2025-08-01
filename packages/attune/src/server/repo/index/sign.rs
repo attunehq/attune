@@ -140,6 +140,7 @@ pub async fn handler(
 
     // Compare the replayed index with the signed index. Accept the signature if
     // the index contents match. Otherwise, return an error.
+    tracing::debug!(generated = ?result.release_file.contents, signed = ?contents, "compare index contents");
     if result.release_file.contents != contents {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,

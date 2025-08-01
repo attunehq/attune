@@ -1,4 +1,4 @@
-use std::{collections::HashSet, io::Write, iter::once};
+use std::{collections::BTreeSet, io::Write, iter::once};
 
 use axum::http::StatusCode;
 use md5::Md5;
@@ -430,8 +430,8 @@ impl ReleaseFile {
         let date = release_ts.format(&Rfc2822).unwrap();
 
         // Prepare "Architectures" and "Components" fields.
-        let mut arch_set = HashSet::new();
-        let mut comp_set = HashSet::new();
+        let mut arch_set = BTreeSet::new();
+        let mut comp_set = BTreeSet::new();
         for p in &packages_indexes {
             arch_set.insert(p.architecture.as_str());
             comp_set.insert(p.component.as_str());
