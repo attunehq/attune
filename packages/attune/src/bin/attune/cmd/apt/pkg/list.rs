@@ -9,7 +9,7 @@ use attune::{
     server::pkg::list::{PackageListParams, PackageListResponse},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct PkgListCommand {
     #[arg(short, long)]
     repository: Option<String>,
