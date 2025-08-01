@@ -11,7 +11,7 @@ use axum::{
     handler::Handler,
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
 };
 use http::StatusCode;
 use sha2::{Digest as _, Sha256};
@@ -99,7 +99,7 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         )
         .route(
             "/packages",
-            post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
+            get(pkg::list::handler).post(pkg::upload::handler.layer(DefaultBodyLimit::disable())),
         )
         .route("/packages/{package_sha256sum}", get(pkg::info::handler));
 
