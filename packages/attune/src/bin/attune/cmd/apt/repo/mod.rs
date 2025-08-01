@@ -29,6 +29,12 @@ pub enum RepoSubCommand {
     /// Delete a repository
     #[command(visible_alias = "rm")]
     Delete(delete::RepoDeleteCommand),
+
+    // TODO: Add a command that allows us to do a no-op re-signing of the index,
+    // potentially with a different key.
+
+    // TODO: Add a command that forcibly resynchronizes the repository state
+    // with S3.
 }
 
 pub async fn handle_repo(ctx: Config, command: RepoCommand) -> ExitCode {

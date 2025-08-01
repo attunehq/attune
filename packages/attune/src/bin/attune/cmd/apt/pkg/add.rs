@@ -50,6 +50,11 @@ pub struct PkgAddCommand {
 
 pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // Ensure that the specified repository exists.
+    //
+    // We don't technically _need_ to do this check, since it occurs in the
+    // index signing steps. However, doing it here lets us short-circuit a bad
+    // upload early, before we have to do the long step of actually performing
+    // the upload.
     debug!(repo = ?command.repo, "checking whether repository exists");
     let res = ctx
         .client
@@ -101,6 +106,13 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     let package_file = std::fs::read(command.package_file).unwrap();
     let sha256sum = hex::encode(Sha256::digest(&package_file).as_slice());
     debug!(sha256sum = ?sha256sum, "calculated SHA256 sum");
+
+    // TODO: We may also want to check whether a package with the same
+    // identifiers (i.e. (name, version, architecture)) already exists, which
+    // should be impossible, and should be an error we report to the user.
+    //
+    // TODO: Add an `--overwrite` flag to allow the user to deliberately upload
+    // a package with a different SHA256sum.
 
     debug!(sha256sum = ?sha256sum, "checking whether package exists");
     let res = ctx
@@ -160,6 +172,10 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         }
     }
 
+    // TODO: Check whether the package needs to be added to the index. If the
+    // package already exists in the (release, distribution, component), we can
+    // skip re-signing.
+
     // Add the package to the index, retrying if needed.
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
     let generate_index_request = GenerateIndexRequest {
@@ -167,8 +183,9 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             repository: command.repo.clone(),
             distribution: command.distribution.clone(),
             component: command.component.clone(),
-            package_sha256sum: sha256sum.clone(),
-            action: PackageChangeAction::Add,
+            action: PackageChangeAction::Add {
+                package_sha256sum: sha256sum.clone(),
+            },
         },
     };
     let res = ctx
