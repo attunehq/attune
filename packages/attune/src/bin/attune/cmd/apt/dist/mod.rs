@@ -4,13 +4,13 @@ use clap::{Args, Subcommand};
 
 use crate::config::Config;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct DistCommand {
     #[command(subcommand)]
     subcommand: DistSubCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum DistSubCommand {
     /// Create a new distribution
     ///

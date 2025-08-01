@@ -6,13 +6,13 @@ use crate::config::Config;
 
 mod add;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct PkgCommand {
     #[command(subcommand)]
     subcommand: PkgSubCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum PkgSubCommand {
     /// Upload a new package
     #[command(visible_aliases = ["new", "upload"])]

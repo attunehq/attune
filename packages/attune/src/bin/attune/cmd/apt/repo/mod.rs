@@ -9,13 +9,13 @@ mod delete;
 mod edit;
 mod list;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct RepoCommand {
     #[command(subcommand)]
     subcommand: RepoSubCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum RepoSubCommand {
     /// Create a new repository
     #[command(visible_aliases = ["new", "add"])]

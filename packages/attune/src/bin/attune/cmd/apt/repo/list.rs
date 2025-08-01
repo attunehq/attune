@@ -10,7 +10,7 @@ use attune::{
     server::repo::list::{ListRepositoryRequest, ListRepositoryResponse},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct RepoListCommand {}
 
 pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {

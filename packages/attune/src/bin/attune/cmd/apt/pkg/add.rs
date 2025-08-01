@@ -24,7 +24,7 @@ use attune::{
     },
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct PkgAddCommand {
     /// Name of the repository to add the package to
     #[arg(long, short)]

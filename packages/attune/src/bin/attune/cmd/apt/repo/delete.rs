@@ -12,7 +12,7 @@ use attune::{
     server::repo::delete::{DeleteRepositoryRequest, DeleteRepositoryResponse},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct RepoDeleteCommand {
     /// The name of the repository to delete.
     name: String,
