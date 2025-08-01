@@ -15,7 +15,7 @@ RUN cargo build --release --bin attune-server
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update
-RUN apt-get install -y libssl3 ca-certificates libgpg-error0 libgpgme11
+RUN apt-get install -y --no-install-recommends libssl3 ca-certificates libgpg-error0 libgpgme11 && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /target/release/attune-server /usr/local/bin/attune-server
 
