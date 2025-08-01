@@ -35,7 +35,7 @@ pub enum DistSubCommand {
     Delete,
 }
 
-pub async fn handle_dist(ctx: Config, command: DistCommand) -> ExitCode {
+pub async fn handle_dist(_ctx: Config, command: DistCommand) -> ExitCode {
     match command.subcommand {
         DistSubCommand::Create => {}
         DistSubCommand::List => println!("Listing distributions"),
