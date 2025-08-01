@@ -4,11 +4,12 @@
             "node"
         ],
         "target": "esnext",
+        "module": "esnext",
         "outDir": "./dist",
         "rootDir": "./src",
         "moduleResolution": "node",
-        "allowImportingTsExtensions": true,
-        "emitDeclarationOnly": true,
-        "composite": true
+        "noEmit": false,
+        "strict": true,
+        "forceConsistentCasingInFileNames": true
     }
 }

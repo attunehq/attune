@@ -4,14 +4,16 @@
   "private": true,
   "devDependencies": {
     "@types/node": "^24.1.0",
-    "prisma": "^6.10.1"
+    "prisma": "^6.10.1",
+    "typescript": "^5.7.2"
   },
   "scripts": {
     "migrate": "prisma migrate deploy",
     "migrate:new": "prisma migrate dev",
-    "migrate:autoauth": "node --disable-warning=ExperimentalWarning ./src/main.ts",
+    "migraterds": "npm run build && node dist/main.js",
     "reset": "prisma migrate reset",
-    "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma"
+    "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma",
+    "build": "tsc"
   },
   "dependencies": {
     "@aws-sdk/rds-signer": "^3.848.0",

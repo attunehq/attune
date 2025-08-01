@@ -19,7 +19,7 @@ export async function buildIAMAuthenticationConnectionString(connectionString: s
         hostname: connectionURL.hostname,
         port: +connectionURL.port,
         username: connectionURL.username,
-        profile: process.env["ATTUNE_RDS_IAM_PROFILE"] ?? null
+        profile: process.env["ATTUNE_RDS_IAM_PROFILE"] || undefined
     })
 
     connectionURL.password = encodeURIComponent(await signer.getAuthToken());
