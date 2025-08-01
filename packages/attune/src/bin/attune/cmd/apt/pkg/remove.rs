@@ -16,7 +16,7 @@ use attune::{
     },
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct PkgRemoveCommand {
     /// Name of the repository to remove the package from
     #[arg(long, short)]
@@ -89,7 +89,7 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
             debug!(?body, ?status, "error response");
             let error = serde_json::from_str::<ErrorResponse>(&body)
                 .expect("Could not parse error response");
-            eprintln!("Error adding package to index: {}", error.message);
+            eprintln!("Error removing package from index: {}", error.message);
             return ExitCode::FAILURE;
         }
     };
