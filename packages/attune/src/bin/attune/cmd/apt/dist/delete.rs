@@ -8,12 +8,6 @@ use crate::{
 };
 use attune::server::repo::dist::delete::DeleteDistributionResponse;
 
-macro_rules! println_warning {
-    ($($arg:tt)*) => {
-        println!("Warning: {}", format!($($arg)*).red());
-    };
-}
-
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
     /// The repository containing the distribution.
@@ -25,11 +19,11 @@ pub struct DeleteArgs {
 }
 
 pub async fn run(ctx: Config, args: DeleteArgs) -> Result<String, String> {
-    println_warning!(
-        "This will irreversibly delete distribution {:?} from repository {:?} and all its components, package indexes, and package associations.",
+    println!("{}", format!(
+        "Warning: This will irreversibly delete distribution {:?} from repository {:?} and all its components, package indexes, and package associations.",
         args.name,
         args.repo
-    );
+    ).red());
 
     let confirmed = Confirm::new("Are you sure you want to proceed?")
         .with_default(false)
