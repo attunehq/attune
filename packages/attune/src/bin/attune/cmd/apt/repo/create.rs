@@ -9,7 +9,7 @@ use attune::{
     server::repo::create::{CreateRepositoryRequest, CreateRepositoryResponse},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct RepoCreateCommand {
     /// A name that uniquely identifies this repository.
     name: String,

@@ -4,6 +4,7 @@ use attune::{api::ErrorResponse, server::compatibility::CompatibilityResponse};
 use axum::http::StatusCode;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use tracing::debug;
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
@@ -14,7 +15,7 @@ mod config;
 /// Attune CLI
 ///
 /// Attune is the easiest way to securely publish Linux packages.
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(version = "v0.1.0", name = "attune", max_term_width = 80)]
 struct Args {
     /// Attune API token.
@@ -34,7 +35,7 @@ struct Args {
     tool: ToolCommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum ToolCommand {
     /// Manage APT repositories
     Apt(cmd::apt::AptCommand),
@@ -59,6 +60,7 @@ async fn main() -> ExitCode {
         .init();
 
     let args = Args::parse();
+    debug!(?args, "parsed arguments");
 
     let ctx = config::Config::new(args.api_token, args.api_endpoint);
 

@@ -8,13 +8,13 @@ mod dist;
 mod pkg;
 mod repo;
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct AptCommand {
     #[command(subcommand)]
     subcommand: AptSubcommand,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum AptSubcommand {
     /// Create and edit repositories
     #[command(visible_alias = "repo")]

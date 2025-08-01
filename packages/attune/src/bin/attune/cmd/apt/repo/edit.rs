@@ -10,7 +10,7 @@ use attune::{
     server::repo::edit::{EditRepositoryRequest, EditRepositoryResponse},
 };
 
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct RepoEditCommand {
     /// The name of the repository to edit.
     #[arg(long)]
