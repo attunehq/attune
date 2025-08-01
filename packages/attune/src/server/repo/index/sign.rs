@@ -83,7 +83,10 @@ pub async fn handler(
             format!("could not verify clearsigned index: {e}"),
         ));
     }
-    let contents = clearsigned.text();
+
+    // CleartextSignedMessage::from_string trims the trailing newline.
+    // We know that the index has a trailing newline from the implementation of `ReleaseFile::from_indexes`.
+    let contents = format!("{}\n", clearsigned.text());
     let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
         .expect("could not parse detached signature");
     tracing::debug!(index = ?contents, ?detachsigned, "detachsigned index");
