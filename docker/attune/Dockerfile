@@ -1,5 +1,7 @@
 FROM rust:1.86.0-bookworm AS build
 
+RUN apt-get update && apt-get install -y pkg-config libgpg-error-dev libgpgme-dev
+
 COPY Cargo.toml Cargo.lock ./
 COPY ./packages/attune/Cargo.toml ./packages/attune/Cargo.toml
 RUN mkdir -p packages/attune/src && \
@@ -7,12 +9,13 @@ RUN mkdir -p packages/attune/src && \
 RUN cargo build --release
 COPY ./.sqlx ./.sqlx
 COPY ./packages ./packages
-RUN cargo build --release
+RUN rm -f packages/attune/src/main.rs
+RUN cargo build --release --bin attune-server
 
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update
-RUN apt-get install -y libssl3 ca-certificates
+RUN apt-get install -y libssl3 ca-certificates libgpg-error0 libgpgme11
 
 COPY --from=build /target/release/attune-server /usr/local/bin/attune-server
 
