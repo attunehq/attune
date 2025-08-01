@@ -454,6 +454,7 @@ impl ReleaseFile {
             ("Architectures", Some(archs)),
             ("Components", Some(comps)),
             ("Description", release.description.clone()),
+            ("Acquire-By-Hash", Some(String::from("yes"))),
         ];
         let mut release_file = String::new();
         for (k, v) in release_fields {

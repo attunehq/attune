@@ -345,6 +345,16 @@ pub async fn handler(
         }
     };
 
+    // This is the by-hash prefix for the changed package;
+    // we use it in both scheduling cleanup and actually uploading new by-hash objects.
+    let by_hash_prefix = format!(
+        "{}/dists/{}/{}/binary-{}/by-hash",
+        repo.s3_prefix,
+        req.change.distribution,
+        result.changed_packages_index.component,
+        result.changed_packages_index.architecture
+    );
+
     // Then, we update-or-create the Packages index of the changed package.
     match sqlx::query!(
         r#"
@@ -364,6 +374,50 @@ pub async fn handler(
     .unwrap()
     {
         Some(index) => {
+            // Before updating the index, schedule the current by-hash S3 objects for cleanup.
+            // Get the current index data to build S3 keys.
+            let current_index = sqlx::query!(
+                r#"
+                SELECT
+                    md5sum,
+                    sha1sum,
+                    sha256sum
+                FROM debian_repository_index_packages
+                WHERE id = $1
+                "#,
+                index.id
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+
+            // Schedule cleanup with one entry containing all three hashes
+            sqlx::query!(
+                r#"
+                INSERT INTO debian_repository_by_hash_cleanup (
+                    component_id,
+                    architecture,
+                    s3_bucket,
+                    s3_prefix,
+                    md5sum,
+                    sha1sum,
+                    sha256sum,
+                    expires_at
+                )
+                VALUES ($1, $2::debian_repository_architecture, $3, $4, $5, $6, $7, NOW() + INTERVAL '7 days')
+                "#,
+                component_id,
+                result.changed_packages_index.architecture as _,
+                repo.s3_bucket,
+                by_hash_prefix,
+                current_index.md5sum,
+                current_index.sha1sum,
+                current_index.sha256sum,
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+
             // No need to check whether an update is needed - we know already
             // that the index has changed.
             sqlx::query!(
@@ -513,7 +567,7 @@ pub async fn handler(
         .await
         .unwrap();
 
-    // Upload the updated Packages index file.
+    // Upload the updated Packages index file to the standard path.
     state
         .s3
         .put_object()
@@ -524,6 +578,92 @@ pub async fn handler(
             req.change.distribution,
             result.changed_packages_index.component,
             result.changed_packages_index.architecture
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
+                result.changed_packages_index_contents.as_bytes(),
+            )),
+        )
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
+            base64::engine::general_purpose::STANDARD
+                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
+        )
+        .body(
+            result
+                .changed_packages_index_contents
+                .as_bytes()
+                .to_vec()
+                .into(),
+        )
+        .send()
+        .await
+        .unwrap();
+
+    // Upload the Packages index to by-hash paths for all hash types
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/SHA256/{}",
+            by_hash_prefix, result.changed_packages_index.sha256sum
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
+                result.changed_packages_index_contents.as_bytes(),
+            )),
+        )
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
+            base64::engine::general_purpose::STANDARD
+                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
+        )
+        .body(
+            result
+                .changed_packages_index_contents
+                .as_bytes()
+                .to_vec()
+                .into(),
+        )
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/SHA1/{}",
+            by_hash_prefix, result.changed_packages_index.sha1sum
+        ))
+        .content_md5(
+            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
+                result.changed_packages_index_contents.as_bytes(),
+            )),
+        )
+        .checksum_algorithm(ChecksumAlgorithm::Sha256)
+        .checksum_sha256(
+            base64::engine::general_purpose::STANDARD
+                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
+        )
+        .body(
+            result
+                .changed_packages_index_contents
+                .as_bytes()
+                .to_vec()
+                .into(),
+        )
+        .send()
+        .await
+        .unwrap();
+    state
+        .s3
+        .put_object()
+        .bucket(&repo.s3_bucket)
+        .key(format!(
+            "{}/MD5Sum/{}",
+            by_hash_prefix, result.changed_packages_index.md5sum
         ))
         .content_md5(
             base64::engine::general_purpose::STANDARD.encode(Md5::digest(

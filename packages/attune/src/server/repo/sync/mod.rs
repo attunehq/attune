@@ -242,3 +242,106 @@ async fn check_consistency(
         package_filenames: inconsistent_packages,
     })
 }
+
+/// Clean up expired by-hash S3 objects.
+///
+/// Enforces "current + 2 previous versions" retention policy per logical index:
+/// - Always keep the 2 newest versions, even if expired.
+/// - Delete expired cleanup entries if there are more than 2 versions of the component and architecture.
+/// - Each entry expands to three S3 keys (one per hash type).
+/// - Batch deletes S3 objects in chunks of 1000.
+pub async fn cleanup_expired_by_hash_objects(
+    tx: &mut Transaction<'_, Postgres>,
+    s3: aws_sdk_s3::Client,
+) -> Result<(), ErrorResponse> {
+    let expired = sqlx::query!(
+        r#"
+        WITH ranked_cleanup AS (
+            SELECT
+                c.id,
+                c.component_id,
+                c.architecture,
+                c.expires_at,
+                c.s3_bucket,
+                c.s3_prefix,
+                c.md5sum,
+                c.sha1sum,
+                c.sha256sum,
+                ROW_NUMBER() OVER (
+                    PARTITION BY c.component_id, c.architecture
+                    ORDER BY c.created_at DESC
+                ) as version_rank
+            FROM debian_repository_by_hash_cleanup c
+        )
+        DELETE FROM debian_repository_by_hash_cleanup
+        WHERE id IN (
+            SELECT id
+            FROM ranked_cleanup
+            WHERE expires_at <= NOW()
+              AND version_rank > 2
+        )
+        RETURNING s3_bucket, s3_prefix, md5sum, sha1sum, sha256sum
+        "#,
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .unwrap();
+
+    let bucketed_keys = expired
+        .iter()
+        .flat_map(|expired| {
+            [
+                (
+                    &expired.s3_bucket,
+                    (&expired.s3_prefix, "SHA256", &expired.sha256sum),
+                ),
+                (
+                    &expired.s3_bucket,
+                    (&expired.s3_prefix, "SHA1", &expired.sha1sum),
+                ),
+                (
+                    &expired.s3_bucket,
+                    (&expired.s3_prefix, "MD5Sum", &expired.md5sum),
+                ),
+            ]
+        })
+        .fold(
+            std::collections::HashMap::new(),
+            |mut acc, (bucket, key)| {
+                acc.entry(bucket).or_insert_with(Vec::new).push(key);
+                acc
+            },
+        );
+
+    for (bucket, keys) in bucketed_keys {
+        for batch in keys.chunks(1000) {
+            let keys = batch
+                .into_iter()
+                .map(|(prefix, kind, hash)| {
+                    aws_sdk_s3::types::ObjectIdentifier::builder()
+                        .key(format!("{prefix}/{kind}/{hash}"))
+                        .build()
+                        .unwrap()
+                })
+                .collect();
+
+            let request = aws_sdk_s3::types::Delete::builder()
+                .set_objects(Some(keys))
+                .build()
+                .unwrap();
+
+            let deletion = s3
+                .delete_objects()
+                .bucket(bucket)
+                .delete(request)
+                .send()
+                .await;
+
+            if let Err(e) = deletion {
+                tracing::warn!("Failed to batch delete S3 objects from bucket {bucket}: {e}");
+            }
+        }
+    }
+
+    Ok(())
+}
