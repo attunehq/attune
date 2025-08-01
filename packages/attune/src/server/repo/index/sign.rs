@@ -65,6 +65,7 @@ pub async fn handler(
     // Verify the index signatures.
     let (public_key, _headers) = SignedPublicKey::from_string(&req.public_key_cert)
         .expect("could not parse public key certificate");
+    tracing::debug!(?public_key, "public key");
     if let Err(e) = public_key.verify() {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
@@ -74,6 +75,7 @@ pub async fn handler(
     }
     let (clearsigned, _headers) = CleartextSignedMessage::from_string(&req.clearsigned)
         .expect("could not parse clearsigned index");
+    tracing::debug!(clearsigned = ?clearsigned.text(), "clearsigned index");
     if let Err(e) = clearsigned.verify(&public_key) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
@@ -84,6 +86,7 @@ pub async fn handler(
     let contents = clearsigned.text();
     let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
         .expect("could not parse detached signature");
+    tracing::debug!(index = ?contents, ?detachsigned, "detachsigned index");
     if let Err(e) = detachsigned.verify(&public_key, contents.as_bytes()) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
