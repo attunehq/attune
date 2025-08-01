@@ -18,6 +18,7 @@ pub async fn handler(
     Path(repo_name): Path<String>,
 ) -> Result<Json<()>, ErrorResponse> {
     // The repository name in the path is percent-encoded.
+    #[allow(unused_variables)]
     let repo_name = decode_repo_name(&repo_name)?;
 
     let mut tx = state.db.begin().await.unwrap();
@@ -28,6 +29,7 @@ pub async fn handler(
 
     todo!();
 
+    #[allow(unreachable_code)]
     tx.commit().await.unwrap();
 
     todo!()
