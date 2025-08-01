@@ -127,7 +127,7 @@ pub async fn handler(
         ];
 
         // Deletes component metadata files.
-        keys.extend(components.iter().flat_map(|record| {
+        keys.extend(components.iter().map(|record| {
             let prefix = format!(
                 "{}/{}/binary-{}",
                 prefix,
@@ -135,7 +135,7 @@ pub async fn handler(
                 record.architecture.as_ref().unwrap().replace('_', "-")
             );
             // TODO: When compressed indexes are implemented, add their deletion here.
-            [format!("{prefix}/Packages"), format!("{prefix}/Release")]
+            format!("{prefix}/Packages")
         }));
 
         // Deletes orphaned package files.
