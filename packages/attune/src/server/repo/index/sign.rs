@@ -567,190 +567,102 @@ pub async fn handler(
         .await
         .unwrap();
 
-    // Upload the updated Packages index file to the standard path.
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
+    // Upload the updated Packages index file to the standard path and all by-hash paths concurrently
+    let upload_packages_index = |key: String| {
+        let s3 = state.s3.clone();
+        let bucket = repo.s3_bucket.clone();
+        let contents = result.changed_packages_index_contents.clone();
+        let sha256sum = result.changed_packages_index.sha256sum.clone();
+
+        async move {
+            s3.put_object()
+                .bucket(bucket)
+                .key(key)
+                .content_md5(
+                    base64::engine::general_purpose::STANDARD
+                        .encode(Md5::digest(contents.as_bytes())),
+                )
+                .checksum_algorithm(ChecksumAlgorithm::Sha256)
+                .checksum_sha256(
+                    base64::engine::general_purpose::STANDARD
+                        .encode(hex::decode(&sha256sum).unwrap()),
+                )
+                .body(contents.as_bytes().to_vec().into())
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    tokio::join!(
+        upload_packages_index(format!(
             "{}/dists/{}/{}/binary-{}/Packages",
             repo.s3_prefix,
             req.change.distribution,
             result.changed_packages_index.component,
             result.changed_packages_index.architecture
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                result.changed_packages_index_contents.as_bytes(),
-            )),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
-        )
-        .body(
-            result
-                .changed_packages_index_contents
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap();
-
-    // Upload the Packages index to by-hash paths for all hash types
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
+        )),
+        upload_packages_index(format!(
             "{}/SHA256/{}",
             by_hash_prefix, result.changed_packages_index.sha256sum
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                result.changed_packages_index_contents.as_bytes(),
-            )),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
-        )
-        .body(
-            result
-                .changed_packages_index_contents
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
+        )),
+        upload_packages_index(format!(
             "{}/SHA1/{}",
             by_hash_prefix, result.changed_packages_index.sha1sum
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                result.changed_packages_index_contents.as_bytes(),
-            )),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
-        )
-        .body(
-            result
-                .changed_packages_index_contents
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
+        )),
+        upload_packages_index(format!(
             "{}/MD5Sum/{}",
             by_hash_prefix, result.changed_packages_index.md5sum
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                result.changed_packages_index_contents.as_bytes(),
-            )),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
-        )
-        .body(
-            result
-                .changed_packages_index_contents
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap();
+        )),
+    );
 
     // Upload the updated Release files. This must happen last to take advantage
     // of Acquire-By-Hash.
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/InRelease",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.clearsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.clearsigned.as_bytes())),
-        )
-        .body(req.clearsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(result.release_file.contents.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(result.release_file.contents.as_bytes())),
-        )
-        .body(result.release_file.contents.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release.gpg",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.detachsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.detachsigned.as_bytes())),
-        )
-        .body(req.detachsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
+    let upload_release_file = |key: String, content: String| {
+        let s3 = state.s3.clone();
+        let bucket = repo.s3_bucket.clone();
+
+        async move {
+            s3.put_object()
+                .bucket(bucket)
+                .key(key)
+                .content_md5(
+                    base64::engine::general_purpose::STANDARD
+                        .encode(Md5::digest(content.as_bytes())),
+                )
+                .checksum_algorithm(ChecksumAlgorithm::Sha256)
+                .checksum_sha256(
+                    base64::engine::general_purpose::STANDARD
+                        .encode(Sha256::digest(content.as_bytes())),
+                )
+                .body(content.as_bytes().to_vec().into())
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    tokio::join!(
+        upload_release_file(
+            format!(
+                "{}/dists/{}/InRelease",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.clearsigned
+        ),
+        upload_release_file(
+            format!(
+                "{}/dists/{}/Release",
+                repo.s3_prefix, req.change.distribution
+            ),
+            result.release_file.contents
+        ),
+        upload_release_file(
+            format!(
+                "{}/dists/{}/Release.gpg",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.detachsigned
+        ),
+    );
 
     Ok(Json(SignIndexResponse {}))
 }
