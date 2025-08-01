@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO debian_repository_index_packages (\n                component_id,\n                architecture,\n\n                compression,\n                size,\n                contents,\n                md5sum,\n                sha1sum,\n                sha256sum,\n\n                updated_at\n            ) VALUES ($1, $2::debian_repository_architecture, NULL, $3, $4, $5, $6, $7, NOW())\n            ON CONFLICT (component_id, architecture)\n            DO UPDATE SET\n                component_id = $1,\n                architecture = $2::debian_repository_architecture,\n                compression = NULL,\n                size = $3,\n                contents = $4,\n                md5sum = $5,\n                sha1sum = $6,\n                sha256sum = $7,\n                updated_at = NOW()\n            ",
+  "query": "\n                INSERT INTO debian_repository_index_packages (\n                    component_id,\n                    architecture,\n                    compression,\n                    size,\n                    contents,\n                    md5sum,\n                    sha1sum,\n                    sha256sum,\n                    created_at,\n                    updated_at\n                )\n                VALUES (\n                    $1,\n                    $2::debian_repository_architecture,\n                    NULL,\n                    $3,\n                    $4,\n                    $5,\n                    $6,\n                    $7,\n                    NOW(),\n                    NOW()\n                )\n                ",
   "describe": {
     "columns": [],
     "parameters": {
@@ -58,5 +58,5 @@
     },
     "nullable": []
   },
-  "hash": "142f716028422c97115aa18d87613c79d403f2532d6ab9985b7678f51bee7e7e"
+  "hash": "fd15f727f0c9bf6647f30a1115039dff3969bc2335471b7f60c88ccd55583aba"
 }

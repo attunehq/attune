@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            INSERT INTO debian_repository_component_package (\n                                package_id,\n                                component_id,\n                                filename,\n                                created_at,\n                                updated_at\n                            ) VALUES (\n                                $1, $2, $3, NOW(), NOW()\n                            )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c62195495cb548e880ca7eac373d9930a714ca602751575aacb3795652edce92"
+}

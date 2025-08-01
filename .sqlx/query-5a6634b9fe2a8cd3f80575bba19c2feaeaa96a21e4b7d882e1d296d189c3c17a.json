@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO debian_repository (\n            name,\n            tenant_id,\n            s3_bucket,\n            s3_prefix,\n            created_at,\n            updated_at\n        )\n        VALUES ($1, $2, $3, $4, NOW(), NOW())\n        RETURNING id, name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5a6634b9fe2a8cd3f80575bba19c2feaeaa96a21e4b7d882e1d296d189c3c17a"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            debian_repository_package.sha256sum,\n            debian_repository_component_package.filename\n        FROM\n            debian_repository_package\n            JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id\n            JOIN debian_repository_component ON debian_repository_component_package.component_id = debian_repository_component.id\n        WHERE\n            debian_repository_component.release_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sha256sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "filename",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4010079f83004ff01c81886ee9c3656e34ab8d2df5a6837dbb49337090ddcb0d"
+}

@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    package AS name,\n                    version,\n                    architecture::TEXT AS \"architecture!: String\",\n                    paragraph,\n                    size,\n                    s3_bucket,\n                    md5sum,\n                    sha1sum,\n                    sha256sum\n                FROM debian_repository_package\n                WHERE\n                    tenant_id = $1\n                    AND sha256sum = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "paragraph",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "s3_bucket",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "md5sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "sha1sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "18ab3a912d047e58f401c329b95190d16de50e08639fe3984d01ba39f246ebcf"
+}

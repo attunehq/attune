@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, uri, tenant_id\n        FROM debian_repository\n        WHERE uri = $1\n        ",
+  "query": "\n        SELECT id, name\n        FROM debian_repository\n        WHERE tenant_id = $1 AND name = $2\n        ",
   "describe": {
     "columns": [
       {
@@ -10,25 +10,20 @@
       },
       {
         "ordinal": 1,
-        "name": "uri",
+        "name": "name",
         "type_info": "Text"
-      },
-      {
-        "ordinal": 2,
-        "name": "tenant_id",
-        "type_info": "Int8"
       }
     ],
     "parameters": {
       "Left": [
+        "Int8",
         "Text"
       ]
     },
     "nullable": [
       false,
-      false,
       false
     ]
   },
-  "hash": "278863a937a26c58e204bc9ff83c4df22cc4b4b384718216386bd5c690b3323d"
+  "hash": "db826caf3eb89ee6b5218ec0266f3ce76a3e6cc9a286973517ff0d4caa313aec"
 }
