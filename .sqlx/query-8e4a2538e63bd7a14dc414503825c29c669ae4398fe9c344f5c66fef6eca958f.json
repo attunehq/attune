@@ -1,8 +1,14 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO debian_repository_index_packages (\n                    component_id,\n                    architecture,\n                    compression,\n                    size,\n                    contents,\n                    md5sum,\n                    sha1sum,\n                    sha256sum,\n                    created_at,\n                    updated_at\n                )\n                VALUES (\n                    $1,\n                    $2::debian_repository_architecture,\n                    NULL,\n                    $3,\n                    $4,\n                    $5,\n                    $6,\n                    $7,\n                    NOW(),\n                    NOW()\n                )\n                ",
+  "query": "\n                SELECT id\n                FROM debian_repository_index_packages\n                WHERE\n                    component_id = $1\n                    AND architecture = $2::debian_repository_architecture\n                    AND compression IS NULL\n                LIMIT 1\n                ",
   "describe": {
-    "columns": [],
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
     "parameters": {
       "Left": [
         "Int8",
@@ -48,15 +54,12 @@
               ]
             }
           }
-        },
-        "Int8",
-        "Bytea",
-        "Text",
-        "Text",
-        "Text"
+        }
       ]
     },
-    "nullable": []
+    "nullable": [
+      false
+    ]
   },
-  "hash": "fd15f727f0c9bf6647f30a1115039dff3969bc2335471b7f60c88ccd55583aba"
+  "hash": "8e4a2538e63bd7a14dc414503825c29c669ae4398fe9c344f5c66fef6eca958f"
 }

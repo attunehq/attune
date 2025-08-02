@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    DELETE FROM debian_repository_component\n                    WHERE id = $1\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ea754ceb1a810a84f195a09878f026be97c82593b2707b941091db7f10fb258"
+}

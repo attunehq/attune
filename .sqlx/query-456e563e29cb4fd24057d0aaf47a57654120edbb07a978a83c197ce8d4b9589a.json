@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT COUNT(*) AS \"count!: i64\"\n                FROM\n                    debian_repository_package\n                    JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id\n                WHERE\n                    debian_repository_package.tenant_id = $1\n                    AND debian_repository_package.package = $2\n                    AND debian_repository_package.version = $3\n                    AND debian_repository_package.architecture = $4::debian_repository_architecture\n                    AND debian_repository_component_package.filename = $5\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "debian_repository_architecture",
+            "kind": {
+              "Enum": [
+                "amd64",
+                "arm64",
+                "armel",
+                "armhf",
+                "i386",
+                "ppc64el",
+                "riscv64",
+                "s390x",
+                "alpha",
+                "arm",
+                "avr32",
+                "hppa",
+                "hurd-i386",
+                "hurd-amd64",
+                "ia64",
+                "kfreebsd-amd64",
+                "kfreebsd-i386",
+                "loong64",
+                "m32",
+                "m68k",
+                "mips",
+                "mipsel",
+                "mips64el",
+                "netbsd-i386",
+                "netbsd-alpha",
+                "or1k",
+                "powerpc",
+                "powerpcspe",
+                "ppc64",
+                "s390",
+                "sparc",
+                "sparc64",
+                "sh4",
+                "x32"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "456e563e29cb4fd24057d0aaf47a57654120edbb07a978a83c197ce8d4b9589a"
+}

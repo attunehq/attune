@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        INSERT INTO debian_repository_component (\n                            release_id,\n                            name,\n                            created_at,\n                            updated_at\n                        )\n                        VALUES (\n                            $1,\n                            $2,\n                            NOW(),\n                            NOW()\n                        )\n                        RETURNING id\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e6be919a201fae223b5645e230ea76e552cf39fa2f59a608cec8dd4cef162ec1"
+}

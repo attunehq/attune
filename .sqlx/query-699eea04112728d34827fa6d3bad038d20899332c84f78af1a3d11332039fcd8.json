@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE debian_repository_index_packages\n                    SET\n                        contents = $1,\n                        size = $2,\n                        md5sum = $3,\n                        sha1sum = $4,\n                        sha256sum = $5,\n                        updated_at = NOW()\n                    WHERE\n                        component_id = $6\n                        AND architecture = $7::debian_repository_architecture\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        {
+          "Custom": {
+            "name": "debian_repository_architecture",
+            "kind": {
+              "Enum": [
+                "amd64",
+                "arm64",
+                "armel",
+                "armhf",
+                "i386",
+                "ppc64el",
+                "riscv64",
+                "s390x",
+                "alpha",
+                "arm",
+                "avr32",
+                "hppa",
+                "hurd-i386",
+                "hurd-amd64",
+                "ia64",
+                "kfreebsd-amd64",
+                "kfreebsd-i386",
+                "loong64",
+                "m32",
+                "m68k",
+                "mips",
+                "mipsel",
+                "mips64el",
+                "netbsd-i386",
+                "netbsd-alpha",
+                "or1k",
+                "powerpc",
+                "powerpcspe",
+                "ppc64",
+                "s390",
+                "sparc",
+                "sparc64",
+                "sh4",
+                "x32"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "699eea04112728d34827fa6d3bad038d20899332c84f78af1a3d11332039fcd8"
+}
