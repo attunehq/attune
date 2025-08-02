@@ -73,6 +73,17 @@ attune repo -r 1 sync
 
 For more detailed setup instructions and configuration options, refer to the [self-hosting guide](./docs/user-guide/self-hosting.md).
 
+## Testing
+
+### Smoke Tests
+Basic functionality tests for the CLI.
+
+```bash
+# Set CLI path and run tests
+export ATTUNE_CLI_PATH=/path/to/cli/binary
+cargo test --test smoke -- --nocapture
+```
+
 ## License
 
 Attune is [Apache 2 licensed](./LICENSE).

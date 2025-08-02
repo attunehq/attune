@@ -44,7 +44,7 @@ jobs:
           cache-all-crates: true
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features --release
+        run: cargo test --workspace --all-targets --all-features --release -- --skip smoke
 
       # Build binaries.
       - name: Build binaries
