@@ -471,7 +471,7 @@ impl PackagesIndex {
             .collect::<Vec<String>>()
             .join("\n\n");
         if index.is_empty() {
-            return "".to_string();
+            return String::new();
         }
         index.push('\n');
         index
