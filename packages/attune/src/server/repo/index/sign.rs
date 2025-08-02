@@ -84,20 +84,6 @@ pub async fn handler(
         ));
     }
 
-    // CleartextSignedMessage::from_string trims the trailing newline.
-    // We know that the index has a trailing newline from the implementation of `ReleaseFile::from_indexes`.
-    let contents = format!("{}\n", clearsigned.text());
-    let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
-        .expect("could not parse detached signature");
-    tracing::debug!(index = ?contents, ?detachsigned, "detachsigned index");
-    if let Err(e) = detachsigned.verify(&public_key, contents.as_bytes()) {
-        return Err(ErrorResponse::new(
-            StatusCode::BAD_REQUEST,
-            "DETACHED_SIGNATURE_VERIFICATION_FAILED".to_string(),
-            format!("could not verify detached signature: {e}"),
-        ));
-    }
-
     // Start a Serializable database transaction.
     let mut tx = state.db.begin().await.unwrap();
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -138,14 +124,18 @@ pub async fn handler(
     let result =
         generate_release_file_with_change(&mut tx, &tenant_id, &req.change, req.release_ts).await?;
 
-    // Compare the replayed index with the signed index. Accept the signature if
-    // the index contents match. Otherwise, return an error.
-    tracing::debug!(generated = ?result.release_file.contents, signed = ?contents, "compare index contents");
-    if result.release_file.contents != contents {
+    // Compare the replayed index with the signed index.
+    // If the signatures match, this validates that the index signed by the client is the same as the one we replayed.
+    let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
+        .expect("could not parse detached signature");
+    tracing::debug!(index = ?result.release_file.contents, ?detachsigned, "detachsigned index");
+    if let Err(e) = detachsigned.verify(&public_key, result.release_file.contents.as_bytes()) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
-            "INDEX_CONTENTS_MISMATCH".to_string(),
-            "index contents do not match".to_string(),
+            "DETACHED_SIGNATURE_VERIFICATION_FAILED".to_string(),
+            format!(
+                "could not verify detached signature (index content mismatch or signature invalid): {e}"
+            ),
         ));
     }
 
