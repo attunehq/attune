@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Transaction, prelude::FromRow, types::JsonValue};
-use tabwriter::TabWriter;
+use tabwriter::{Alignment, TabWriter};
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{api::ErrorResponse, auth::TenantID};
 
@@ -21,15 +21,22 @@ pub struct PackageChange {
     pub distribution: String,
     pub component: String,
 
-    pub package_sha256sum: String,
     pub action: PackageChangeAction,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum PackageChangeAction {
-    Add,
+    Add {
+        package_sha256sum: String,
+    },
+    Remove {
+        name: String,
+        version: String,
+        architecture: String,
+    },
 }
 
+#[derive(Debug)]
 struct PackageChangeResult {
     release_file: ReleaseFile,
     changed_packages_index: PackagesIndex,
@@ -46,22 +53,29 @@ async fn generate_release_file_with_change(
     change: &PackageChange,
     release_ts: OffsetDateTime,
 ) -> Result<PackageChangeResult, ErrorResponse> {
+    // FIXME: I think there's a bug where if you generate an index by adding a
+    // package that already exists, it gets added twice into the release file.
+
     // Load the package to be either added or removed. If it does not exist,
     // return an error.
-    let changed_package =
-        match Package::query_from_sha256sum(&mut *tx, tenant_id, &change.package_sha256sum).await {
-            Some(pkg) => pkg,
-            None => {
-                return Err(ErrorResponse::new(
-                    StatusCode::NOT_FOUND,
-                    "PACKAGE_NOT_FOUND".to_string(),
-                    "package not found".to_string(),
-                ));
-            }
-        };
+    let changed_package = match &change.action {
+        PackageChangeAction::Add { package_sha256sum } => {
+            Package::query_from_sha256sum(&mut *tx, tenant_id, package_sha256sum).await
+        }
+        PackageChangeAction::Remove {
+            name,
+            version,
+            architecture,
+        } => Package::query_from_meta(&mut *tx, tenant_id, name, version, architecture).await,
+    }
+    .ok_or(ErrorResponse::new(
+        StatusCode::NOT_FOUND,
+        "PACKAGE_NOT_FOUND".to_string(),
+        "package not found".to_string(),
+    ))?;
 
     // Load the repository. If it does not exist, return an error.
-    let repo = match sqlx::query!(
+    let repo = sqlx::query!(
         r#"
         SELECT id, name
         FROM debian_repository
@@ -73,16 +87,11 @@ async fn generate_release_file_with_change(
     .fetch_optional(&mut **tx)
     .await
     .unwrap()
-    {
-        Some(repo) => repo,
-        None => {
-            return Err(ErrorResponse::new(
-                StatusCode::NOT_FOUND,
-                "REPOSITORY_NOT_FOUND".to_string(),
-                "repository not found".to_string(),
-            ));
-        }
-    };
+    .ok_or(ErrorResponse::new(
+        StatusCode::NOT_FOUND,
+        "REPOSITORY_NOT_FOUND".to_string(),
+        "repository not found".to_string(),
+    ))?;
 
     // Load the release. Note that the release may not exist if no packages have
     // been added to this distribution.
@@ -173,19 +182,43 @@ async fn generate_release_file_with_change(
 
     // Create the new package set.
     let (packages, changed_package) = match change.action {
-        PackageChangeAction::Add => {
+        PackageChangeAction::Add { .. } => {
             let added = PublishedPackage::from_package(changed_package.clone(), &change.component);
-            (packages.into_iter().chain(once(added.clone())), added)
+            (
+                packages
+                    .into_iter()
+                    .chain(once(added.clone()))
+                    .collect::<Vec<_>>(),
+                added,
+            )
+        }
+        PackageChangeAction::Remove { .. } => {
+            // Technically, I guess we should be querying for things like `Filename` instead of reconstructing them.
+            let removed =
+                PublishedPackage::from_package(changed_package.clone(), &change.component);
+            (
+                packages
+                    .into_iter()
+                    .filter(|p| {
+                        !(p.package.name == changed_package.name
+                            && p.package.version == changed_package.version
+                            && p.package.architecture == changed_package.architecture)
+                    })
+                    .collect(),
+                removed,
+            )
         }
     };
+    debug!(?packages, ?changed_package, "index package set");
 
     // Generate the `Packages` index for the `(distribution, component, arch)`
     // that is being changed.
     let changed_packages_index = PackagesIndex::from_packages(
         &change.component,
         &changed_package.package.architecture,
-        packages,
+        packages.into_iter(),
     );
+    debug!(?changed_packages_index, "changed packages index");
 
     // Generate the `Release` file for the distribution.
     let release_file = {
@@ -223,8 +256,14 @@ async fn generate_release_file_with_change(
                 && packages_index.architecture == changed_package.package.architecture)
         });
 
-        // Add the new `Packages` index.
-        let packages_indexes = packages_indexes.chain(once(changed_packages_index.0.clone()));
+        // Add the new `Packages` index if it's non-empty.
+        let packages_indexes = if changed_packages_index.0.size == 0 {
+            packages_indexes.collect::<Vec<_>>()
+        } else {
+            packages_indexes
+                .chain(once(changed_packages_index.0.clone()))
+                .collect::<Vec<_>>()
+        };
 
         // When the Release is missing, we use one with default values instead.
         let release = match release {
@@ -239,7 +278,7 @@ async fn generate_release_file_with_change(
             },
         };
 
-        ReleaseFile::from_indexes(release, release_ts, packages_indexes)
+        ReleaseFile::from_indexes(release, release_ts, packages_indexes.into_iter())
     };
 
     Ok(PackageChangeResult {
@@ -250,7 +289,7 @@ async fn generate_release_file_with_change(
     })
 }
 
-#[derive(FromRow, Clone)]
+#[derive(FromRow, Clone, Debug)]
 struct Package {
     #[sqlx(rename = "package")]
     name: String,
@@ -291,6 +330,43 @@ impl Package {
         )
     }
 
+    async fn query_from_meta<'a>(
+        tx: &mut Transaction<'a, Postgres>,
+        tenant_id: &TenantID,
+        package: &str,
+        version: &str,
+        architecture: &str,
+    ) -> Option<Self> {
+        sqlx::query_as!(
+            Self,
+            r#"
+                SELECT
+                    package AS name,
+                    version,
+                    architecture::TEXT AS "architecture!: String",
+                    paragraph,
+                    size,
+                    s3_bucket,
+                    md5sum,
+                    sha1sum,
+                    sha256sum
+                FROM debian_repository_package
+                WHERE
+                    tenant_id = $1
+                    AND package = $2
+                    AND version = $3
+                    AND architecture = $4::debian_repository_architecture
+            "#,
+            tenant_id.0,
+            package,
+            version,
+            architecture as _
+        )
+        .fetch_optional(&mut **tx)
+        .await
+        .unwrap()
+    }
+
     async fn query_from_sha256sum<'a>(
         tx: &mut Transaction<'a, Postgres>,
         tenant_id: &TenantID,
@@ -323,7 +399,7 @@ impl Package {
     }
 }
 
-#[derive(FromRow, Clone)]
+#[derive(FromRow, Clone, Debug)]
 struct PublishedPackage {
     #[sqlx(flatten)]
     package: Package,
@@ -340,7 +416,7 @@ impl PublishedPackage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct PackagesIndex {
     component: String,
     architecture: String,
@@ -394,12 +470,15 @@ impl PackagesIndex {
             })
             .collect::<Vec<String>>()
             .join("\n\n");
+        if index.is_empty() {
+            return String::new();
+        }
         index.push('\n');
         index
     }
 }
 
-#[derive(FromRow)]
+#[derive(FromRow, Debug)]
 struct Release {
     description: Option<String>,
     origin: Option<String>,
@@ -409,6 +488,7 @@ struct Release {
     codename: String,
 }
 
+#[derive(Debug)]
 struct ReleaseFile {
     release: Release,
     contents: String,
@@ -429,7 +509,9 @@ impl ReleaseFile {
         // revision of 2822 that retains backwards compatibility.
         let date = release_ts.format(&Rfc2822).unwrap();
 
-        // Prepare "Architectures" and "Components" fields.
+        // Prepare "Architectures" and "Components" fields. We use BTreeSets
+        // instead of HashSets to get deterministic iterator order, since index
+        // generation needs to be deterministically replayed.
         let mut arch_set = BTreeSet::new();
         let mut comp_set = BTreeSet::new();
         for p in &packages_indexes {
@@ -439,9 +521,11 @@ impl ReleaseFile {
         let archs = arch_set
             .into_iter()
             .fold(String::new(), |acc_archs, arch| acc_archs + " " + arch);
+        let archs = archs.strip_prefix(" ").unwrap_or("");
         let comps = comp_set
             .into_iter()
             .fold(String::new(), |acc_comps, comp| acc_comps + " " + comp);
+        let comps = comps.strip_prefix(" ").unwrap_or("");
 
         // Write release fields.
         let release_fields: Vec<(&str, Option<String>)> = vec![
@@ -451,8 +535,8 @@ impl ReleaseFile {
             ("Suite", Some(release.suite.clone())),
             ("Codename", Some(release.codename.clone())),
             ("Date", Some(date)),
-            ("Architectures", Some(archs)),
-            ("Components", Some(comps)),
+            ("Architectures", Some(archs.to_string())),
+            ("Components", Some(comps.to_string())),
             ("Description", release.description.clone()),
         ];
         let mut release_file = String::new();
@@ -464,12 +548,14 @@ impl ReleaseFile {
 
         // Write index fingerprints.
         release_file += "MD5Sum:\n";
-        let mut md5writer = TabWriter::new(vec![]);
+        let mut md5writer = TabWriter::new(vec![])
+            .alignment(Alignment::Right)
+            .padding(1);
         for index in &packages_indexes {
             // TODO: Handle compressed indexes.
             writeln!(
                 &mut md5writer,
-                " {}\t{} {}/binary-{}/Packages",
+                " {}\t{}\t{}/binary-{}/Packages",
                 index.md5sum, index.size, index.component, index.architecture
             )
             .unwrap();
@@ -478,12 +564,14 @@ impl ReleaseFile {
         release_file = release_file + &String::from_utf8(md5writer.into_inner().unwrap()).unwrap();
 
         release_file += "SHA256:\n";
-        let mut sha256writer = TabWriter::new(vec![]);
+        let mut sha256writer = TabWriter::new(vec![])
+            .alignment(Alignment::Right)
+            .padding(1);
         for index in &packages_indexes {
             // TODO: Handle compressed indexes.
             writeln!(
                 &mut sha256writer,
-                " {}\t{} {}/binary-{}/Packages",
+                " {}\t{}\t{}/binary-{}/Packages",
                 index.sha256sum, index.size, index.component, index.architecture
             )
             .unwrap();
@@ -496,5 +584,15 @@ impl ReleaseFile {
             release,
             contents: release_file,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn packages_to_index_empty_when_no_packages() {
+        assert_eq!(PackagesIndex::packages_to_index(vec![].into_iter()), "");
     }
 }

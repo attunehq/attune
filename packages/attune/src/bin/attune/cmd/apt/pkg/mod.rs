@@ -6,6 +6,7 @@ use crate::config::Config;
 
 mod add;
 mod list;
+mod remove;
 
 #[derive(Args, Debug)]
 pub struct PkgCommand {
@@ -23,16 +24,13 @@ pub enum PkgSubCommand {
     List(list::PkgListCommand),
     /// Remove a package
     #[command(visible_aliases = ["rm", "delete"])]
-    Remove,
+    Remove(remove::PkgRemoveCommand),
 }
 
 pub async fn handle_pkg(ctx: Config, command: PkgCommand) -> ExitCode {
     match command.subcommand {
         PkgSubCommand::Add(add) => add::run(ctx, add).await,
         PkgSubCommand::List(list) => list::run(ctx, list).await,
-        PkgSubCommand::Remove => {
-            println!("Removing package");
-            ExitCode::FAILURE
-        }
+        PkgSubCommand::Remove(remove) => remove::run(ctx, remove).await,
     }
 }
