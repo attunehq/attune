@@ -90,8 +90,8 @@ pub async fn handler(
     if result.rows_affected() == 0 {
         return Err(ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
-            .error("REPO_NOT_FOUND")
-            .message("repository not found")
+            .error("DISTRIBUTION_NOT_FOUND")
+            .message("distribution not found")
             .build());
     }
 
