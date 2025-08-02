@@ -34,7 +34,20 @@ pub enum AptSubcommand {
 pub async fn handle_apt(ctx: Config, command: AptCommand) -> ExitCode {
     match command.subcommand {
         AptSubcommand::Repository(repo) => repo::handle_repo(ctx, repo).await,
-        AptSubcommand::Distribution(dist) => dist::handle_dist(ctx, dist).await,
+        // Here we handle the error responses to transform them into the way other subcommands work,
+        // if we want to later we can do the same for other subcommands.
+        //
+        // Also, if we really want to make this nice, we can convert to `color-eyre`.
+        AptSubcommand::Distribution(dist) => match dist::handle_dist(ctx, dist).await {
+            Ok(output) => {
+                println!("{output}");
+                ExitCode::SUCCESS
+            }
+            Err(err) => {
+                eprintln!("Error: {err}");
+                ExitCode::FAILURE
+            }
+        },
         AptSubcommand::Package(pkg) => pkg::handle_pkg(ctx, pkg).await,
     }
 }

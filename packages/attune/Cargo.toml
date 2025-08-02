@@ -8,6 +8,7 @@ aws-config.workspace = true
 aws-sdk-s3.workspace = true
 axum.workspace = true
 base64.workspace = true
+bon.workspace = true
 bytes.workspace = true
 chrono.workspace = true
 colored.workspace = true

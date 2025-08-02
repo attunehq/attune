@@ -11,7 +11,7 @@ use axum::{
     handler::Handler,
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use http::StatusCode;
 use sha2::{Digest as _, Sha256};
@@ -92,6 +92,14 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         .route(
             "/repositories/{repository_name}/index",
             get(repo::index::generate::handler).post(repo::index::sign::handler),
+        )
+        .route(
+            "/repositories/{repository_name}/distributions",
+            get(repo::dist::list::handler).post(repo::dist::create::handler),
+        )
+        .route(
+            "/repositories/{repository_name}/distributions/{distribution_name}",
+            put(repo::dist::edit::handler).delete(repo::dist::delete::handler),
         )
         .route(
             "/repositories/{repository_name}/distributions/{distribution_name}/sync",
