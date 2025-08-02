@@ -63,6 +63,7 @@ pub async fn handler(
     // Verify the index signatures.
     let (public_key, _headers) = SignedPublicKey::from_string(&req.public_key_cert)
         .expect("could not parse public key certificate");
+    tracing::debug!(?public_key, "public key");
     if let Err(e) = public_key.verify() {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
@@ -72,21 +73,12 @@ pub async fn handler(
     }
     let (clearsigned, _headers) = CleartextSignedMessage::from_string(&req.clearsigned)
         .expect("could not parse clearsigned index");
+    tracing::debug!(clearsigned = ?clearsigned.text(), "clearsigned index");
     if let Err(e) = clearsigned.verify(&public_key) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "CLEARSIGN_VERIFICATION_FAILED".to_string(),
             format!("could not verify clearsigned index: {e}"),
-        ));
-    }
-    let contents = clearsigned.text();
-    let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
-        .expect("could not parse detached signature");
-    if let Err(e) = detachsigned.verify(&public_key, contents.as_bytes()) {
-        return Err(ErrorResponse::new(
-            StatusCode::BAD_REQUEST,
-            "DETACHED_SIGNATURE_VERIFICATION_FAILED".to_string(),
-            format!("could not verify detached signature: {e}"),
         ));
     }
 
@@ -131,18 +123,18 @@ pub async fn handler(
         generate_release_file_with_change(&mut tx, &tenant_id, &req.change, req.release_ts).await?;
     debug!(?result, "replayed index");
 
-    // Compare the replayed index with the signed index. Accept the signature if
-    // the index contents match. Otherwise, return an error.
-    if result.release_file.contents != contents {
-        debug!(
-            replayed = ?result.release_file.contents,
-            signed = ?contents,
-            "index contents do not match"
-        );
+    // Compare the replayed index with the signed index.
+    // If the signatures match, this validates that the index signed by the client is the same as the one we replayed.
+    let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
+        .expect("could not parse detached signature");
+    tracing::debug!(index = ?result.release_file.contents, ?detachsigned, "detachsigned index");
+    if let Err(e) = detachsigned.verify(&public_key, result.release_file.contents.as_bytes()) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
-            "INDEX_CONTENTS_MISMATCH".to_string(),
-            "index contents do not match".to_string(),
+            "DETACHED_SIGNATURE_VERIFICATION_FAILED".to_string(),
+            format!(
+                "could not verify detached signature (index content mismatch or signature invalid): {e}"
+            ),
         ));
     }
 

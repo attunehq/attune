@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            debian_repository.name AS repository,\n            debian_repository_release.distribution AS distribution,\n            debian_repository_component.name AS component,\n\n            debian_repository_package.package AS name,\n            debian_repository_package.version,\n            debian_repository_package.architecture::TEXT AS \"architecture!: String\",\n\n            debian_repository_package.sha256sum\n        FROM\n            debian_repository_package\n            JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id\n            JOIN debian_repository_component ON debian_repository_component_package.component_id = debian_repository_component.id\n            JOIN debian_repository_release ON debian_repository_component.release_id = debian_repository_release.id\n            JOIN debian_repository ON debian_repository_release.repository_id = debian_repository.id\n        WHERE\n            debian_repository_package.tenant_id = $1\n            AND (debian_repository.name = $2 OR $2 IS NULL)\n            AND (debian_repository_release.distribution = $3 OR $3 IS NULL)\n            AND (debian_repository_component.name = $4 OR $4 IS NULL)\n            AND (debian_repository_package.package = $5 OR $5 IS NULL)\n            AND (debian_repository_package.version = $6 OR $6 IS NULL)\n            AND (debian_repository_package.architecture = $7::debian_repository_architecture OR $7 IS NULL)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "distribution",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "component",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "debian_repository_architecture",
+            "kind": {
+              "Enum": [
+                "amd64",
+                "arm64",
+                "armel",
+                "armhf",
+                "i386",
+                "ppc64el",
+                "riscv64",
+                "s390x",
+                "alpha",
+                "arm",
+                "avr32",
+                "hppa",
+                "hurd-i386",
+                "hurd-amd64",
+                "ia64",
+                "kfreebsd-amd64",
+                "kfreebsd-i386",
+                "loong64",
+                "m32",
+                "m68k",
+                "mips",
+                "mipsel",
+                "mips64el",
+                "netbsd-i386",
+                "netbsd-alpha",
+                "or1k",
+                "powerpc",
+                "powerpcspe",
+                "ppc64",
+                "s390",
+                "sparc",
+                "sparc64",
+                "sh4",
+                "x32"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "4e1e23d7204afe73e4750d8b5bba98ebdcd018547fef234f13fe586e510acb1e"
+}

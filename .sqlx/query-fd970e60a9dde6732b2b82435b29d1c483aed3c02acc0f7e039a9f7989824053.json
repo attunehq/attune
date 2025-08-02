@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO debian_repository_package (\n            tenant_id,\n            s3_bucket,\n\n            package,\n            version,\n            architecture,\n\n            priority,\n            section,\n            installed_size,\n            maintainer,\n            description,\n            homepage,\n\n            paragraph,\n\n            depends,\n            recommends,\n            conflicts,\n            provides,\n            replaces,\n\n            size,\n            md5sum,\n            sha1sum,\n            sha256sum,\n\n            created_at,\n            updated_at\n        )\n        VALUES (\n            $1,\n            $2,\n\n            $3,\n            $4,\n            $5::debian_repository_architecture,\n\n            $6,\n            $7,\n            $8,\n            $9,\n            $10,\n            $11,\n\n            $12,\n\n            $13,\n            $14,\n            $15,\n            $16,\n            $17,\n\n            $18,\n            $19,\n            $20,\n            $21,\n\n            NOW(),\n            NOW()\n        )\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "debian_repository_architecture",
+            "kind": {
+              "Enum": [
+                "amd64",
+                "arm64",
+                "armel",
+                "armhf",
+                "i386",
+                "ppc64el",
+                "riscv64",
+                "s390x",
+                "alpha",
+                "arm",
+                "avr32",
+                "hppa",
+                "hurd-i386",
+                "hurd-amd64",
+                "ia64",
+                "kfreebsd-amd64",
+                "kfreebsd-i386",
+                "loong64",
+                "m32",
+                "m68k",
+                "mips",
+                "mipsel",
+                "mips64el",
+                "netbsd-i386",
+                "netbsd-alpha",
+                "or1k",
+                "powerpc",
+                "powerpcspe",
+                "ppc64",
+                "s390",
+                "sparc",
+                "sparc64",
+                "sh4",
+                "x32"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fd970e60a9dde6732b2b82435b29d1c483aed3c02acc0f7e039a9f7989824053"
+}

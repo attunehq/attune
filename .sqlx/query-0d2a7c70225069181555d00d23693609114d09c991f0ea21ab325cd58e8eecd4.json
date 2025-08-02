@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            package,\n            version,\n            architecture::TEXT AS \"architecture!: String\"\n        FROM debian_repository_package\n        WHERE tenant_id = $1 AND sha256sum = $2\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "package",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "0d2a7c70225069181555d00d23693609114d09c991f0ea21ab325cd58e8eecd4"
+}

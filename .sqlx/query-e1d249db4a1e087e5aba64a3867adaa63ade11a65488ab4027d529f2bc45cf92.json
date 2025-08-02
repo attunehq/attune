@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id\n                FROM debian_repository_component\n                WHERE release_id = $1 AND name = $2\n                LIMIT 1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e1d249db4a1e087e5aba64a3867adaa63ade11a65488ab4027d529f2bc45cf92"
+}

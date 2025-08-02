@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            debian_repository_component.name AS \"component\",\n            debian_repository_index_packages.architecture::TEXT AS \"architecture!: String\",\n            debian_repository_index_packages.sha256sum\n        FROM\n            debian_repository_index_packages\n            JOIN debian_repository_component ON debian_repository_index_packages.component_id = debian_repository_component.id\n        WHERE\n            debian_repository_component.release_id = $1\n    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "component",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "3b4bc99a506eb7800e01d5b78169d412d66979fc9c40ea73f978ba10a47f9442"
+}

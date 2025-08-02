@@ -66,7 +66,7 @@ pub async fn run(ctx: Config, command: PkgListCommand) -> ExitCode {
                 ]);
             }
             let table = builder.build();
-            println!("{}", table);
+            println!("{table}");
             ExitCode::SUCCESS
         }
         _ => {

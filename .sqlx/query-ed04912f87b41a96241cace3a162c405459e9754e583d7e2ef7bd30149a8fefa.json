@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        SELECT id, s3_bucket, s3_prefix\n                        FROM debian_repository\n                        WHERE tenant_id = $1\n                            AND name = $2\n                        LIMIT 1\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "s3_bucket",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "s3_prefix",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ed04912f87b41a96241cace3a162c405459e9754e583d7e2ef7bd30149a8fefa"
+}

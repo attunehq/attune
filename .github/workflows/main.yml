@@ -43,6 +43,11 @@ jobs:
           cache-workspace-crates: true
           cache-all-crates: true
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release
 

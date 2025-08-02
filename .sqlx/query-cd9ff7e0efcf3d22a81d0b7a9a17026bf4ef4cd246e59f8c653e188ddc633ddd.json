@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    debian_repository_release.id,\n                    debian_repository_release.description,\n                    debian_repository_release.origin,\n                    debian_repository_release.label,\n                    debian_repository_release.version,\n                    debian_repository_release.suite,\n                    debian_repository_release.codename,\n                    debian_repository_release.contents,\n                    debian_repository_release.clearsigned,\n                    debian_repository_release.detached,\n                    debian_repository.s3_bucket,\n                    debian_repository.s3_prefix\n                FROM\n                    debian_repository\n                    JOIN debian_repository_release ON debian_repository.id = debian_repository_release.repository_id\n                WHERE\n                    debian_repository.tenant_id = $1\n                    AND debian_repository.name = $2\n                    AND debian_repository_release.distribution = $3\n                LIMIT 1\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "suite",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "codename",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "contents",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "clearsigned",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "detached",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "s3_bucket",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "s3_prefix",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "cd9ff7e0efcf3d22a81d0b7a9a17026bf4ef4cd246e59f8c653e188ddc633ddd"
+}

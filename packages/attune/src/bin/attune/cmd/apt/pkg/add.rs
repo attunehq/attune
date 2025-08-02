@@ -234,6 +234,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         .next()
         .expect("could not find secret key")
         .expect("could not find secret key");
+    debug!(?key, "using public key");
     gpg.add_signer(&key).expect("could not add signer");
     // TODO: Configure passphrase provider?
 
@@ -242,13 +243,13 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         .expect("could not clearsign index");
     let clearsigned =
         String::from_utf8(clearsigned).expect("clearsigned index contained invalid characters");
-    debug!(?clearsigned, "clearsigned index");
+    debug!(?index, ?clearsigned, "clearsigned index");
     let mut detachsigned = Vec::new();
     gpg.sign_detached(index.as_bytes(), &mut detachsigned)
         .expect("could not detach sign index");
     let detachsigned =
         String::from_utf8(detachsigned).expect("detachsigned index contained invalid characters");
-    debug!(?detachsigned, "detachsigned index");
+    debug!(?index, ?detachsigned, "detachsigned index");
 
     let mut public_key_cert = Vec::new();
     gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
