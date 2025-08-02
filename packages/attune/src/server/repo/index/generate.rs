@@ -30,12 +30,6 @@ pub struct GenerateIndexRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "action", rename_all = "lowercase")]
-pub enum IndexChange {
-    Add,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct GenerateIndexResponse {
     pub release: String,
     pub release_ts: OffsetDateTime,

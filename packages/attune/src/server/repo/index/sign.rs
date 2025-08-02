@@ -12,7 +12,7 @@ use pgp::composed::{
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use time::OffsetDateTime;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{
     api::ErrorResponse,
@@ -21,7 +21,9 @@ use crate::{
         ServerState,
         repo::{
             decode_repo_name,
-            index::{PackageChange, generate_release_file_with_change},
+            index::{
+                Package, PackageChange, PackageChangeAction, generate_release_file_with_change,
+            },
         },
     },
 };
@@ -36,12 +38,6 @@ pub struct SignIndexRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "action", rename_all = "lowercase")]
-pub enum IndexChange {
-    Add,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct SignIndexResponse {}
 
 #[axum::debug_handler]
@@ -52,6 +48,8 @@ pub async fn handler(
     Path(repo_name): Path<String>,
     Json(req): Json<SignIndexRequest>,
 ) -> Result<Json<SignIndexResponse>, ErrorResponse> {
+    debug!(?req, "signing index");
+
     // The repository name in the path is percent-encoded.
     let repo_name = decode_repo_name(&repo_name)?;
     if repo_name != req.change.repository {
@@ -131,10 +129,16 @@ pub async fn handler(
     // signed locally.
     let result =
         generate_release_file_with_change(&mut tx, &tenant_id, &req.change, req.release_ts).await?;
+    debug!(?result, "replayed index");
 
     // Compare the replayed index with the signed index. Accept the signature if
     // the index contents match. Otherwise, return an error.
     if result.release_file.contents != contents {
+        debug!(
+            replayed = ?result.release_file.contents,
+            signed = ?contents,
+            "index contents do not match"
+        );
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
             "INDEX_CONTENTS_MISMATCH".to_string(),
@@ -143,328 +147,463 @@ pub async fn handler(
     }
 
     // Save the new state to the database.
-    //
-    // First, we update-or-create the Release. Remember, it's possible that no
-    // package has ever been added to this distribution, so the Release may not
-    // exist.
-    let release_id = match sqlx::query!(r#"
-        SELECT
-            debian_repository_release.id,
-            debian_repository_release.description,
-            debian_repository_release.origin,
-            debian_repository_release.label,
-            debian_repository_release.version,
-            debian_repository_release.suite,
-            debian_repository_release.codename,
-            debian_repository_release.contents,
-            debian_repository_release.clearsigned,
-            debian_repository_release.detached,
-            debian_repository.s3_bucket,
-            debian_repository.s3_prefix
-        FROM
-            debian_repository
-            JOIN debian_repository_release ON debian_repository.id = debian_repository_release.repository_id
-        WHERE
-            debian_repository.tenant_id = $1
-            AND debian_repository.name = $2
-            AND debian_repository_release.distribution = $3
-        LIMIT 1
-        "#,
-        tenant_id.0,
-        repo_name,
-        req.change.distribution,
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .unwrap() {
-        Some(release) => {
-            // If the release already exists, check whether any fields need to
-            // be updated. If so, update them.
-            if release.description != result.release_file.release.description ||
-                release.origin != result.release_file.release.origin ||
-                release.label != result.release_file.release.label ||
-                release.version != result.release_file.release.version ||
-                release.suite != result.release_file.release.suite ||
-                release.codename != result.release_file.release.codename ||
-                release.contents != result.release_file.contents ||
-                release.clearsigned.is_none() ||
-                release.clearsigned.is_some_and(|clearsigned| clearsigned != req.clearsigned) ||
-                release.detached.is_none() ||
-                release.detached.is_some_and(|detached| detached != req.detachsigned) {
+    match req.change.action {
+        PackageChangeAction::Add { .. } => {
+            // First, we update-or-create the Release. Remember, it's possible that no
+            // package has ever been added to this distribution, so the Release may not
+            // exist.
+            let release_id = match sqlx::query!(r#"
+                SELECT
+                    debian_repository_release.id,
+                    debian_repository_release.description,
+                    debian_repository_release.origin,
+                    debian_repository_release.label,
+                    debian_repository_release.version,
+                    debian_repository_release.suite,
+                    debian_repository_release.codename,
+                    debian_repository_release.contents,
+                    debian_repository_release.clearsigned,
+                    debian_repository_release.detached,
+                    debian_repository.s3_bucket,
+                    debian_repository.s3_prefix
+                FROM
+                    debian_repository
+                    JOIN debian_repository_release ON debian_repository.id = debian_repository_release.repository_id
+                WHERE
+                    debian_repository.tenant_id = $1
+                    AND debian_repository.name = $2
+                    AND debian_repository_release.distribution = $3
+                LIMIT 1
+                "#,
+                tenant_id.0,
+                repo_name,
+                req.change.distribution,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap() {
+                Some(release) => {
+                    // If the release already exists, check whether any fields need to
+                    // be updated. If so, update them.
+                    if release.description != result.release_file.release.description ||
+                        release.origin != result.release_file.release.origin ||
+                        release.label != result.release_file.release.label ||
+                        release.version != result.release_file.release.version ||
+                        release.suite != result.release_file.release.suite ||
+                        release.codename != result.release_file.release.codename ||
+                        release.contents != result.release_file.contents ||
+                        release.clearsigned.is_none() ||
+                        release.clearsigned.is_some_and(|clearsigned| clearsigned != req.clearsigned) ||
+                        release.detached.is_none() ||
+                        release.detached.is_some_and(|detached| detached != req.detachsigned) {
+                        sqlx::query!(
+                            r#"
+                            UPDATE
+                                debian_repository_release
+                            SET
+                                description = $2,
+                                origin = $3,
+                                label = $4,
+                                version = $5,
+                                suite = $6,
+                                codename = $7,
+                                contents = $8,
+                                clearsigned = $9,
+                                detached = $10,
+                                updated_at = NOW()
+                            WHERE
+                                id = $1
+                            "#,
+                            release.id,
+                            result.release_file.release.description,
+                            result.release_file.release.origin,
+                            result.release_file.release.label,
+                            result.release_file.release.version,
+                            result.release_file.release.suite,
+                            result.release_file.release.codename,
+                            result.release_file.contents,
+                            req.clearsigned,
+                            req.detachsigned,
+                        )
+                        .execute(&mut *tx)
+                        .await
+                        .unwrap();
+                    }
+                    release.id
+                },
+                None => {
+                    // If the release doesn't exist, create it with default values.
+                    let repo = sqlx::query!(
+                        r#"
+                        SELECT id, s3_bucket, s3_prefix
+                        FROM debian_repository
+                        WHERE tenant_id = $1
+                            AND name = $2
+                        LIMIT 1
+                        "#,
+                        tenant_id.0,
+                        repo_name,
+                    )
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+                    let release = sqlx::query!(
+                        r#"
+                        INSERT INTO debian_repository_release (
+                            repository_id,
+                            distribution,
+                            description,
+                            origin,
+                            label,
+                            version,
+                            suite,
+                            codename,
+                            contents,
+                            clearsigned,
+                            detached,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (
+                            $1,
+                            $2,
+                            $3,
+                            $4,
+                            $5,
+                            $6,
+                            $7,
+                            $8,
+                            $9,
+                            $10,
+                            $11,
+                            NOW(),
+                            NOW()
+                        )
+                        RETURNING id
+                        "#,
+                        repo.id,
+                        req.change.distribution,
+                        result.release_file.release.description,
+                        result.release_file.release.origin,
+                        result.release_file.release.label,
+                        result.release_file.release.version,
+                        result.release_file.release.suite,
+                        result.release_file.release.codename,
+                        result.release_file.contents,
+                        req.clearsigned,
+                        req.detachsigned,
+                    )
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+                    release.id
+                }
+            };
+
+            // Then, we find-or-create the Component.
+            let component_id = match sqlx::query!(
+                r#"
+                SELECT id
+                FROM debian_repository_component
+                WHERE release_id = $1 AND name = $2
+                LIMIT 1
+                "#,
+                release_id,
+                req.change.component,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap()
+            {
+                Some(component) => component.id,
+                None => {
+                    sqlx::query!(
+                        r#"
+                        INSERT INTO debian_repository_component (
+                            release_id,
+                            name,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (
+                            $1,
+                            $2,
+                            NOW(),
+                            NOW()
+                        )
+                        RETURNING id
+                        "#,
+                        release_id,
+                        req.change.component,
+                    )
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap()
+                    .id
+                }
+            };
+
+            // Then, we update-or-create the Packages index of the changed package.
+            match sqlx::query!(
+                r#"
+                SELECT id
+                FROM debian_repository_index_packages
+                WHERE
+                    component_id = $1
+                    AND architecture = $2::debian_repository_architecture
+                    AND compression IS NULL
+                LIMIT 1
+                "#,
+                component_id,
+                result.changed_packages_index.architecture as _,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap()
+            {
+                Some(index) => {
+                    // No need to check whether an update is needed - we know already
+                    // that the index has changed.
+                    sqlx::query!(
+                        r#"
+                        UPDATE debian_repository_index_packages
+                        SET
+                            contents = $2,
+                            size = $3,
+                            md5sum = $4,
+                            sha1sum = $5,
+                            sha256sum = $6,
+                            updated_at = NOW()
+                        WHERE id = $1
+                        "#,
+                        index.id,
+                        result.changed_packages_index_contents.as_bytes(),
+                        result.changed_packages_index.size,
+                        result.changed_packages_index.md5sum,
+                        result.changed_packages_index.sha1sum,
+                        result.changed_packages_index.sha256sum,
+                    )
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                }
+                None => {
+                    // Otherwise, create the index.
+                    sqlx::query!(
+                        r#"
+                        INSERT INTO debian_repository_index_packages (
+                            component_id,
+                            architecture,
+                            compression,
+                            size,
+                            contents,
+                            md5sum,
+                            sha1sum,
+                            sha256sum,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (
+                            $1,
+                            $2::debian_repository_architecture,
+                            NULL,
+                            $3,
+                            $4,
+                            $5,
+                            $6,
+                            $7,
+                            NOW(),
+                            NOW()
+                        )
+                        "#,
+                        component_id,
+                        result.changed_packages_index.architecture as _,
+                        // compression = NULL,
+                        result.changed_packages_index.size,
+                        result.changed_packages_index_contents.as_bytes(),
+                        result.changed_packages_index.md5sum,
+                        result.changed_packages_index.sha1sum,
+                        result.changed_packages_index.sha256sum,
+                    )
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                }
+            }
+
+            // Lastly, we create the component-package.
+            //
+            // This record should not previously exist, but we use ON CONFLICT DO
+            // NOTHING because we consider re-adding an identical package to be a no-op
+            // rather than an error.
+            sqlx::query!(
+                r#"
+                WITH package_cte AS (
+                    SELECT id
+                    FROM debian_repository_package
+                    WHERE
+                        tenant_id = $1
+                        AND sha256sum = $2
+                    LIMIT 1
+                )
+                INSERT INTO debian_repository_component_package (
+                    component_id,
+                    package_id,
+                    filename,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    $3,
+                    package_cte.id,
+                    $4,
+                    NOW(),
+                    NOW()
+                FROM package_cte
+                ON CONFLICT DO NOTHING
+                "#,
+                tenant_id.0,
+                result.changed_package.package.sha256sum,
+                component_id,
+                result.changed_package.filename,
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        PackageChangeAction::Remove {
+            ref name,
+            ref version,
+            ref architecture,
+        } => {
+            // Load the component-package, which should be there if the package exists.
+            let component_package = sqlx::query!(
+                r#"
+                SELECT
+                    debian_repository_component_package.package_id,
+                    debian_repository_component_package.component_id
+                FROM
+                    debian_repository
+                    JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id
+                    JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id
+                    JOIN debian_repository_component_package ON debian_repository_component_package.component_id = debian_repository_component.id
+                    JOIN debian_repository_package ON debian_repository_package.id = debian_repository_component_package.package_id
+                WHERE
+                    debian_repository.tenant_id = $1
+                    AND debian_repository.name = $2
+                    AND debian_repository_release.distribution = $3
+                    AND debian_repository_component.name = $4
+                    AND debian_repository_package.package = $5
+                    AND debian_repository_package.version = $6
+                    AND debian_repository_package.architecture = $7::debian_repository_architecture
+                LIMIT 1
+                "#,
+                tenant_id.0,
+                req.change.repository,
+                req.change.distribution,
+                req.change.component,
+                name,
+                version,
+                architecture as _,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap()
+            .ok_or(ErrorResponse::new(
+                StatusCode::NOT_FOUND,
+                "COMPONENT_NOT_FOUND".to_string(),
+                "component not found".to_string(),
+            ))?;
+
+            // Delete the component-package.
+            sqlx::query!(
+                r#"
+                DELETE FROM debian_repository_component_package
+                WHERE
+                    component_id = $1
+                    AND package_id = $2
+                "#,
+                component_package.component_id,
+                component_package.package_id,
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+
+            // Update the Packages index, or delete if it's orphaned.
+            if result.changed_packages_index_contents.is_empty() {
                 sqlx::query!(
                     r#"
-                    UPDATE
-                        debian_repository_release
+                    DELETE FROM debian_repository_index_packages
+                    WHERE
+                        component_id = $1
+                        AND architecture = $2::debian_repository_architecture
+                "#,
+                    component_package.component_id,
+                    architecture as _,
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            } else {
+                sqlx::query!(
+                    r#"
+                    UPDATE debian_repository_index_packages
                     SET
-                        description = $2,
-                        origin = $3,
-                        label = $4,
-                        version = $5,
-                        suite = $6,
-                        codename = $7,
-                        contents = $8,
-                        clearsigned = $9,
-                        detached = $10,
+                        contents = $1,
+                        size = $2,
+                        md5sum = $3,
+                        sha1sum = $4,
+                        sha256sum = $5,
                         updated_at = NOW()
                     WHERE
-                        id = $1
+                        component_id = $6
+                        AND architecture = $7::debian_repository_architecture
                     "#,
-                    release.id,
-                    result.release_file.release.description,
-                    result.release_file.release.origin,
-                    result.release_file.release.label,
-                    result.release_file.release.version,
-                    result.release_file.release.suite,
-                    result.release_file.release.codename,
-                    result.release_file.contents,
-                    req.clearsigned,
-                    req.detachsigned,
+                    result.changed_packages_index_contents.as_bytes(),
+                    result.changed_packages_index.size,
+                    result.changed_packages_index.md5sum,
+                    result.changed_packages_index.sha1sum,
+                    result.changed_packages_index.sha256sum,
+                    component_package.component_id,
+                    architecture as _,
                 )
                 .execute(&mut *tx)
                 .await
                 .unwrap();
             }
-            release.id
-        },
-        None => {
-            // If the release doesn't exist, create it with default values.
-            let repo = sqlx::query!(
-                r#"
-                SELECT id, s3_bucket, s3_prefix
-                FROM debian_repository
-                WHERE tenant_id = $1
-                    AND name = $2
-                LIMIT 1
-                "#,
-                tenant_id.0,
-                repo_name,
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
-            let release = sqlx::query!(
-                r#"
-                INSERT INTO debian_repository_release (
-                    repository_id,
-                    distribution,
-                    description,
-                    origin,
-                    label,
-                    version,
-                    suite,
-                    codename,
-                    contents,
-                    clearsigned,
-                    detached,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    $1,
-                    $2,
-                    $3,
-                    $4,
-                    $5,
-                    $6,
-                    $7,
-                    $8,
-                    $9,
-                    $10,
-                    $11,
-                    NOW(),
-                    NOW()
-                )
-                RETURNING id
-                "#,
-                repo.id,
-                req.change.distribution,
-                result.release_file.release.description,
-                result.release_file.release.origin,
-                result.release_file.release.label,
-                result.release_file.release.version,
-                result.release_file.release.suite,
-                result.release_file.release.codename,
-                result.release_file.contents,
-                req.clearsigned,
-                req.detachsigned,
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
-            release.id
-        }
-    };
 
-    // Then, we find-or-create the Component.
-    let component_id = match sqlx::query!(
-        r#"
-        SELECT id
-        FROM debian_repository_component
-        WHERE release_id = $1 AND name = $2
-        LIMIT 1
-        "#,
-        release_id,
-        req.change.component,
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .unwrap()
-    {
-        Some(component) => component.id,
-        None => {
-            sqlx::query!(
+            // Delete the Component if it's orphaned.
+            let remaining_component_packages = sqlx::query!(
                 r#"
-                INSERT INTO debian_repository_component (
-                    release_id,
-                    name,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    $1,
-                    $2,
-                    NOW(),
-                    NOW()
-                )
-                RETURNING id
+                SELECT COUNT(*) AS "count!: i64"
+                FROM debian_repository_component_package
+                WHERE component_id = $1
                 "#,
-                release_id,
-                req.change.component,
+                component_package.component_id,
             )
             .fetch_one(&mut *tx)
             .await
-            .unwrap()
-            .id
-        }
-    };
+            .unwrap();
+            if remaining_component_packages.count == 0 {
+                sqlx::query!(
+                    r#"
+                    DELETE FROM debian_repository_component
+                    WHERE id = $1
+                "#,
+                    component_package.component_id,
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            }
 
-    // Then, we update-or-create the Packages index of the changed package.
-    match sqlx::query!(
-        r#"
-        SELECT id
-        FROM debian_repository_index_packages
-        WHERE
-            component_id = $1
-            AND architecture = $2::debian_repository_architecture
-            AND compression IS NULL
-        LIMIT 1
-        "#,
-        component_id,
-        result.changed_packages_index.architecture as _,
-    )
-    .fetch_optional(&mut *tx)
-    .await
-    .unwrap()
-    {
-        Some(index) => {
-            // No need to check whether an update is needed - we know already
-            // that the index has changed.
-            sqlx::query!(
-                r#"
-                UPDATE debian_repository_index_packages
-                SET
-                    contents = $2,
-                    size = $3,
-                    md5sum = $4,
-                    sha1sum = $5,
-                    sha256sum = $6,
-                    updated_at = NOW()
-                WHERE id = $1
-                "#,
-                index.id,
-                result.changed_packages_index_contents.as_bytes(),
-                result.changed_packages_index.size,
-                result.changed_packages_index.md5sum,
-                result.changed_packages_index.sha1sum,
-                result.changed_packages_index.sha256sum,
-            )
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-        }
-        None => {
-            // Otherwise, create the index.
-            sqlx::query!(
-                r#"
-                INSERT INTO debian_repository_index_packages (
-                    component_id,
-                    architecture,
-                    compression,
-                    size,
-                    contents,
-                    md5sum,
-                    sha1sum,
-                    sha256sum,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    $1,
-                    $2::debian_repository_architecture,
-                    NULL,
-                    $3,
-                    $4,
-                    $5,
-                    $6,
-                    $7,
-                    NOW(),
-                    NOW()
-                )
-                "#,
-                component_id,
-                result.changed_packages_index.architecture as _,
-                // compression = NULL,
-                result.changed_packages_index.size,
-                result.changed_packages_index_contents.as_bytes(),
-                result.changed_packages_index.md5sum,
-                result.changed_packages_index.sha1sum,
-                result.changed_packages_index.sha256sum,
-            )
-            .execute(&mut *tx)
-            .await
-            .unwrap();
+            // We do not delete the Release, because clients may still be
+            // pointing to the release file, and we don't want them to be
+            // broken. The error they should get from APT is "package missing",
+            // rather than "repository not found".
         }
     }
-
-    // Lastly, we create the component-package.
-    //
-    // This record should not previously exist, but we use ON CONFLICT DO
-    // NOTHING because we consider re-adding an identical package to be a no-op
-    // rather than an error.
-    sqlx::query!(
-        r#"
-        WITH package_cte AS (
-            SELECT id
-            FROM debian_repository_package
-            WHERE
-                tenant_id = $1
-                AND sha256sum = $2
-            LIMIT 1
-        )
-        INSERT INTO debian_repository_component_package (
-            component_id,
-            package_id,
-            filename,
-            created_at,
-            updated_at
-        )
-        SELECT
-            $3,
-            package_cte.id,
-            $4,
-            NOW(),
-            NOW()
-        FROM package_cte
-        ON CONFLICT DO NOTHING
-        "#,
-        tenant_id.0,
-        result.changed_package.package.sha256sum,
-        component_id,
-        result.changed_package.filename,
-    )
-    .execute(&mut *tx)
-    .await
-    .unwrap();
 
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
@@ -490,57 +629,142 @@ pub async fn handler(
 
     // Copy the package from its canonical storage location into the repository
     // pool.
-    state
-        .s3
-        .copy_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/{}",
-            repo.s3_prefix, result.changed_package.filename
-        ))
-        .copy_source(format!(
-            "{}/packages/{}",
-            result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
-        ))
-        .send()
-        .await
-        .unwrap();
+    match req.change.action {
+        PackageChangeAction::Add { .. } => {
+            state
+                .s3
+                .copy_object()
+                .bucket(&repo.s3_bucket)
+                .key(format!(
+                    "{}/{}",
+                    repo.s3_prefix, result.changed_package.filename
+                ))
+                .copy_source(format!(
+                    "{}/packages/{}",
+                    result.changed_package.package.s3_bucket,
+                    result.changed_package.package.sha256sum,
+                ))
+                .send()
+                .await
+                .unwrap();
+        }
+        PackageChangeAction::Remove {
+            ref name,
+            ref version,
+            ref architecture,
+        } => {
+            let mut tx = state.db.begin().await.unwrap();
+            sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+
+            // This should be safe, because even if we delete the
+            // component-package, we never delete the package row, and
+            // successful index generation implies the package row exists.
+            let package =
+                Package::query_from_meta(&mut tx, &tenant_id, name, version, architecture)
+                    .await
+                    .ok_or(ErrorResponse::new(
+                        StatusCode::NOT_FOUND,
+                        "PACKAGE_NOT_FOUND".to_string(),
+                        "package not found".to_string(),
+                    ))?;
+
+            let pool_filename = package.pool_filename_in_component(&req.change.component);
+
+            // Determine whether there exist other component-packages with the
+            // same filename.
+            let remaining_component_packages = sqlx::query!(
+                r#"
+                SELECT COUNT(*) AS "count!: i64"
+                FROM
+                    debian_repository_package
+                    JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id
+                WHERE
+                    debian_repository_package.tenant_id = $1
+                    AND debian_repository_package.package = $2
+                    AND debian_repository_package.version = $3
+                    AND debian_repository_package.architecture = $4::debian_repository_architecture
+                    AND debian_repository_component_package.filename = $5
+                "#,
+                tenant_id.0,
+                name,
+                version,
+                architecture as _,
+                pool_filename,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+
+            tx.commit().await.unwrap();
+
+            // Delete the pool file from S3 if it's fully orphaned.
+            if remaining_component_packages.count == 0 {
+                state
+                    .s3
+                    .delete_object()
+                    .bucket(&repo.s3_bucket)
+                    .key(format!("{}/{}", repo.s3_prefix, pool_filename))
+                    .send()
+                    .await
+                    .unwrap();
+            }
+        }
+    }
 
     // Upload the updated Packages index file.
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/{}/binary-{}/Packages",
-            repo.s3_prefix,
-            req.change.distribution,
-            result.changed_packages_index.component,
-            result.changed_packages_index.architecture
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                result.changed_packages_index_contents.as_bytes(),
-            )),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
-        )
-        .body(
-            result
-                .changed_packages_index_contents
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap();
-
-    // Upload the updated Release files. This must happen last to take advantage
-    // of Acquire-By-Hash.
+    if result.changed_packages_index_contents.is_empty() {
+        state
+            .s3
+            .delete_object()
+            .bucket(&repo.s3_bucket)
+            .key(format!(
+                "{}/dists/{}/{}/binary-{}/Packages",
+                repo.s3_prefix,
+                req.change.distribution,
+                result.changed_packages_index.component,
+                result.changed_packages_index.architecture
+            ))
+            .send()
+            .await
+            .unwrap();
+    } else {
+        state
+            .s3
+            .put_object()
+            .bucket(&repo.s3_bucket)
+            .key(format!(
+                "{}/dists/{}/{}/binary-{}/Packages",
+                repo.s3_prefix,
+                req.change.distribution,
+                result.changed_packages_index.component,
+                result.changed_packages_index.architecture
+            ))
+            .content_md5(
+                base64::engine::general_purpose::STANDARD.encode(Md5::digest(
+                    result.changed_packages_index_contents.as_bytes(),
+                )),
+            )
+            .checksum_algorithm(ChecksumAlgorithm::Sha256)
+            .checksum_sha256(
+                base64::engine::general_purpose::STANDARD
+                    .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
+            )
+            .body(
+                result
+                    .changed_packages_index_contents
+                    .as_bytes()
+                    .to_vec()
+                    .into(),
+            )
+            .send()
+            .await
+            .unwrap();
+    }
+    // Upload the updated Release files. This must happen after package uploads
+    // and index uploads so that all files are in place for Acquire-By-Hash.
     state
         .s3
         .put_object()
