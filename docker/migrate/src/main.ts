@@ -1,5 +1,5 @@
 import "process";
-import { buildIAMAuthenticationConnectionString } from "./rds"
+import { buildIAMAuthenticationConnectionString } from "./rds.js"
 
 /**
  * Runs Attune database migrations. The environment variable `ATTUNE_MIGRATION_AUTHENTICATION_METHOD`
@@ -18,7 +18,9 @@ import { buildIAMAuthenticationConnectionString } from "./rds"
  */
 async function main() {
     const providedConnectionString = process.env["ATTUNE_DATABASE_URL"];
-    if (!providedConnectionString) throw new Error("ATTUNE_DATABASE_URL was not provided");
+    if (!providedConnectionString) {
+        throw new Error("ATTUNE_DATABASE_URL was not provided");
+    }
 
     const authMethod = process.env["ATTUNE_MIGRATION_AUTHENTICATION_METHOD"];
     switch (authMethod) {
@@ -31,8 +33,9 @@ async function main() {
     }
 
     const logConnectionString = process.env["ATTUNE_MIGRATION_LOG_CONNECTION_STRING_INSECURE_DO_NOT_SET_THIS"];
-    if (logConnectionString === "true")
+    if (logConnectionString === "true") {
         console.log(process.env["ATTUNE_DATABASE_URL"]);
+    }
 
     // `execve` requires a filepath to execute. Use `env`, masquerading as `npm`
     // to find and execute `npm` with the provided `process.env` variables.

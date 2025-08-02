@@ -10,7 +10,7 @@
   "scripts": {
     "migrate": "prisma migrate deploy",
     "migrate:new": "prisma migrate dev",
-    "migraterds": "npm run build && node dist/main.js",
+    "migrate:rds": "node dist/main.js",
     "reset": "prisma migrate reset",
     "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma",
     "build": "tsc"
