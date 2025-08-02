@@ -59,7 +59,6 @@ services:
       dockerfile: Dockerfile
     environment:
       - ATTUNE_DATABASE_URL=postgres://attune:attune@postgres:5432/attune
-      - ATTUNE_MIGRATION_AUTHENTICATION_METHOD=rds-iam
     volumes:
       - ./docker/migrate:/app
     working_dir: /app
