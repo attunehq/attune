@@ -3,15 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "devDependencies": {
-    "prisma": "^6.10.1"
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^24.1.0",
+    "prisma": "^6.10.1",
+    "typescript": "^5.7.2"
   },
   "scripts": {
-    "migrate:new": "prisma migrate dev",
     "migrate": "prisma migrate deploy",
+    "migrate:new": "prisma migrate dev",
+    "migrate:rds": "node dist/main.js --auth-method=rds-iam",
     "reset": "prisma migrate reset",
-    "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma"
+    "diff": "prisma migrate diff --from-schema-datasource=./prisma/schema.prisma --to-schema-datamodel=./prisma/schema.prisma",
+    "build": "tsc"
   },
   "dependencies": {
-    "@prisma/client": "^6.10.1"
-  }
+    "@aws-sdk/rds-signer": "^3.848.0",
+    "@prisma/client": "^6.10.1",
+    "minimist": "^1.2.8"
+  },
+  "type": "module"
 }
