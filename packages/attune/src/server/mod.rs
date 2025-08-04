@@ -11,7 +11,7 @@ use axum::{
     handler::Handler,
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, put},
 };
 use http::StatusCode;
 use sha2::{Digest as _, Sha256};
