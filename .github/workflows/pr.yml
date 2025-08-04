@@ -76,7 +76,7 @@ jobs:
     name: Check database migrations
     runs-on: ubuntu-latest
     env:
-      ATTUNE_DATABASE_URL: postgresql://attune:attune@postgres:5432/attune
+      ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
     services:
       postgres:
         image: postgres:17.4-bookworm
