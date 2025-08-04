@@ -9,6 +9,8 @@
     "typescript": "^5.7.2"
   },
   "scripts": {
+    "fmt": "prisma format",
+    "fmt:check": "prisma format --check",
     "migrate": "prisma migrate deploy",
     "migrate:new": "prisma migrate dev",
     "migrate:rds": "node dist/main.js --auth-method=rds-iam",
