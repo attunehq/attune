@@ -138,6 +138,16 @@ pub async fn handler(
         ));
     }
 
+    // This is the by-hash prefix for the changed package;
+    // we use it in both scheduling cleanup and actually uploading new by-hash objects.
+    let by_hash_prefix = format!(
+        "{}/dists/{}/{}/binary-{}/by-hash",
+        repo.s3_prefix,
+        req.change.distribution,
+        result.changed_packages_index.component,
+        result.changed_packages_index.architecture
+    );
+
     // Save the new state to the database.
     match req.change.action {
         PackageChangeAction::Add { .. } => {
@@ -354,6 +364,42 @@ pub async fn handler(
             .unwrap()
             {
                 Some(index) => {
+                    // Before updating the index, schedule the current by-hash S3 objects for cleanup.
+                    // Insert current index data directly into cleanup table.
+                    sqlx::query!(
+                        r#"
+                        INSERT INTO debian_repository_by_hash_cleanup (
+                            component_id,
+                            architecture,
+                            s3_bucket,
+                            s3_prefix,
+                            md5sum,
+                            sha1sum,
+                            sha256sum,
+                            expires_at
+                        )
+                        SELECT
+                            $1,
+                            $2::debian_repository_architecture,
+                            $3,
+                            $4,
+                            i.md5sum,
+                            i.sha1sum,
+                            i.sha256sum,
+                            NOW() + INTERVAL '7 days'
+                        FROM debian_repository_index_packages i
+                        WHERE i.id = $5
+                        "#,
+                        component_id,
+                        result.changed_packages_index.architecture as _,
+                        repo.s3_bucket,
+                        by_hash_prefix,
+                        index.id,
+                    )
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+
                     // No need to check whether an update is needed - we know already
                     // that the index has changed.
                     sqlx::query!(
@@ -524,6 +570,7 @@ pub async fn handler(
 
             // Update the Packages index, or delete if it's orphaned.
             if result.changed_packages_index_contents.is_empty() {
+                // Index becomes empty - we'll delete it and immediately clean by-hash objects
                 sqlx::query!(
                     r#"
                     DELETE FROM debian_repository_index_packages
@@ -538,6 +585,43 @@ pub async fn handler(
                 .await
                 .unwrap();
             } else {
+                // Index remains non-empty - schedule previous version for cleanup before updating
+                sqlx::query!(
+                    r#"
+                    INSERT INTO debian_repository_by_hash_cleanup (
+                        component_id,
+                        architecture,
+                        s3_bucket,
+                        s3_prefix,
+                        md5sum,
+                        sha1sum,
+                        sha256sum,
+                        expires_at
+                    )
+                    SELECT
+                        $1,
+                        $2::debian_repository_architecture,
+                        $3,
+                        $4,
+                        i.md5sum,
+                        i.sha1sum,
+                        i.sha256sum,
+                        NOW() + INTERVAL '7 days'
+                    FROM debian_repository_index_packages i
+                    WHERE
+                        i.component_id = $1
+                        AND i.architecture = $2::debian_repository_architecture
+                        AND i.compression IS NULL
+                    "#,
+                    component_package.component_id,
+                    result.changed_packages_index.architecture as _,
+                    repo.s3_bucket,
+                    by_hash_prefix,
+                )
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+
                 sqlx::query!(
                     r#"
                     UPDATE debian_repository_index_packages
@@ -706,54 +790,111 @@ pub async fn handler(
         }
     }
 
-    // Upload the updated Packages index file.
+    // Upload the updated Packages index file to standard path and all by-hash paths concurrently
     if result.changed_packages_index_contents.is_empty() {
-        state
+        // Index is empty - immediately delete standard + by-hash paths
+        let standard_key = format!(
+            "{}/dists/{}/{}/binary-{}/Packages",
+            repo.s3_prefix,
+            req.change.distribution,
+            result.changed_packages_index.component,
+            result.changed_packages_index.architecture
+        );
+
+        // Create deletion requests for standard + by-hash paths
+        let delete_standard = state
+            .s3
+            .delete_object()
+            .bucket(&repo.s3_bucket)
+            .key(&standard_key)
+            .send();
+
+        let delete_by_hash_sha256 = state
             .s3
             .delete_object()
             .bucket(&repo.s3_bucket)
             .key(format!(
-                "{}/dists/{}/{}/binary-{}/Packages",
-                repo.s3_prefix,
-                req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
+                "{}/SHA256/{}",
+                by_hash_prefix, result.changed_packages_index.sha256sum
             ))
-            .send()
-            .await
-            .unwrap();
-    } else {
-        state
+            .send();
+
+        let delete_by_hash_sha1 = state
             .s3
-            .put_object()
+            .delete_object()
             .bucket(&repo.s3_bucket)
             .key(format!(
+                "{}/SHA1/{}",
+                by_hash_prefix, result.changed_packages_index.sha1sum
+            ))
+            .send();
+
+        let delete_by_hash_md5 = state
+            .s3
+            .delete_object()
+            .bucket(&repo.s3_bucket)
+            .key(format!(
+                "{}/MD5Sum/{}",
+                by_hash_prefix, result.changed_packages_index.md5sum
+            ))
+            .send();
+
+        // Execute all deletions concurrently
+        let _ = tokio::join!(
+            delete_standard,
+            delete_by_hash_sha256,
+            delete_by_hash_sha1,
+            delete_by_hash_md5
+        );
+    } else {
+        // Index has content - upload to standard + by-hash paths concurrently
+        let upload_packages_index = |key: String| {
+            let s3 = state.s3.clone();
+            let bucket = repo.s3_bucket.clone();
+            let contents = result.changed_packages_index_contents.clone();
+            let sha256sum = result.changed_packages_index.sha256sum.clone();
+
+            async move {
+                s3.put_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .content_md5(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(Md5::digest(contents.as_bytes())),
+                    )
+                    .checksum_algorithm(ChecksumAlgorithm::Sha256)
+                    .checksum_sha256(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(hex::decode(&sha256sum).unwrap()),
+                    )
+                    .body(contents.as_bytes().to_vec().into())
+                    .send()
+                    .await
+                    .unwrap()
+            }
+        };
+
+        tokio::join!(
+            upload_packages_index(format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
                 result.changed_packages_index.component,
                 result.changed_packages_index.architecture
-            ))
-            .content_md5(
-                base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                    result.changed_packages_index_contents.as_bytes(),
-                )),
-            )
-            .checksum_algorithm(ChecksumAlgorithm::Sha256)
-            .checksum_sha256(
-                base64::engine::general_purpose::STANDARD
-                    .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
-            )
-            .body(
-                result
-                    .changed_packages_index_contents
-                    .as_bytes()
-                    .to_vec()
-                    .into(),
-            )
-            .send()
-            .await
-            .unwrap();
+            )),
+            upload_packages_index(format!(
+                "{}/SHA256/{}",
+                by_hash_prefix, result.changed_packages_index.sha256sum
+            )),
+            upload_packages_index(format!(
+                "{}/SHA1/{}",
+                by_hash_prefix, result.changed_packages_index.sha1sum
+            )),
+            upload_packages_index(format!(
+                "{}/MD5Sum/{}",
+                by_hash_prefix, result.changed_packages_index.md5sum
+            )),
+        );
     }
     // Upload the updated Release files. This must happen after package uploads
     // and index uploads so that all files are in place for Acquire-By-Hash.

@@ -54,8 +54,23 @@ pub async fn handler(
             .build()
     })?;
 
-    // Query components and their architectures for S3 cleanup
-    let components = sqlx::query!(
+    // We need two separate queries to handle different deletion scenarios:
+    //
+    // 1. Standard Packages files: These exist for every component/architecture combination
+    //    that has packages, regardless of whether an index was generated. We query through
+    //    the packages table to ensure we delete all standard Packages files.
+    //
+    // 2. By-hash objects: These only exist when package indexes have been generated and
+    //    uploaded with by-hash support. We need the exact hash values (md5sum, sha1sum, 
+    //    sha256sum) from the index table to construct the precise S3 keys for deletion.
+    //    Simply knowing component/architecture isn't enough - we need the hash values.
+    //
+    // These queries may return different result sets: packages might exist without indexes
+    // (if index generation failed), or indexes might exist for different architectures
+    // than expected due to package additions/removals over time.
+
+    // Query all component/architecture combinations that have packages (for standard Packages files)
+    let components_with_packages = sqlx::query!(
         r#"
         SELECT
             c.name as component_name,
@@ -64,6 +79,27 @@ pub async fn handler(
         JOIN debian_repository_component c ON c.release_id = r.id
         JOIN debian_repository_component_package cp ON cp.component_id = c.id
         JOIN debian_repository_package p ON p.id = cp.package_id
+        WHERE r.repository_id = $1 AND r.distribution = $2
+        "#,
+        repo.id,
+        distribution_name,
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+
+    // Query current package indexes with their hash values (for by-hash object deletion)
+    let index_hashes = sqlx::query!(
+        r#"
+        SELECT
+            c.name as component_name,
+            i.architecture::text as architecture,
+            i.md5sum,
+            i.sha1sum,
+            i.sha256sum
+        FROM debian_repository_release r
+        JOIN debian_repository_component c ON c.release_id = r.id
+        JOIN debian_repository_index_packages i ON i.component_id = c.id
         WHERE r.repository_id = $1 AND r.distribution = $2
         "#,
         repo.id,
@@ -112,6 +148,7 @@ pub async fn handler(
     .await
     .unwrap();
 
+
     // Database state is correct, so we can commit the transaction.
     // Now all we need to do is clean up S3 objects.
     tx.commit().await.unwrap();
@@ -127,7 +164,7 @@ pub async fn handler(
         ];
 
         // Deletes component metadata files.
-        keys.extend(components.iter().map(|record| {
+        keys.extend(components_with_packages.iter().map(|record| {
             let prefix = format!(
                 "{}/{}/binary-{}",
                 prefix,
@@ -138,12 +175,28 @@ pub async fn handler(
             format!("{prefix}/Packages")
         }));
 
+        // Deletes by-hash objects.
+        keys.extend(index_hashes.iter().flat_map(|record| {
+            let arch = record.architecture.as_ref().unwrap().replace('_', "-");
+            let by_hash_prefix = format!(
+                "{}/{}/binary-{}/by-hash",
+                prefix, record.component_name, arch
+            );
+            
+            [
+                format!("{}/SHA256/{}", by_hash_prefix, record.sha256sum),
+                format!("{}/SHA1/{}", by_hash_prefix, record.sha1sum),
+                format!("{}/MD5Sum/{}", by_hash_prefix, record.md5sum),
+            ]
+        }));
+
         // Deletes orphaned package files.
         keys.extend(
             orphaned
                 .iter()
                 .map(|pkg| format!("packages/{}", pkg.sha256sum)),
         );
+
         keys
     };
 
@@ -177,6 +230,7 @@ pub async fn handler(
             tracing::error!("Failed to delete objects: {err:?}");
         }
     }
+
 
     Ok(Json(DeleteDistributionResponse::default()))
 }

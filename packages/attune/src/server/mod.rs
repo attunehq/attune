@@ -1,3 +1,4 @@
+pub mod cleanup;
 pub mod compatibility;
 pub mod pkg;
 pub mod repo;
@@ -104,6 +105,10 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         .route(
             "/repositories/{repository_name}/distributions/{distribution_name}/sync",
             get(repo::sync::check::handler).post(repo::sync::resync::handler),
+        )
+        .route(
+            "/cleanup/by-hash",
+            axum::routing::post(cleanup::cleanup_handler),
         )
         .route(
             "/packages",
