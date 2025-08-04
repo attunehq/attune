@@ -18,7 +18,7 @@ env:
 
 jobs:
   ci:
-    name: Build, check, and test
+    name: Build, check, and test PR
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
