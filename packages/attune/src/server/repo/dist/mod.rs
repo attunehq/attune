@@ -5,21 +5,17 @@ use crate::api::ErrorResponse;
 
 pub mod create;
 pub mod delete;
-pub mod dist;
 pub mod edit;
-pub mod index;
-pub mod info;
 pub mod list;
-pub mod sync;
 
-fn decode_repo_name(name: &str) -> Result<String, ErrorResponse> {
-    // The repository name in the path is percent-encoded.
+fn decode_dist_name(name: &str) -> Result<String, ErrorResponse> {
+    // The distribution name in the path is percent-encoded.
     match percent_decode_str(name).decode_utf8() {
         Ok(name) => Ok(name.to_string()),
         Err(err) => Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
-            "INVALID_REPO_NAME".to_string(),
-            format!("Invalid repository name: could not percent decode: {err}").to_string(),
+            "INVALID_DIST_NAME".to_string(),
+            format!("Invalid distribution name: could not percent decode: {err}"),
         )),
     }
 }

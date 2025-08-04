@@ -3,17 +3,20 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use bon::Builder;
 use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Builder)]
 pub struct ErrorResponse {
     /// The HTTP status code.
     #[serde(skip)]
     status: StatusCode,
     /// A short, unique error code.
+    #[builder(into)]
     pub error: String,
     /// A human-readable error message.
+    #[builder(into)]
     pub message: String,
 }
 
