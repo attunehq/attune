@@ -47,10 +47,10 @@ pub async fn run(ctx: Config, args: ListArgs) -> Result<String, String> {
             dist.distribution,
             dist.suite,
             dist.codename,
-            dist.description.unwrap_or_else(String::new),
-            dist.origin.unwrap_or_else(String::new),
-            dist.label.unwrap_or_else(String::new),
-            dist.version.unwrap_or_else(String::new),
+            dist.description.unwrap_or(String::from("(unset)")),
+            dist.origin.unwrap_or(String::from("(unset)")),
+            dist.label.unwrap_or(String::from("(unset)")),
+            dist.version.unwrap_or(String::from("(unset)")),
         ]);
     }
 
