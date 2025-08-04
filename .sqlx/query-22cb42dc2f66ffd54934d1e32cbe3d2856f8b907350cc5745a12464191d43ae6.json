@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM debian_repository_package p\n        WHERE p.tenant_id = $1\n        AND NOT EXISTS (\n            SELECT 1 FROM debian_repository_component_package cp\n            WHERE cp.package_id = p.id\n        )\n        RETURNING p.id, p.s3_bucket, p.sha256sum\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "s3_bucket",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "22cb42dc2f66ffd54934d1e32cbe3d2856f8b907350cc5745a12464191d43ae6"
+}

@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE debian_repository_release\n        SET\n            description = COALESCE($3, description),\n            origin = COALESCE($4, origin),\n            label = COALESCE($5, label),\n            version = COALESCE($6, version),\n            suite = COALESCE($7, suite),\n            codename = COALESCE($8, codename),\n            updated_at = NOW()\n        WHERE id = $1 AND repository_id = $2\n        RETURNING id, distribution\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distribution",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "dea576c314069f69bfc29913a810ee6db72962986954b945f67973676d0f84d2"
+}
