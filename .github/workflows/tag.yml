@@ -20,7 +20,7 @@ env:
 
 jobs:
   publish:
-    name: Build and publish draft release
+    name: Production build and publish draft release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

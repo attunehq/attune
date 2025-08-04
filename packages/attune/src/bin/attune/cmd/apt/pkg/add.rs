@@ -30,10 +30,10 @@ pub struct PkgAddCommand {
     #[arg(long, short)]
     repo: String,
     /// Distribution to add the package to
-    #[arg(long, short)]
+    #[arg(long, short, default_value = "stable")]
     distribution: String,
     /// Component to add the package to
-    #[arg(long, short)]
+    #[arg(long, short, default_value = "main")]
     component: String,
 
     /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)

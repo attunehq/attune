@@ -20,7 +20,7 @@ env:
 
 jobs:
   cd:
-    name: Build commit
+    name: Development build of `main`
     runs-on: ubuntu-latest
     permissions:
       contents: read
