@@ -47,7 +47,10 @@ pub async fn run(ctx: Config, command: RepoEditCommand) -> ExitCode {
                 .json::<EditRepositoryResponse>()
                 .await
                 .expect("Could not parse response");
-            println!("Repository name changed from {:?} to {:?}", command.name, repo.result.name);
+            println!(
+                "Repository name changed from {:?} to {:?}",
+                command.name, repo.result.name
+            );
             ExitCode::SUCCESS
         }
         _ => {
