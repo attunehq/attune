@@ -214,7 +214,7 @@ model DebianRepositoryPackage {
   provides   String?
   replaces   String?
 
-  size      BigInt
+  size BigInt
 
   // These hashes are all hex-encoded.
   md5sum    String
@@ -312,9 +312,9 @@ model DebianRepositoryPackagesIndex {
   //
   // TODO: Should we store these as BYTES instead, since we sometimes use their
   // base64-encoded representation with AWS S3 headers?
-  md5sum      String
-  sha1sum     String
-  sha256sum   String
+  md5sum    String
+  sha1sum   String
+  sha256sum String
 
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @updatedAt @db.Timestamptz(6)
