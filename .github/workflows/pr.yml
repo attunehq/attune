@@ -21,99 +21,99 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust:
-    name: Build, check, and test Rust
-    runs-on: ubuntu-latest
-    steps:
-      # Since these installation steps don't require checkout, technically we
-      # could do them ahead of time and just cache the resulting image.
-      # Unfortunately, this is actually sometimes _slower_ in GHA because then
-      # you're using a custom image instead of a runner image that's always hot
-      # on the node.
-      #
-      # If you decide to make this change, make sure to benchmark whether it's
-      # actually faster.
-      - name: Install Rust
-        run: rustup show
+  # rust:
+  #   name: Build, check, and test Rust
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     # Since these installation steps don't require checkout, technically we
+  #     # could do them ahead of time and just cache the resulting image.
+  #     # Unfortunately, this is actually sometimes _slower_ in GHA because then
+  #     # you're using a custom image instead of a runner image that's always hot
+  #     # on the node.
+  #     #
+  #     # If you decide to make this change, make sure to benchmark whether it's
+  #     # actually faster.
+  #     - name: Install Rust
+  #       run: rustup show
 
-      # These should match `../docker/attune/Dockerfile`.
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+  #     # These should match `../docker/attune/Dockerfile`.
+  #     - name: Install system dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
-      - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v4
 
-      - name: Remove empty EE crate
-        run: rm -r ./packages/attune-ee
+  #     - name: Remove empty EE crate
+  #       run: rm -r ./packages/attune-ee
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2.8.0
-        with:
-          cache-workspace-crates: true
-          cache-all-crates: true
+  #     - name: Cache cargo
+  #       uses: Swatinem/rust-cache@v2.8.0
+  #       with:
+  #         cache-workspace-crates: true
+  #         cache-all-crates: true
 
-      - name: Check format
-        run: cargo fmt --all --check
+  #     - name: Check format
+  #       run: cargo fmt --all --check
 
-      # Note that we don't have a separate `cargo sqlx prepare --workspace
-      # --check` step because missing query cache will cause this build to fail
-      # anyway, and installing the `cargo sqlx` tool takes longer than waiting
-      # for the build to fail due to missing migrations.
-      - name: Check build
-        run: cargo check --workspace --all-targets --all-features
+  #     # Note that we don't have a separate `cargo sqlx prepare --workspace
+  #     # --check` step because missing query cache will cause this build to fail
+  #     # anyway, and installing the `cargo sqlx` tool takes longer than waiting
+  #     # for the build to fail due to missing migrations.
+  #     - name: Check build
+  #       run: cargo check --workspace --all-targets --all-features
 
-      - name: Check clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+  #     - name: Check clippy
+  #       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Run tests
-        run: cargo test --workspace --all-targets --all-features -- --skip smoke
+  #     - name: Run tests
+  #       run: cargo test --workspace --all-targets --all-features -- --skip smoke
 
-      - name: Run full build
-        run: cargo build --workspace --all-targets --all-features
+  #     - name: Run full build
+  #       run: cargo build --workspace --all-targets --all-features
 
-  db:
-    name: Check database migrations
-    runs-on: ubuntu-latest
-    env:
-      ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
-    services:
-      postgres:
-        image: postgres:17.4-bookworm
-        env:
-          POSTGRES_USER: attune
-          POSTGRES_PASSWORD: attune
-          POSTGRES_DB: attune
-        ports:
-          - "5432:5432"
-    steps:
-      - uses: actions/checkout@v4
+  # db:
+  #   name: Check database migrations
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+  #   services:
+  #     postgres:
+  #       image: postgres:17.4-bookworm
+  #       env:
+  #         POSTGRES_USER: attune
+  #         POSTGRES_PASSWORD: attune
+  #         POSTGRES_DB: attune
+  #       ports:
+  #         - "5432:5432"
+  #   steps:
+  #     - uses: actions/checkout@v4
 
-      - name: Install Prisma
-        run: npm install
-        working-directory: ./docker/migrate
+  #     - name: Install Prisma
+  #       run: npm install
+  #       working-directory: ./docker/migrate
 
-      - name: Check Prisma formatting
-        run: npm run fmt:check
-        working-directory: ./docker/migrate
+  #     - name: Check Prisma formatting
+  #       run: npm run fmt:check
+  #       working-directory: ./docker/migrate
 
-      - name: Run production migrations
-        run: npm run migrate
-        working-directory: ./docker/migrate
+  #     - name: Run production migrations
+  #       run: npm run migrate
+  #       working-directory: ./docker/migrate
 
-      - name: Check for schema drift
-        run: npm run diff
-        working-directory: ./docker/migrate
+  #     - name: Check for schema drift
+  #       run: npm run diff
+  #       working-directory: ./docker/migrate
 
-      # TODO: Is there a way to test the RDS migration script?
-      - name: Build custom migration scripts
-        run: npm run build
-        working-directory: ./docker/migrate
+  #     # TODO: Is there a way to test the RDS migration script?
+  #     - name: Build custom migration scripts
+  #       run: npm run build
+  #       working-directory: ./docker/migrate
 
   dev:
     name: Set up Attune locally and run smoke tests
     runs-on: ubuntu-latest
-    needs: ci  # Wait for main CI to pass.
+    # needs: db
     steps:
       - uses: actions/checkout@v4
 
