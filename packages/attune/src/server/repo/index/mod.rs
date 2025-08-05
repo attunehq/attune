@@ -154,7 +154,8 @@ async fn generate_release_file_with_change(
             WHERE
                 debian_repository_component.release_id = $1
                 AND debian_repository_component.name = $2
-        "#, release_id, change.component)
+                AND debian_repository_package.architecture = $3::debian_repository_architecture
+        "#, release_id, change.component, changed_package.architecture as _)
         .map(|row| {
             PublishedPackage::from_package(
                 Package {
