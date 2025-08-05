@@ -29,12 +29,9 @@ pub fn prisma_migrate(input: TokenStream) -> TokenStream {
     let entries = match collect_migrations(&input_path) {
         Ok(entries) => entries,
         Err(err) => {
-            return syn::Error::new_spanned(
-                input_lit,
-                format!("Failed to read migrations: {}", err),
-            )
-            .to_compile_error()
-            .into();
+            return syn::Error::new_spanned(input_lit, format!("Failed to read migrations: {err}"))
+                .to_compile_error()
+                .into();
         }
     };
 
