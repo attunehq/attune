@@ -129,8 +129,29 @@ jobs:
       - name: Start services
         run: |
           docker compose up -d
-          # Wait for services to be healthy
-          timeout 300 bash -c 'until docker compose ps | grep -q "healthy"; do sleep 5; done'
+          echo "Services started, waiting for health checks..."
+          
+          # Show initial status
+          echo "Initial service status:"
+          docker compose ps
+          
+          # Wait for services to be healthy with debugging
+          timeout 300 bash -c '
+            attempt=1
+            until docker compose ps | grep -q "healthy"; do
+              echo "Attempt $attempt: Waiting for services to be healthy..."
+              echo "Current service status:"
+              docker compose ps
+              echo "Checking for 'healthy' in output:"
+              docker compose ps | grep "healthy" || echo "No healthy services found yet"
+              echo "---"
+              sleep 5
+              attempt=$((attempt + 1))
+            done
+          '
+          
+          echo "Health check complete! Final status:"
+          docker compose ps
 
       - name: Build CLI
         run: cargo build --release --bin attune
