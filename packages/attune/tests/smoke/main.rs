@@ -71,6 +71,7 @@ fn smoke() {
     cleanup_gpg_key(&sh, &config.gpg_key_id);
     
     // Check if tests passed and report final result.
+    // TODO: Here and elsewhere, wrap in a declarative macro: https://doc.rust-lang.org/reference/macros-by-example.html.
     match test_result {
         Ok(_) => println!("\n========== ALL SMOKE TESTS COMPLETED SUCCESSFULLY =========="),
         Err(_) => {
@@ -265,7 +266,7 @@ fn test_repo_list_multiple(sh: &Shell, config: &TestConfig) {
                     eprintln!("❌ Repo '{repo_name}' not found in list");
                 }
             }
-
+            // TODO: Here and elsewhere, use println! for machine readable output and eprintln! for human readable output.
             if found_repos.len() == EXPECTED_REPOS.len() {
                 println!("✅ All expected repositories found in list");
                 println!("✅ Test completed successfully!\n");
