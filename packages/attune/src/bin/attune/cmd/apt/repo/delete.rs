@@ -16,7 +16,7 @@ use attune::{
 pub struct RepoDeleteCommand {
     /// The name of the repository to delete.
     name: String,
-    
+
     /// Skip confirmation prompt and proceed with deletion
     #[arg(short, long)]
     yes: bool,
@@ -31,7 +31,7 @@ pub async fn run(ctx: Config, command: RepoDeleteCommand) -> ExitCode {
         )
         .on_red()
     );
-    
+
     if !command.yes {
         let confirm = Confirm::new("Are you sure you want to proceed?")
             .with_default(false)
