@@ -133,8 +133,7 @@ jobs:
           timeout 300 bash -c 'until docker compose ps | grep -q "healthy"; do sleep 5; done'
 
       - name: Build CLI
-        run: |
-          cargo build --release --bin attune
+        run: cargo build --release --bin attune
 
       - name: Run smoke tests
         env:
@@ -144,5 +143,5 @@ jobs:
         run: cargo test --test smoke
 
       - name: Stop services
-        if: always()
+        if: (true)
         run: docker compose down

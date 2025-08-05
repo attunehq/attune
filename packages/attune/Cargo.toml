@@ -39,4 +39,5 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+indoc = "2"
 xshell = "0.2.7"
