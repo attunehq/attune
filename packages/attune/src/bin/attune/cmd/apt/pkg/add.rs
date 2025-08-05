@@ -40,7 +40,7 @@ pub struct PkgAddCommand {
     #[arg(long, short)]
     key_id: String,
 
-    // TODO: Implement.
+    // TODO(#48): Implement.
     // /// Overwrite existing package, even if different
     // #[arg(long, short)]
     // overwrite: bool,
@@ -111,7 +111,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // identifiers (i.e. (name, version, architecture)) already exists, which
     // should be impossible, and should be an error we report to the user.
     //
-    // TODO: Add an `--overwrite` flag to allow the user to deliberately upload
+    // TODO(#48): Add an `--overwrite` flag to allow the user to deliberately upload
     // a package with a different SHA256sum.
 
     debug!(sha256sum = ?sha256sum, "checking whether package exists");
@@ -260,7 +260,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
 
     // Submit signatures.
     //
-    // TODO: Implement retries on conflict.
+    // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
     let res = ctx
         .client
@@ -294,7 +294,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             debug!("signed index");
             ExitCode::SUCCESS
         }
-        // TODO: Handle 409 status code to signal retry.
+        // TODO(#84): Handle 409 status code to signal retry.
         status => {
             let body = res.text().await.expect("Could not read response");
             debug!(?body, ?status, "error response");

@@ -134,7 +134,7 @@ pub async fn handler(
                 record.component_name,
                 record.architecture.as_ref().unwrap().replace('_', "-")
             );
-            // TODO: When compressed indexes are implemented, add their deletion here.
+            // TODO(#94): When compressed indexes are implemented, add their deletion here.
             format!("{prefix}/Packages")
         }));
 

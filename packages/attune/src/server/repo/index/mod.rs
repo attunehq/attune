@@ -53,8 +53,9 @@ async fn generate_release_file_with_change(
     change: &PackageChange,
     release_ts: OffsetDateTime,
 ) -> Result<PackageChangeResult, ErrorResponse> {
-    // FIXME: I think there's a bug where if you generate an index by adding a
-    // package that already exists, it gets added twice into the release file.
+    // FIXME(#102): I think there's a bug where if you generate an index by
+    // adding a package that already exists, it gets added twice into the
+    // release file.
 
     // Load the package to be either added or removed. If it does not exist,
     // return an error.
@@ -552,7 +553,7 @@ impl ReleaseFile {
             .alignment(Alignment::Right)
             .padding(1);
         for index in &packages_indexes {
-            // TODO: Handle compressed indexes.
+            // TODO(#94): Handle compressed indexes.
             writeln!(
                 &mut md5writer,
                 " {}\t{}\t{}/binary-{}/Packages",
@@ -568,7 +569,7 @@ impl ReleaseFile {
             .alignment(Alignment::Right)
             .padding(1);
         for index in &packages_indexes {
-            // TODO: Handle compressed indexes.
+            // TODO(#94): Handle compressed indexes.
             writeln!(
                 &mut sha256writer,
                 " {}\t{}\t{}/binary-{}/Packages",
