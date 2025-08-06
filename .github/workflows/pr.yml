@@ -120,16 +120,16 @@ jobs:
       - name: Install Rust
         run: rustup show
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
 
       - name: Set up environment
         run: cp .env.example .env
-
-      - name: Setup tmate session for debugging
-        uses: mxschmitt/action-tmate@v3
-        with:
-          limit-access-to-actor: true
 
       - name: Start services
         run: |
