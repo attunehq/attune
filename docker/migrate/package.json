@@ -1,13 +1,8 @@
 {
   "name": "attune-postgres-schema",
   "version": "0.0.0",
+  "type": "module",
   "private": true,
-  "devDependencies": {
-    "@types/minimist": "^1.2.5",
-    "@types/node": "^24.1.0",
-    "prisma": "^6.10.1",
-    "typescript": "^5.7.2"
-  },
   "scripts": {
     "fmt": "prisma format",
     "fmt:check": "prisma format --check",
@@ -21,7 +16,12 @@
   "dependencies": {
     "@aws-sdk/rds-signer": "^3.848.0",
     "@prisma/client": "^6.10.1",
-    "minimist": "^1.2.8"
+    "minimist": "^1.2.8",
+    "prisma": "^6.10.1"
   },
-  "type": "module"
+  "devDependencies": {
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^24.1.0",
+    "typescript": "^5.7.2"
+  }
 }

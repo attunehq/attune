@@ -129,7 +129,7 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
 
     // Submit signatures.
     //
-    // TODO: Implement retries on conflict.
+    // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
     let res = ctx
         .client
@@ -163,7 +163,7 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
             debug!("signed index");
             ExitCode::SUCCESS
         }
-        // TODO: Handle 409 status code to signal retry.
+        // TODO(#84): Handle 409 status code to signal retry.
         status => {
             let body = res.text().await.expect("Could not read response");
             debug!(?body, ?status, "error response");

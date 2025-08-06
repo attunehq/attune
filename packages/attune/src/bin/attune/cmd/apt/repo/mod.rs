@@ -32,7 +32,7 @@ pub enum RepoSubCommand {
     // TODO: Add a command that allows us to do a no-op re-signing of the index,
     // potentially with a different key.
 
-    // TODO: Add a command that forcibly resynchronizes the repository state
+    // TODO(#88): Add a command that forcibly resynchronizes the repository state
     // with S3.
 }
 
