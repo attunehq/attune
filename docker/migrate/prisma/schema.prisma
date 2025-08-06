@@ -333,7 +333,7 @@ model DebianRepositoryPackagesIndex {
 // For more details, see:
 // - https://wiki.debian.org/DebianRepository/Format#Acquire-By-Hash
 model DebianRepositoryByHashCleanup {
-  id         BigInt   @id @default(autoincrement())
+  id BigInt @id @default(autoincrement())
 
   // Identifier for the logical index (component_id + architecture)
   // Used to enforce "current + 2 previous versions" retention.
@@ -341,13 +341,13 @@ model DebianRepositoryByHashCleanup {
   architecture DebianRepositoryArchitecture
 
   // Precomputed S3 location info to clean up.
-  s3_bucket      String
-  s3_prefix      String
+  s3_bucket String
+  s3_prefix String
 
   // All three hashes for this version.
-  md5sum         String
-  sha1sum        String
-  sha256sum      String
+  md5sum    String
+  sha1sum   String
+  sha256sum String
 
   // When this version expires and can be cleaned up.
   expires_at DateTime @db.Timestamptz(6)
