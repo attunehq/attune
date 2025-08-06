@@ -61,7 +61,7 @@ pub async fn handler(
     //    the packages table to ensure we delete all standard Packages files.
     //
     // 2. By-hash objects: These only exist when package indexes have been generated and
-    //    uploaded with by-hash support. We need the exact hash values (md5sum, sha1sum, 
+    //    uploaded with by-hash support. We need the exact hash values (md5sum, sha1sum,
     //    sha256sum) from the index table to construct the precise S3 keys for deletion.
     //    Simply knowing component/architecture isn't enough - we need the hash values.
     //
@@ -148,7 +148,6 @@ pub async fn handler(
     .await
     .unwrap();
 
-
     // Database state is correct, so we can commit the transaction.
     // Now all we need to do is clean up S3 objects.
     tx.commit().await.unwrap();
@@ -182,7 +181,7 @@ pub async fn handler(
                 "{}/{}/binary-{}/by-hash",
                 prefix, record.component_name, arch
             );
-            
+
             [
                 format!("{}/SHA256/{}", by_hash_prefix, record.sha256sum),
                 format!("{}/SHA1/{}", by_hash_prefix, record.sha1sum),
@@ -230,7 +229,6 @@ pub async fn handler(
             tracing::error!("Failed to delete objects: {err:?}");
         }
     }
-
 
     Ok(Json(DeleteDistributionResponse::default()))
 }
