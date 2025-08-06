@@ -67,11 +67,15 @@ jobs:
       - name: Check format
         run: cargo fmt --all --check
 
-      - name: Migrate database
+      - name: Migrate and check database
         working-directory: ./docker/migrate
         run: |
           npm install
+          # TODO: Figure out how to test the RDS migration script.
+          npm run build
+          npm run fmt:check
           npm run migrate
+          npm run diff
 
       - name: Install sqlx-cli
         uses: taiki-e/install-action@v2
@@ -92,44 +96,6 @@ jobs:
 
       - name: Run full build
         run: cargo build --workspace --all-targets --all-features
-
-  db:
-    name: Check database migrations
-    runs-on: ubuntu-latest
-    env:
-      ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
-    services:
-      postgres:
-        image: postgres:17.4-bookworm
-        env:
-          POSTGRES_USER: attune
-          POSTGRES_PASSWORD: attune
-          POSTGRES_DB: attune
-        ports:
-          - "5432:5432"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Prisma
-        run: npm install
-        working-directory: ./docker/migrate
-
-      - name: Check Prisma formatting
-        run: npm run fmt:check
-        working-directory: ./docker/migrate
-
-      - name: Run production migrations
-        run: npm run migrate
-        working-directory: ./docker/migrate
-
-      - name: Check for schema drift
-        run: npm run diff
-        working-directory: ./docker/migrate
-
-      # TODO: Is there a way to test the RDS migration script?
-      - name: Build custom migration scripts
-        run: npm run build
-        working-directory: ./docker/migrate
 
   # TODO: Add a job (maybe called `dev`?) that spins up the Docker Compose local
   # development environment and runs some smoke tests (maybe ideally this would
