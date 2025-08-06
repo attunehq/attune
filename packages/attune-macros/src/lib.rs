@@ -64,7 +64,7 @@ pub fn prisma_migrate(input: TokenStream) -> TokenStream {
 
 fn collect_migrations(dir: &Path) -> Result<Vec<(i64, String, String)>, std::io::Error> {
     let mut entries = fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
-    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    entries.sort_by_key(|e| e.file_name());
 
     let mut migrations = Vec::new();
     for entry in entries {
