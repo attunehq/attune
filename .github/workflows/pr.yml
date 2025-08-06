@@ -67,7 +67,14 @@ jobs:
       - name: Check format
         run: cargo fmt --all --check
 
-      - uses: taiki-e/install-action@v2
+      - name: Migrate database
+        working-directory: ./docker/migrate
+        run: |
+          npm install
+          npm run migrate
+
+      - name: Install sqlx-cli
+        uses: taiki-e/install-action@v2
         with:
           tool: sqlx-cli
 
