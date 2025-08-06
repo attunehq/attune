@@ -67,10 +67,13 @@ jobs:
       - name: Check format
         run: cargo fmt --all --check
 
-      # Note that we don't have a separate `cargo sqlx prepare --workspace
-      # --check` step because missing query cache will cause this build to fail
-      # anyway, and installing the `cargo sqlx` tool takes longer than waiting
-      # for the build to fail due to missing migrations.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: sqlx-cli
+
+      - name: Check sqlx queries
+        run: cargo sqlx prepare --workspace --check -- --tests
+
       - name: Check build
         run: cargo check --workspace --all-targets --all-features
 
