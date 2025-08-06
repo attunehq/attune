@@ -684,7 +684,7 @@ pub async fn handler(
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
     //
-    // TODO: Add special handling for aborts to signal the client to retry.
+    // TODO(#84): Add special handling for aborts to signal the client to retry.
     tx.commit().await.unwrap();
 
     // Save the new index state to S3. This must occur after the transaction

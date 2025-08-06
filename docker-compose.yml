@@ -43,26 +43,12 @@ services:
       dockerfile: Dockerfile
     environment:
       - ATTUNE_DATABASE_URL=postgres://attune:attune@postgres:5432/attune
-    volumes:
-      - ./docker/migrate:/app
     working_dir: /app
+    # If you're using IAM authentication with RDS Postgres, you can use
+    # `migrate:rds` instead of `migrate` to get the database password from IMDS:
+    #
+    # command: ["npm", "run", "migrate:rds"]
     command: ["npm", "run", "migrate"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - dev
-    restart: on-failure
-  migraterds:
-    build:
-      context: ./docker/migrate
-      dockerfile: Dockerfile
-    environment:
-      - ATTUNE_DATABASE_URL=postgres://attune:attune@postgres:5432/attune
-    volumes:
-      - ./docker/migrate:/app
-    working_dir: /app
-    command: ["npm", "run", "migrate:rds"]
     depends_on:
       postgres:
         condition: service_healthy

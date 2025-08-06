@@ -7,7 +7,7 @@ use bon::Builder;
 use percent_encoding::{AsciiSet, CONTROLS};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Builder)]
+#[derive(Serialize, Deserialize, Builder, Debug)]
 pub struct ErrorResponse {
     /// The HTTP status code.
     #[serde(skip)]

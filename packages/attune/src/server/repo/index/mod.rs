@@ -53,8 +53,9 @@ async fn generate_release_file_with_change(
     change: &PackageChange,
     release_ts: OffsetDateTime,
 ) -> Result<PackageChangeResult, ErrorResponse> {
-    // FIXME: I think there's a bug where if you generate an index by adding a
-    // package that already exists, it gets added twice into the release file.
+    // FIXME(#102): I think there's a bug where if you generate an index by
+    // adding a package that already exists, it gets added twice into the
+    // release file.
 
     // Load the package to be either added or removed. If it does not exist,
     // return an error.
@@ -154,7 +155,8 @@ async fn generate_release_file_with_change(
             WHERE
                 debian_repository_component.release_id = $1
                 AND debian_repository_component.name = $2
-        "#, release_id, change.component)
+                AND debian_repository_package.architecture = $3::debian_repository_architecture
+        "#, release_id, change.component, changed_package.architecture as _)
         .map(|row| {
             PublishedPackage::from_package(
                 Package {
@@ -553,7 +555,7 @@ impl ReleaseFile {
             .alignment(Alignment::Right)
             .padding(1);
         for index in &packages_indexes {
-            // TODO: Handle compressed indexes.
+            // TODO(#94): Handle compressed indexes.
             writeln!(
                 &mut md5writer,
                 " {}\t{}\t{}/binary-{}/Packages",
@@ -569,7 +571,7 @@ impl ReleaseFile {
             .alignment(Alignment::Right)
             .padding(1);
         for index in &packages_indexes {
-            // TODO: Handle compressed indexes.
+            // TODO(#94): Handle compressed indexes.
             writeln!(
                 &mut sha256writer,
                 " {}\t{}\t{}/binary-{}/Packages",
@@ -595,5 +597,165 @@ mod tests {
     #[test]
     fn packages_to_index_empty_when_no_packages() {
         assert_eq!(PackagesIndex::packages_to_index(vec![].into_iter()), "");
+    }
+
+    /// Test that packages with different architectures are correctly separated into their own indexes.
+    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    async fn packages_separated_by_architecture(pool: sqlx::PgPool) {
+        let mut tx = pool.begin().await.unwrap();
+        let tenant_id = crate::auth::TenantID(1);
+        let release_ts = OffsetDateTime::now_utc();
+
+        let amd64_change = PackageChange {
+            repository: String::from("test-multi-arch"),
+            distribution: String::from("stable"),
+            component: String::from("main"),
+            action: PackageChangeAction::Add {
+                package_sha256sum: String::from("amd64sha256sum"),
+            },
+        };
+        let amd64_result =
+            generate_release_file_with_change(&mut tx, &tenant_id, &amd64_change, release_ts)
+                .await
+                .expect("Failed to generate release file for amd64");
+        assert!(
+            amd64_result
+                .changed_packages_index_contents
+                .contains("Architecture: amd64"),
+            "amd64 index should contain amd64 package"
+        );
+        assert!(
+            !amd64_result
+                .changed_packages_index_contents
+                .contains("Architecture: arm64"),
+            "amd64 index should NOT contain arm64 package"
+        );
+        assert_eq!(
+            amd64_result.changed_packages_index.architecture, "amd64",
+            "Index should be for amd64 architecture"
+        );
+
+        let arm64_change = PackageChange {
+            repository: String::from("test-multi-arch"),
+            distribution: String::from("stable"),
+            component: String::from("main"),
+            action: PackageChangeAction::Add {
+                package_sha256sum: String::from("arm64sha256sum"),
+            },
+        };
+        let arm64_result =
+            generate_release_file_with_change(&mut tx, &tenant_id, &arm64_change, release_ts)
+                .await
+                .expect("Failed to generate release file for arm64");
+        assert!(
+            arm64_result
+                .changed_packages_index_contents
+                .contains("Architecture: arm64"),
+            "arm64 index should contain arm64 package"
+        );
+        assert!(
+            !arm64_result
+                .changed_packages_index_contents
+                .contains("Architecture: amd64"),
+            "arm64 index should NOT contain amd64 package"
+        );
+        assert_eq!(
+            arm64_result.changed_packages_index.architecture, "arm64",
+            "Index should be for arm64 architecture"
+        );
+
+        tx.rollback().await.unwrap();
+    }
+
+    /// Test that removing all packages from one architecture results in an empty index.
+    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    async fn remove_all_packages_for_architecture(pool: sqlx::PgPool) {
+        let mut tx = pool.begin().await.unwrap();
+        let tenant_id = crate::auth::TenantID(1);
+        let release_ts = OffsetDateTime::now_utc();
+
+        let remove_amd64_change = PackageChange {
+            repository: String::from("test-multi-arch"),
+            distribution: String::from("stable"),
+            component: String::from("main"),
+            action: PackageChangeAction::Remove {
+                name: String::from("test-package"),
+                version: String::from("1.0.0"),
+                architecture: String::from("amd64"),
+            },
+        };
+        let remove_result = generate_release_file_with_change(
+            &mut tx,
+            &tenant_id,
+            &remove_amd64_change,
+            release_ts,
+        )
+        .await
+        .expect("Failed to generate release file for removal");
+        assert!(
+            remove_result.changed_packages_index_contents.is_empty(),
+            "amd64 index should be empty after removing all amd64 packages"
+        );
+        assert_eq!(
+            remove_result.changed_packages_index.architecture, "amd64",
+            "Index should still be for amd64 architecture"
+        );
+        assert_eq!(
+            remove_result.changed_packages_index.size, 0,
+            "Index size should be 0"
+        );
+
+        // Verify that arm64 packages are unaffected by checking the release file
+        // The release file should still list the arm64 index
+        assert!(
+            remove_result.release_file.contents.contains("arm64"),
+            "Release file should still reference arm64 architecture"
+        );
+
+        tx.rollback().await.unwrap();
+    }
+
+    /// Test that the generated release file correctly lists all architecture indexes.
+    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    async fn release_file_lists_all_architectures(pool: sqlx::PgPool) {
+        let mut tx = pool.begin().await.unwrap();
+        let tenant_id = crate::auth::TenantID(1);
+        let release_ts = OffsetDateTime::now_utc();
+
+        // Make a change to trigger release file generation
+        let change = PackageChange {
+            repository: String::from("test-multi-arch"),
+            distribution: String::from("stable"),
+            component: String::from("main"),
+            action: PackageChangeAction::Add {
+                package_sha256sum: String::from("amd64sha256sum"),
+            },
+        };
+        let result = generate_release_file_with_change(&mut tx, &tenant_id, &change, release_ts)
+            .await
+            .expect("Failed to generate release file");
+        assert!(
+            result
+                .release_file
+                .contents
+                .contains("Architectures: amd64 arm64"),
+            "Release file should list both architectures"
+        );
+        assert!(
+            result
+                .release_file
+                .contents
+                .contains("main/binary-amd64/Packages"),
+            "Release file should reference amd64 Packages index"
+        );
+        assert!(
+            result
+                .release_file
+                .contents
+                .contains("main/binary-arm64/Packages"),
+            "Release file should reference arm64 Packages index"
+        );
+
+        tx.rollback().await.unwrap();
     }
 }

@@ -142,7 +142,7 @@ async fn parse_debian_package(value: &Bytes) -> BinaryPackageControlFile<'static
             break control_file;
         }
     };
-    // TODO: Parse file paths for building Contents index.
+    // TODO(#95): Parse file paths for building Contents index.
     let data_entry = reader.next_entry().unwrap().unwrap();
     let BinaryPackageEntry::Data(_) = data_entry else {
         panic!("expected a data file")
