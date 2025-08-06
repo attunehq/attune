@@ -67,11 +67,15 @@ jobs:
       - name: Check format
         run: cargo fmt --all --check
 
-      - name: Migrate database
+      - name: Migrate and check database
         working-directory: ./docker/migrate
         run: |
           npm install
+          # TODO: Figure out how to test the RDS migration script.
+          npm run build
+          npm run fmt:check
           npm run migrate
+          npm run diff
 
       - name: Install sqlx-cli
         uses: taiki-e/install-action@v2
