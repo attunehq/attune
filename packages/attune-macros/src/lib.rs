@@ -16,17 +16,17 @@ use syn::{parse_macro_input, LitStr};
 #[proc_macro]
 pub fn prisma_migrate(input: TokenStream) -> TokenStream {
     let input_lit = parse_macro_input!(input as LitStr);
-    let input_path = PathBuf::from(input_lit.value());
-    if !input_path.exists() {
+    let migrations_dir = PathBuf::from(input_lit.value());
+    if !migrations_dir.exists() {
         return syn::Error::new_spanned(
             input_lit,
-            format!("Migrations directory not found: {input_path:?}"),
+            format!("Migrations directory not found: {migrations_dir:?}"),
         )
         .to_compile_error()
         .into();
     }
 
-    let entries = match collect_migrations(&input_path) {
+    let entries = match collect_migrations(&migrations_dir) {
         Ok(entries) => entries,
         Err(err) => {
             return syn::Error::new_spanned(input_lit, format!("Failed to read migrations: {err}"))
@@ -35,13 +35,18 @@ pub fn prisma_migrate(input: TokenStream) -> TokenStream {
         }
     };
 
-    let migrations = entries.iter().map(|(version, description, sql_path)| {
+    // It's a big pain to do checksums today, so we're putting that off until they
+    // are proven to be worthwhile.
+    let migrations = entries.into_iter().map(|migration| {
+        let version = migration.version;
+        let description = migration.description;
+        let path = migration.path;
         quote! {
             sqlx::migrate::Migration {
                 version: #version,
                 description: std::borrow::Cow::Borrowed(#description),
                 migration_type: sqlx::migrate::MigrationType::Simple,
-                sql: std::borrow::Cow::Borrowed(include_str!(#sql_path)),
+                sql: std::borrow::Cow::Borrowed(include_str!(#path)),
                 checksum: std::borrow::Cow::Borrowed(&[]),
                 no_tx: false,
             }
@@ -62,7 +67,13 @@ pub fn prisma_migrate(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-fn collect_migrations(dir: &Path) -> Result<Vec<(i64, String, String)>, std::io::Error> {
+struct PrismaMigration {
+    version: i64,
+    description: String,
+    path: String,
+}
+
+fn collect_migrations(dir: &Path) -> Result<Vec<PrismaMigration>, std::io::Error> {
     let mut entries = fs::read_dir(dir)?.collect::<Result<Vec<_>, _>>()?;
     entries.sort_by_key(|e| e.file_name());
 
@@ -73,34 +84,33 @@ fn collect_migrations(dir: &Path) -> Result<Vec<(i64, String, String)>, std::io:
             continue;
         }
 
-        let dir_name = match path.file_name().and_then(|n| n.to_str()) {
+        let dir = match path.file_name().and_then(|n| n.to_str()) {
             Some(name) => name,
             None => continue,
         };
 
-        // Parse migration directory name format: {timestamp}_{description}
-        let parts: Vec<&str> = dir_name.splitn(2, '_').collect();
-        if parts.len() != 2 {
+        let path = path.join("migration.sql");
+        if !path.exists() {
             continue;
         }
 
-        let version = match parts[0].parse::<i64>() {
+        // Parse migration directory name format: {timestamp}_{description}
+        let Some((version, description)) = dir.split_once('_') else {
+            continue;
+        };
+
+        let version = match version.parse::<i64>() {
             Ok(v) => v,
             Err(_) => continue,
         };
 
-        let description = parts[1].to_string();
-        let migration_sql_path = path.join("migration.sql");
-
-        if !migration_sql_path.exists() {
-            continue;
-        }
-
-        // Convert to path relative to the crate root for include_str!
-        // The migration sql path is absolute, we need it relative to the crate root
-        let relative_sql_path = format!("../../../{}", migration_sql_path.to_string_lossy());
-
-        migrations.push((version, description, relative_sql_path));
+        let path = format!("../../../{}", path.to_string_lossy());
+        let description = description.to_string();
+        migrations.push(PrismaMigration {
+            version,
+            description,
+            path,
+        });
     }
 
     Ok(migrations)
