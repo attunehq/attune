@@ -24,6 +24,17 @@ jobs:
   rust:
     name: Build, check, and test Rust
     runs-on: ubuntu-latest
+    env:
+      ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+    services:
+      postgres:
+        image: postgres:17.4-bookworm
+        env:
+          POSTGRES_USER: attune
+          POSTGRES_PASSWORD: attune
+          POSTGRES_DB: attune
+        ports:
+          - "5432:5432"
     steps:
       # Since these installation steps don't require checkout, technically we
       # could do them ahead of time and just cache the resulting image.
