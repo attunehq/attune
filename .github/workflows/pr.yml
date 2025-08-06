@@ -126,6 +126,11 @@ jobs:
       - name: Set up environment
         run: cp .env.example .env
 
+      - name: Setup tmate session for debugging
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+
       - name: Start services
         run: |
           docker compose up -d
