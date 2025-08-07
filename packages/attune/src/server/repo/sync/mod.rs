@@ -242,4 +242,3 @@ async fn check_consistency(
         package_filenames: inconsistent_packages,
     })
 }
-

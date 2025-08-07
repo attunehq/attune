@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            c.name as component_name,\n            i.architecture::text as architecture,\n            i.md5sum,\n            i.sha1sum,\n            i.sha256sum\n        FROM debian_repository_release r\n        JOIN debian_repository_component c ON c.release_id = r.id\n        JOIN debian_repository_index_packages i ON i.component_id = c.id\n        WHERE r.repository_id = $1 AND r.distribution = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "component_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "architecture",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "md5sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "sha1sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c415621a7fb1e19015b769462caaf4db29e384d95700952caf52e6a191e4206a"
+}
