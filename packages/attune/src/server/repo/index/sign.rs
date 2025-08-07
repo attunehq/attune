@@ -823,31 +823,35 @@ pub async fn handler(
                     .body(contents.as_bytes().to_vec().into())
                     .send()
                     .await
-                    .unwrap()
             }
         };
 
-        tokio::join!(
-            upload_packages_index(format!(
+        let uploads = [
+            format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
                 result.changed_packages_index.component,
                 result.changed_packages_index.architecture
-            )),
-            upload_packages_index(format!(
+            ),
+            format!(
                 "{}/SHA256/{}",
                 by_hash_prefix, result.changed_packages_index.sha256sum
-            )),
-            upload_packages_index(format!(
+            ),
+            format!(
                 "{}/SHA1/{}",
                 by_hash_prefix, result.changed_packages_index.sha1sum
-            )),
-            upload_packages_index(format!(
+            ),
+            format!(
                 "{}/MD5Sum/{}",
                 by_hash_prefix, result.changed_packages_index.md5sum
-            )),
-        );
+            ),
+        ]
+        .into_iter()
+        .map(upload_packages_index);
+        for upload in futures_util::future::join_all(uploads).await {
+            upload.unwrap();
+        }
     }
 
     // Upload the updated Release files. This must happen after package uploads
