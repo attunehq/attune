@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::{
@@ -11,10 +12,15 @@ use crate::{
         ServerState,
         repo::{
             decode_repo_name,
-            sync::{InconsistentObjects, check_consistency},
+            sync::{InconsistentObjects, check_s3_consistency, query_repository_state},
         },
     },
 };
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CheckConsistencyResponse {
+    pub inconsistent: InconsistentObjects,
+}
 
 #[axum::debug_handler]
 #[instrument(skip(state))]
@@ -22,7 +28,7 @@ pub async fn handler(
     State(state): State<ServerState>,
     tenant_id: TenantID,
     Path((repo_name, release_name)): Path<(String, String)>,
-) -> Result<Json<InconsistentObjects>, ErrorResponse> {
+) -> Result<Json<CheckConsistencyResponse>, ErrorResponse> {
     // The repository name in the path is percent-encoded.
     let repo_name = decode_repo_name(&repo_name)?;
     let release_name = decode_repo_name(&release_name)?;
@@ -32,11 +38,12 @@ pub async fn handler(
         .execute(&mut *tx)
         .await
         .unwrap();
-
-    let inconsistent_objects =
-        check_consistency(&mut tx, state.s3, &tenant_id, repo_name, release_name).await?;
-
+    let repo_state = query_repository_state(&mut tx, &tenant_id, repo_name, release_name).await?;
     tx.commit().await.unwrap();
 
-    Ok(Json(inconsistent_objects))
+    let inconsistent_objects = check_s3_consistency(state.s3, repo_state).await?;
+
+    Ok(Json(CheckConsistencyResponse {
+        inconsistent: inconsistent_objects,
+    }))
 }

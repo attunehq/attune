@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::{
@@ -9,6 +10,9 @@ use crate::{
     auth::TenantID,
     server::{ServerState, repo::decode_repo_name},
 };
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResyncRepositoryResponse {}
 
 #[axum::debug_handler]
 #[instrument(skip(state))]
@@ -27,10 +31,8 @@ pub async fn handler(
         .await
         .unwrap();
 
-    // TODO(#88): Implement.
     todo!();
 
-    #[allow(unreachable_code)]
     tx.commit().await.unwrap();
 
     todo!()

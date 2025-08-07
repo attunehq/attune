@@ -9,6 +9,7 @@ mod create;
 mod delete;
 mod edit;
 mod list;
+mod resync;
 
 #[derive(Args, Debug)]
 pub struct DistCommand {
@@ -16,6 +17,8 @@ pub struct DistCommand {
     subcommand: DistSubCommand,
 }
 
+// TODO(#103): Add a command that allows us to do a no-op re-signing of the
+// index, potentially with a different key.
 #[derive(Subcommand, Debug)]
 pub enum DistSubCommand {
     /// Create a new distribution
@@ -42,6 +45,9 @@ pub enum DistSubCommand {
     /// Delete a distribution
     #[command(visible_alias = "rm")]
     Delete(delete::DeleteArgs),
+
+    /// Check whether the distribution is consistent, and resynchronize if needed.
+    Resync(resync::DistResyncCommand),
 }
 
 pub async fn handle_dist(ctx: Config, command: DistCommand) -> Result<String, String> {
@@ -50,6 +56,7 @@ pub async fn handle_dist(ctx: Config, command: DistCommand) -> Result<String, St
         DistSubCommand::List(args) => list::run(ctx, args).await,
         DistSubCommand::Edit(args) => edit::run(ctx, args).await,
         DistSubCommand::Delete(args) => delete::run(ctx, args).await,
+        DistSubCommand::Resync(args) => resync::run(ctx, args).await,
     }
 }
 
