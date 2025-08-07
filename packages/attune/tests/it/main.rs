@@ -81,7 +81,7 @@ impl AttuneTestServer {
 }
 
 #[sqlx::test(migrator = "attune::MIGRATOR")]
-async fn test_component_name_validation(pool: sqlx::PgPool) {
+async fn component_name_validation(pool: sqlx::PgPool) {
     let server = AttuneTestServer::new(pool).await;
 
     let create_repo = server
