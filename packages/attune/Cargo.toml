@@ -40,4 +40,5 @@ uuid.workspace = true
 
 [dev-dependencies]
 indoc = "2"
+testcontainers = "0.25.0"
 xshell = "0.2.7"
