@@ -323,4 +323,3 @@ model DebianRepositoryPackagesIndex {
   @@unique([component_id, architecture])
   @@map("debian_repository_index_packages")
 }
-
