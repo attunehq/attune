@@ -1,14 +1,14 @@
 pub mod check;
 pub mod resync;
 
-use crate::api::ErrorResponse;
-use crate::auth::TenantID;
 use aws_sdk_s3::types::ChecksumMode;
 use base64::Engine;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Transaction};
+
+use crate::api::{ErrorResponse, TenantID};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InconsistentObjects {

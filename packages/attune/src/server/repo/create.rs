@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
+use crate::{
+    api::{ErrorResponse, TenantID},
+    server::ServerState,
+};
 
 #[derive(Serialize)]
 pub struct Repository {

@@ -16,8 +16,7 @@ use time::OffsetDateTime;
 use tracing::{debug, instrument};
 
 use crate::{
-    api::ErrorResponse,
-    auth::TenantID,
+    api::{ErrorResponse, TenantID},
     server::{
         ServerState,
         repo::{
@@ -188,12 +187,12 @@ pub async fn handler(
                 Some(release) => {
                     // If the release already exists, check whether any fields need to
                     // be updated. If so, update them.
-                    if release.description != result.release_file.release.description ||
-                        release.origin != result.release_file.release.origin ||
-                        release.label != result.release_file.release.label ||
-                        release.version != result.release_file.release.version ||
-                        release.suite != result.release_file.release.suite ||
-                        release.codename != result.release_file.release.codename ||
+                    if release.description != result.release_file.meta.description ||
+                        release.origin != result.release_file.meta.origin ||
+                        release.label != result.release_file.meta.label ||
+                        release.version != result.release_file.meta.version ||
+                        release.suite != result.release_file.meta.suite ||
+                        release.codename != result.release_file.meta.codename ||
                         release.contents != result.release_file.contents ||
                         release.clearsigned.is_none() ||
                         release.clearsigned.is_some_and(|clearsigned| clearsigned != req.clearsigned) ||
@@ -218,12 +217,12 @@ pub async fn handler(
                                 id = $1
                             "#,
                             release.id,
-                            result.release_file.release.description,
-                            result.release_file.release.origin,
-                            result.release_file.release.label,
-                            result.release_file.release.version,
-                            result.release_file.release.suite,
-                            result.release_file.release.codename,
+                            result.release_file.meta.description,
+                            result.release_file.meta.origin,
+                            result.release_file.meta.label,
+                            result.release_file.meta.version,
+                            result.release_file.meta.suite,
+                            result.release_file.meta.codename,
                             result.release_file.contents,
                             req.clearsigned,
                             req.detachsigned,
@@ -286,12 +285,12 @@ pub async fn handler(
                         "#,
                         repo.id,
                         req.change.distribution,
-                        result.release_file.release.description,
-                        result.release_file.release.origin,
-                        result.release_file.release.label,
-                        result.release_file.release.version,
-                        result.release_file.release.suite,
-                        result.release_file.release.codename,
+                        result.release_file.meta.description,
+                        result.release_file.meta.origin,
+                        result.release_file.meta.label,
+                        result.release_file.meta.version,
+                        result.release_file.meta.suite,
+                        result.release_file.meta.codename,
                         result.release_file.contents,
                         req.clearsigned,
                         req.detachsigned,
@@ -358,7 +357,7 @@ pub async fn handler(
                 LIMIT 1
                 "#,
                 component_id,
-                result.changed_packages_index.architecture as _,
+                result.changed_packages_index.meta.architecture as _,
             )
             .fetch_optional(&mut *tx)
             .await
@@ -380,11 +379,11 @@ pub async fn handler(
                         WHERE id = $1
                         "#,
                         index.id,
-                        result.changed_packages_index_contents.as_bytes(),
-                        result.changed_packages_index.size,
-                        result.changed_packages_index.md5sum,
-                        result.changed_packages_index.sha1sum,
-                        result.changed_packages_index.sha256sum,
+                        result.changed_packages_index.contents.as_bytes(),
+                        result.changed_packages_index.meta.size,
+                        result.changed_packages_index.meta.md5sum,
+                        result.changed_packages_index.meta.sha1sum,
+                        result.changed_packages_index.meta.sha256sum,
                     )
                     .execute(&mut *tx)
                     .await
@@ -420,13 +419,13 @@ pub async fn handler(
                         )
                         "#,
                         component_id,
-                        result.changed_packages_index.architecture as _,
+                        result.changed_packages_index.meta.architecture as _,
                         // compression = NULL,
-                        result.changed_packages_index.size,
-                        result.changed_packages_index_contents.as_bytes(),
-                        result.changed_packages_index.md5sum,
-                        result.changed_packages_index.sha1sum,
-                        result.changed_packages_index.sha256sum,
+                        result.changed_packages_index.meta.size,
+                        result.changed_packages_index.contents.as_bytes(),
+                        result.changed_packages_index.meta.md5sum,
+                        result.changed_packages_index.meta.sha1sum,
+                        result.changed_packages_index.meta.sha256sum,
                     )
                     .execute(&mut *tx)
                     .await
@@ -534,7 +533,7 @@ pub async fn handler(
             .unwrap();
 
             // Update the Packages index, or delete if it's orphaned.
-            if result.changed_packages_index_contents.is_empty() {
+            if result.changed_packages_index.contents.is_empty() {
                 sqlx::query!(
                     r#"
                     DELETE FROM debian_repository_index_packages
@@ -563,11 +562,11 @@ pub async fn handler(
                         component_id = $6
                         AND architecture = $7::debian_repository_architecture
                     "#,
-                    result.changed_packages_index_contents.as_bytes(),
-                    result.changed_packages_index.size,
-                    result.changed_packages_index.md5sum,
-                    result.changed_packages_index.sha1sum,
-                    result.changed_packages_index.sha256sum,
+                    result.changed_packages_index.contents.as_bytes(),
+                    result.changed_packages_index.meta.size,
+                    result.changed_packages_index.meta.md5sum,
+                    result.changed_packages_index.meta.sha1sum,
+                    result.changed_packages_index.meta.sha256sum,
                     component_package.component_id,
                     architecture as _,
                 )
@@ -718,7 +717,7 @@ pub async fn handler(
     }
 
     // Upload the updated Packages index file.
-    if result.changed_packages_index_contents.is_empty() {
+    if result.changed_packages_index.contents.is_empty() {
         state
             .s3
             .delete_object()
@@ -727,8 +726,8 @@ pub async fn handler(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
+                result.changed_packages_index.meta.component,
+                result.changed_packages_index.meta.architecture
             ))
             .send()
             .await
@@ -742,22 +741,23 @@ pub async fn handler(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
+                result.changed_packages_index.meta.component,
+                result.changed_packages_index.meta.architecture
             ))
             .content_md5(
                 base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                    result.changed_packages_index_contents.as_bytes(),
+                    result.changed_packages_index.contents.as_bytes(),
                 )),
             )
             .checksum_algorithm(ChecksumAlgorithm::Sha256)
             .checksum_sha256(
                 base64::engine::general_purpose::STANDARD
-                    .encode(hex::decode(&result.changed_packages_index.sha256sum).unwrap()),
+                    .encode(hex::decode(&result.changed_packages_index.meta.sha256sum).unwrap()),
             )
             .body(
                 result
-                    .changed_packages_index_contents
+                    .changed_packages_index
+                    .contents
                     .as_bytes()
                     .to_vec()
                     .into(),
