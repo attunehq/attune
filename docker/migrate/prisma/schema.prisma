@@ -324,37 +324,3 @@ model DebianRepositoryPackagesIndex {
   @@map("debian_repository_index_packages")
 }
 
-// By-hash index versions scheduled for cleanup.
-// One entry per index version (not per S3 key) to properly track retention.
-//
-// Cleanup only happens if the version is expired AND there are more than 2 versions
-// of the component and architecture in this cleanup table.
-//
-// For more details, see:
-// - https://wiki.debian.org/DebianRepository/Format#Acquire-By-Hash
-model DebianRepositoryByHashCleanup {
-  id BigInt @id @default(autoincrement())
-
-  // Identifier for the logical index (component_id + architecture)
-  // Used to enforce "current + 2 previous versions" retention.
-  component_id BigInt
-  architecture DebianRepositoryArchitecture
-
-  // Precomputed S3 location info to clean up.
-  s3_bucket String
-  s3_prefix String
-
-  // All three hashes for this version.
-  md5sum    String
-  sha1sum   String
-  sha256sum String
-
-  // When this version expires and can be cleaned up.
-  expires_at DateTime @db.Timestamptz(6)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-
-  // Indexes for cleanup job to find expired entries.
-  @@index([component_id, architecture, expires_at])
-  @@index([expires_at])
-  @@map("debian_repository_by_hash_cleanup")
-}

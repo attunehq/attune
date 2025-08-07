@@ -138,16 +138,6 @@ pub async fn handler(
         ));
     }
 
-    // This is the by-hash prefix for the changed package;
-    // we use it in both scheduling cleanup and actually uploading new by-hash objects.
-    let by_hash_prefix = format!(
-        "{}/dists/{}/{}/binary-{}/by-hash",
-        repo.s3_prefix,
-        req.change.distribution,
-        result.changed_packages_index.component,
-        result.changed_packages_index.architecture
-    );
-
     // Save the new state to the database.
     match req.change.action {
         PackageChangeAction::Add { .. } => {
@@ -364,42 +354,6 @@ pub async fn handler(
             .unwrap()
             {
                 Some(index) => {
-                    // Before updating the index, schedule the current by-hash S3 objects for cleanup.
-                    // Insert current index data directly into cleanup table.
-                    sqlx::query!(
-                        r#"
-                        INSERT INTO debian_repository_by_hash_cleanup (
-                            component_id,
-                            architecture,
-                            s3_bucket,
-                            s3_prefix,
-                            md5sum,
-                            sha1sum,
-                            sha256sum,
-                            expires_at
-                        )
-                        SELECT
-                            $1,
-                            $2::debian_repository_architecture,
-                            $3,
-                            $4,
-                            i.md5sum,
-                            i.sha1sum,
-                            i.sha256sum,
-                            NOW() + INTERVAL '7 days'
-                        FROM debian_repository_index_packages i
-                        WHERE i.id = $5
-                        "#,
-                        component_id,
-                        result.changed_packages_index.architecture as _,
-                        repo.s3_bucket,
-                        by_hash_prefix,
-                        index.id,
-                    )
-                    .execute(&mut *tx)
-                    .await
-                    .unwrap();
-
                     // No need to check whether an update is needed - we know already
                     // that the index has changed.
                     sqlx::query!(
@@ -585,43 +539,6 @@ pub async fn handler(
                 .await
                 .unwrap();
             } else {
-                // Index remains non-empty - schedule previous version for cleanup before updating
-                sqlx::query!(
-                    r#"
-                    INSERT INTO debian_repository_by_hash_cleanup (
-                        component_id,
-                        architecture,
-                        s3_bucket,
-                        s3_prefix,
-                        md5sum,
-                        sha1sum,
-                        sha256sum,
-                        expires_at
-                    )
-                    SELECT
-                        $1,
-                        $2::debian_repository_architecture,
-                        $3,
-                        $4,
-                        i.md5sum,
-                        i.sha1sum,
-                        i.sha256sum,
-                        NOW() + INTERVAL '7 days'
-                    FROM debian_repository_index_packages i
-                    WHERE
-                        i.component_id = $1
-                        AND i.architecture = $2::debian_repository_architecture
-                        AND i.compression IS NULL
-                    "#,
-                    component_package.component_id,
-                    result.changed_packages_index.architecture as _,
-                    repo.s3_bucket,
-                    by_hash_prefix,
-                )
-                .execute(&mut *tx)
-                .await
-                .unwrap();
-
                 sqlx::query!(
                     r#"
                     UPDATE debian_repository_index_packages
@@ -791,6 +708,13 @@ pub async fn handler(
     }
 
     // Upload the updated Packages index file to standard path and all by-hash paths concurrently
+    let by_hash_prefix = format!(
+        "{}/dists/{}/{}/binary-{}/by-hash",
+        repo.s3_prefix,
+        req.change.distribution,
+        result.changed_packages_index.component,
+        result.changed_packages_index.architecture
+    );
     if result.changed_packages_index_contents.is_empty() {
         // Index is empty - immediately delete standard + by-hash paths
         let standard_key = format!(
