@@ -852,69 +852,47 @@ pub async fn handler(
 
     // Upload the updated Release files. This must happen after package uploads
     // and index uploads so that all files are in place for Acquire-By-Hash.
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/InRelease",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.clearsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.clearsigned.as_bytes())),
-        )
-        .body(req.clearsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(result.release_file.contents.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(result.release_file.contents.as_bytes())),
-        )
-        .body(result.release_file.contents.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release.gpg",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.detachsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.detachsigned.as_bytes())),
-        )
-        .body(req.detachsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
+    let uploads = [
+        (
+            format!(
+                "{}/dists/{}/InRelease",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.clearsigned.as_bytes().to_vec(),
+        ),
+        (
+            format!(
+                "{}/dists/{}/Release",
+                repo.s3_prefix, req.change.distribution
+            ),
+            result.release_file.contents.as_bytes().to_vec(),
+        ),
+        (
+            format!(
+                "{}/dists/{}/Release.gpg",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.detachsigned.as_bytes().to_vec(),
+        ),
+    ]
+    .into_iter()
+    .map(|(key, content)| {
+        state
+            .s3
+            .put_object()
+            .bucket(&repo.s3_bucket)
+            .key(key)
+            .content_md5(base64::engine::general_purpose::STANDARD.encode(Md5::digest(&content)))
+            .checksum_algorithm(ChecksumAlgorithm::Sha256)
+            .checksum_sha256(
+                base64::engine::general_purpose::STANDARD.encode(Sha256::digest(&content)),
+            )
+            .body(content.into())
+            .send()
+    });
+    for upload in futures_util::future::join_all(uploads).await {
+        upload.unwrap();
+    }
 
     if let Some((old_md5, old_sha1, old_sha256)) = old_hashes {
         let deletions = [
