@@ -801,31 +801,6 @@ pub async fn handler(
             }
         }
     } else {
-        let upload_packages_index = |key: String| {
-            let s3 = state.s3.clone();
-            let bucket = repo.s3_bucket.clone();
-            let contents = result.changed_packages_index_contents.clone();
-            let sha256sum = result.changed_packages_index.sha256sum.clone();
-
-            async move {
-                s3.put_object()
-                    .bucket(bucket)
-                    .key(key)
-                    .content_md5(
-                        base64::engine::general_purpose::STANDARD
-                            .encode(Md5::digest(contents.as_bytes())),
-                    )
-                    .checksum_algorithm(ChecksumAlgorithm::Sha256)
-                    .checksum_sha256(
-                        base64::engine::general_purpose::STANDARD
-                            .encode(hex::decode(&sha256sum).unwrap()),
-                    )
-                    .body(contents.as_bytes().to_vec().into())
-                    .send()
-                    .await
-            }
-        };
-
         let uploads = [
             format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
@@ -848,7 +823,30 @@ pub async fn handler(
             ),
         ]
         .into_iter()
-        .map(upload_packages_index);
+        .map(|key: String| {
+            let s3 = state.s3.clone();
+            let bucket = repo.s3_bucket.clone();
+            let contents = result.changed_packages_index_contents.clone();
+            let sha256sum = result.changed_packages_index.sha256sum.clone();
+
+            async move {
+                s3.put_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .content_md5(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(Md5::digest(contents.as_bytes())),
+                    )
+                    .checksum_algorithm(ChecksumAlgorithm::Sha256)
+                    .checksum_sha256(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(hex::decode(&sha256sum).unwrap()),
+                    )
+                    .body(contents.as_bytes().to_vec().into())
+                    .send()
+                    .await
+            }
+        });
         for upload in futures_util::future::join_all(uploads).await {
             upload.unwrap();
         }
