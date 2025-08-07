@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
 };
 use base64::Engine as _;
+use lazy_regex::lazy_regex;
 use md5::{Digest as _, Md5};
 use pgp::composed::{
     CleartextSignedMessage, Deserializable as _, SignedPublicKey, StandaloneSignature,
@@ -57,6 +58,16 @@ pub async fn handler(
             StatusCode::BAD_REQUEST,
             "REPOSITORY_MISMATCH".to_string(),
             "repository name in path does not match repository name in request".to_string(),
+        ));
+    }
+
+    if !lazy_regex!(r"^[a-zA-Z0-9_-]+$").is_match(&req.change.component) {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            String::from("INVALID_COMPONENT_NAME"),
+            String::from(
+                "component name must contain only letters, numbers, underscores, and hyphens",
+            ),
         ));
     }
 
