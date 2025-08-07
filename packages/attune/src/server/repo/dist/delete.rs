@@ -75,7 +75,7 @@ pub async fn handler(
     // but we can't really do anything about this without a larger change.
     //
     // Query all component/architecture combinations that have packages (for standard Packages files)
-    let components_with_packages = sqlx::query!(
+    let components = sqlx::query!(
         r#"
         SELECT
             c.name as component_name,
@@ -168,7 +168,7 @@ pub async fn handler(
         ];
 
         // Deletes component metadata files.
-        keys.extend(components_with_packages.iter().map(|record| {
+        keys.extend(components.iter().map(|record| {
             let prefix = format!(
                 "{}/{}/binary-{}",
                 prefix,
