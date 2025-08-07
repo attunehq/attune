@@ -204,9 +204,7 @@ pub async fn handler(
         keys
     };
 
-    // Delete all objects in batches.
-    // TODO: make concurrent with `futures`' `BufferUnordered`.
-    for chunk in keys.chunks(1000) {
+    let deletions = keys.chunks(1000).map(|chunk| {
         let objects = chunk
             .iter()
             .map(|key| {
@@ -222,14 +220,14 @@ pub async fn handler(
             .build()
             .unwrap();
 
-        let result = state
+        state
             .s3
             .delete_objects()
             .bucket(&repo.s3_bucket)
             .delete(delete)
             .send()
-            .await;
-
+    });
+    for result in futures_util::future::join_all(deletions).await {
         if let Err(err) = result {
             tracing::error!("Failed to delete objects: {err:?}");
         }
