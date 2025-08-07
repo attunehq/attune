@@ -419,6 +419,7 @@ dependencies = [
  "colored",
  "debian-packaging",
  "digest 0.10.7",
+ "futures-util",
  "gpgme",
  "hex",
  "http 1.3.1",

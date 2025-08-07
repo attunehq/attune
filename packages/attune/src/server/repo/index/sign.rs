@@ -138,8 +138,10 @@ pub async fn handler(
         ));
     }
 
-    // We'll store old hash values for cleanup after uploading new content
-    let mut old_hashes: Option<(String, String, String)> = None;
+    // We'll store old hash values for cleanup after uploading new content.
+    // This is pretty awkward to put here but without a larger refactor of the overall function
+    // there's not a dramatically better place.
+    let mut old_hashes = Option::<(String, String, String)>::None;
 
     // Save the new state to the database.
     match req.change.action {
@@ -356,7 +358,7 @@ pub async fn handler(
             .fetch_optional(&mut *tx)
             .await
             .unwrap();
-            
+
             if let Some(hashes) = current_hashes {
                 old_hashes = Some((hashes.md5sum, hashes.sha1sum, hashes.sha256sum));
             }
@@ -549,7 +551,7 @@ pub async fn handler(
             .fetch_optional(&mut *tx)
             .await
             .unwrap();
-            
+
             if let Some(hashes) = current_hashes {
                 old_hashes = Some((hashes.md5sum, hashes.sha1sum, hashes.sha256sum));
             }
@@ -933,44 +935,45 @@ pub async fn handler(
         .await
         .unwrap();
 
-    // Clean up old by-hash objects if we have them and they're different from the new ones
+    // Clean up old by-hash objects individually if they're different from the new ones
     if let Some((old_md5, old_sha1, old_sha256)) = old_hashes {
-        // Only delete old hashes if they're different from the new ones
-        if old_md5 != result.changed_packages_index.md5sum 
-            || old_sha1 != result.changed_packages_index.sha1sum 
-            || old_sha256 != result.changed_packages_index.sha256sum {
-            let by_hash_prefix = format!(
-                "{}/dists/{}/{}/binary-{}/by-hash",
-                repo.s3_prefix,
-                req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
-            );
-            
-            // Delete old by-hash objects concurrently
-            let delete_old_md5 = state
-                .s3
-                .delete_object()
-                .bucket(&repo.s3_bucket)
-                .key(format!("{}/MD5Sum/{}", by_hash_prefix, old_md5))
-                .send();
-                
-            let delete_old_sha1 = state
-                .s3
-                .delete_object()
-                .bucket(&repo.s3_bucket)
-                .key(format!("{}/SHA1/{}", by_hash_prefix, old_sha1))
-                .send();
-                
-            let delete_old_sha256 = state
-                .s3
-                .delete_object()
-                .bucket(&repo.s3_bucket)
-                .key(format!("{}/SHA256/{}", by_hash_prefix, old_sha256))
-                .send();
-            
-            // Execute all deletions concurrently, but don't fail if some objects don't exist
-            let _ = tokio::join!(delete_old_md5, delete_old_sha1, delete_old_sha256);
+        let by_hash_prefix = format!(
+            "{}/dists/{}/{}/binary-{}/by-hash",
+            repo.s3_prefix,
+            req.change.distribution,
+            result.changed_packages_index.component,
+            result.changed_packages_index.architecture
+        );
+
+        let deletions = [
+            (old_md5, &result.changed_packages_index.md5sum, "MD5Sum"),
+            (old_sha1, &result.changed_packages_index.sha1sum, "SHA1"),
+            (
+                old_sha256,
+                &result.changed_packages_index.sha256sum,
+                "SHA256",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(old_hash, new_hash, hash_type)| {
+            if &old_hash != new_hash {
+                Some(
+                    state
+                        .s3
+                        .delete_object()
+                        .bucket(&repo.s3_bucket)
+                        .key(format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
+                        .send(),
+                )
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+        // Execute only the necessary deletions concurrently
+        if !deletions.is_empty() {
+            let _ = futures_util::future::join_all(deletions).await;
         }
     }
 
