@@ -69,45 +69,50 @@ pub async fn handler(
     // (if index generation failed), or indexes might exist for different architectures
     // than expected due to package additions/removals over time.
 
+    // NOTE: We'd like to run these queries concurrently with tokio::join!, but SQLx transactions
+    // can't be borrowed mutably by multiple futures simultaneously. This really sucks for performance
+    // since these are independent read-only queries that could easily run in parallel,
+    // but we can't really do anything about this without a larger change.
+    //
     // Query all component/architecture combinations that have packages (for standard Packages files)
-    // and current package indexes with their hash values (for by-hash object deletion) concurrently
-    let (components_with_packages, index_hashes) = tokio::join!(
-        sqlx::query!(
-            r#"
-            SELECT
-                c.name as component_name,
-                p.architecture::text as architecture
-            FROM debian_repository_release r
-            JOIN debian_repository_component c ON c.release_id = r.id
-            JOIN debian_repository_component_package cp ON cp.component_id = c.id
-            JOIN debian_repository_package p ON p.id = cp.package_id
-            WHERE r.repository_id = $1 AND r.distribution = $2
-            "#,
-            repo.id,
-            distribution_name,
-        )
-        .fetch_all(&mut *tx),
-        sqlx::query!(
-            r#"
-            SELECT
-                c.name as component_name,
-                i.architecture::text as architecture,
-                i.md5sum,
-                i.sha1sum,
-                i.sha256sum
-            FROM debian_repository_release r
-            JOIN debian_repository_component c ON c.release_id = r.id
-            JOIN debian_repository_index_packages i ON i.component_id = c.id
-            WHERE r.repository_id = $1 AND r.distribution = $2
-            "#,
-            repo.id,
-            distribution_name,
-        )
-        .fetch_all(&mut *tx)
-    );
+    let components_with_packages = sqlx::query!(
+        r#"
+        SELECT
+            c.name as component_name,
+            p.architecture::text as architecture
+        FROM debian_repository_release r
+        JOIN debian_repository_component c ON c.release_id = r.id
+        JOIN debian_repository_component_package cp ON cp.component_id = c.id
+        JOIN debian_repository_package p ON p.id = cp.package_id
+        WHERE r.repository_id = $1 AND r.distribution = $2
+        "#,
+        repo.id,
+        distribution_name,
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
 
-    let components_with_packages = components_with_packages.unwrap();
-    let index_hashes = index_hashes.unwrap();
+    // Query current package indexes with their hash values (for by-hash object deletion)
+    let index_hashes = sqlx::query!(
+        r#"
+        SELECT
+            c.name as component_name,
+            i.architecture::text as architecture,
+            i.md5sum,
+            i.sha1sum,
+            i.sha256sum
+        FROM debian_repository_release r
+        JOIN debian_repository_component c ON c.release_id = r.id
+        JOIN debian_repository_index_packages i ON i.component_id = c.id
+        WHERE r.repository_id = $1 AND r.distribution = $2
+        "#,
+        repo.id,
+        distribution_name,
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
 
     // Cascade will handle related records when deleting the distribution.
     let result = sqlx::query!(
