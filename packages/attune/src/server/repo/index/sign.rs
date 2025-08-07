@@ -138,6 +138,9 @@ pub async fn handler(
         ));
     }
 
+    // We'll store old hash values for cleanup after uploading new content
+    let mut old_hashes: Option<(String, String, String)> = None;
+
     // Save the new state to the database.
     match req.change.action {
         PackageChangeAction::Add { .. } => {
@@ -336,6 +339,28 @@ pub async fn handler(
             };
 
             // Then, we update-or-create the Packages index of the changed package.
+            // First, capture the current hash values for cleanup purposes
+            let current_hashes = sqlx::query!(
+                r#"
+                SELECT md5sum, sha1sum, sha256sum
+                FROM debian_repository_index_packages
+                WHERE
+                    component_id = $1
+                    AND architecture = $2::debian_repository_architecture
+                    AND compression IS NULL
+                LIMIT 1
+                "#,
+                component_id,
+                result.changed_packages_index.architecture as _,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap();
+            
+            if let Some(hashes) = current_hashes {
+                old_hashes = Some((hashes.md5sum, hashes.sha1sum, hashes.sha256sum));
+            }
+
             match sqlx::query!(
                 r#"
                 SELECT id
@@ -506,6 +531,28 @@ pub async fn handler(
                 "COMPONENT_NOT_FOUND".to_string(),
                 "component not found".to_string(),
             ))?;
+
+            // Capture the current hash values for cleanup purposes before any changes
+            let current_hashes = sqlx::query!(
+                r#"
+                SELECT md5sum, sha1sum, sha256sum
+                FROM debian_repository_index_packages
+                WHERE
+                    component_id = $1
+                    AND architecture = $2::debian_repository_architecture
+                    AND compression IS NULL
+                LIMIT 1
+                "#,
+                component_package.component_id,
+                architecture as _,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap();
+            
+            if let Some(hashes) = current_hashes {
+                old_hashes = Some((hashes.md5sum, hashes.sha1sum, hashes.sha256sum));
+            }
 
             // Delete the component-package.
             sqlx::query!(
@@ -885,6 +932,47 @@ pub async fn handler(
         .send()
         .await
         .unwrap();
+
+    // Clean up old by-hash objects if we have them and they're different from the new ones
+    if let Some((old_md5, old_sha1, old_sha256)) = old_hashes {
+        // Only delete old hashes if they're different from the new ones
+        if old_md5 != result.changed_packages_index.md5sum 
+            || old_sha1 != result.changed_packages_index.sha1sum 
+            || old_sha256 != result.changed_packages_index.sha256sum {
+            let by_hash_prefix = format!(
+                "{}/dists/{}/{}/binary-{}/by-hash",
+                repo.s3_prefix,
+                req.change.distribution,
+                result.changed_packages_index.component,
+                result.changed_packages_index.architecture
+            );
+            
+            // Delete old by-hash objects concurrently
+            let delete_old_md5 = state
+                .s3
+                .delete_object()
+                .bucket(&repo.s3_bucket)
+                .key(format!("{}/MD5Sum/{}", by_hash_prefix, old_md5))
+                .send();
+                
+            let delete_old_sha1 = state
+                .s3
+                .delete_object()
+                .bucket(&repo.s3_bucket)
+                .key(format!("{}/SHA1/{}", by_hash_prefix, old_sha1))
+                .send();
+                
+            let delete_old_sha256 = state
+                .s3
+                .delete_object()
+                .bucket(&repo.s3_bucket)
+                .key(format!("{}/SHA256/{}", by_hash_prefix, old_sha256))
+                .send();
+            
+            // Execute all deletions concurrently, but don't fail if some objects don't exist
+            let _ = tokio::join!(delete_old_md5, delete_old_sha1, delete_old_sha256);
+        }
+    }
 
     Ok(Json(SignIndexResponse {}))
 }
