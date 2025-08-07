@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                debian_repository_package.package,\n                debian_repository_package.version,\n                debian_repository_package.architecture::TEXT AS \"architecture!: String\",\n                debian_repository_package.paragraph,\n                debian_repository_package.size,\n                debian_repository_package.s3_bucket,\n                debian_repository_package.md5sum,\n                debian_repository_package.sha1sum,\n                debian_repository_package.sha256sum,\n                debian_repository_component_package.filename\n            FROM\n                debian_repository_component\n                JOIN debian_repository_component_package ON debian_repository_component_package.component_id = debian_repository_component.id\n                JOIN debian_repository_package ON debian_repository_package.id = debian_repository_component_package.package_id\n            WHERE\n                debian_repository_component.release_id = $1\n                AND debian_repository_component.name = $2\n                AND debian_repository_package.architecture = $3::debian_repository_architecture\n        ",
+  "query": "\n            SELECT\n                debian_repository_package.package,\n                debian_repository_package.version,\n                debian_repository_package.architecture::TEXT AS \"architecture!: String\",\n                debian_repository_package.paragraph,\n                debian_repository_package.size,\n                debian_repository_package.s3_bucket,\n                debian_repository_package.md5sum,\n                debian_repository_package.sha1sum,\n                debian_repository_package.sha256sum,\n                debian_repository_component_package.filename\n            FROM\n                debian_repository\n                JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n                JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n                JOIN debian_repository_component_package ON debian_repository_component_package.component_id = debian_repository_component.id\n                JOIN debian_repository_package ON debian_repository_package.id = debian_repository_component_package.package_id\n            WHERE\n                debian_repository.tenant_id = $1\n                AND debian_repository.name = $2\n                AND debian_repository_release.distribution = $3\n                AND debian_repository_component.name = $4\n                AND debian_repository_package.package = $5\n                AND debian_repository_package.version = $6\n                AND debian_repository_package.architecture = $7::debian_repository_architecture\n        ",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,10 @@
     "parameters": {
       "Left": [
         "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
         "Text",
         {
           "Custom": {
@@ -116,5 +120,5 @@
       false
     ]
   },
-  "hash": "cd263eb703e30be2a9cf24aa91bfdd38920ee1199a3d42c73f7504e43f940d35"
+  "hash": "752429aea9e36874debd6f78e398550a58f925dbf9cdb81fad03eaad74dc7d9d"
 }

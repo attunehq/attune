@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                debian_repository_release.origin,\n                debian_repository_release.label,\n                debian_repository_release.version,\n                debian_repository_release.suite,\n                debian_repository_release.codename,\n                debian_repository_release.description\n            FROM\n                debian_repository\n                JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n            WHERE\n                debian_repository.tenant_id = $1\n                AND debian_repository.name = $2\n                AND debian_repository_release.distribution = $3\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "suite",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "codename",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "description",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4d84b8dd1b6cdb02c4cb72b0b8e2f840fc1715d88ad196e4de80c14f1ed34c0d"
+}
