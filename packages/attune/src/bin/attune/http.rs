@@ -4,23 +4,85 @@ use attune::api::ErrorResponse;
 use backon::{ExponentialBuilder, Retryable};
 use http::StatusCode;
 use nonzero_ext::nonzero;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::config::Config;
 
 /// The default number of attempts to retry.
 pub const DEFAULT_ATTEMPTS: NonZeroUsize = nonzero!(3usize);
 
-/// Convenience methods for HTTP requests.
+/// Convenience method for GET requests.
+///
+/// Uses exponential backoff with jitter to retry the request.
+/// ```no_run
+/// # use attune::http::get;
+/// # use attune::config::Config;
+/// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+/// # #[derive(Debug, serde::Deserialize)]
+/// # struct SomeResponse;
+///
+/// // Responses with JSON bodies:
+/// let data = get::<SomeResponse>(&config, "/api/v0/data").await?;
+///
+/// // Responses without a body, or where you want to ignore the body:
+/// let data = get::<()>(&config, "/api/v0/nothing").await?;
+/// ```
+#[tracing::instrument]
 pub async fn get<T: DeserializeOwned>(ctx: &Config, path: &str) -> Result<T, ErrorResponse> {
-    let req = async || {
+    run_request(async || {
         ctx.client
             .get(ctx.endpoint.join(path).unwrap())
             .send()
             .await
-    };
+    })
+    .await
+}
 
-    let res = req
+/// Convenience method for POST requests.
+///
+/// ```no_run
+/// # use attune::http::get;
+/// # use attune::config::Config;
+/// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+/// # let body = serde_json::json!({});
+/// # #[derive(Debug, serde::Deserialize)]
+/// # struct SomeResponse;
+///
+/// // Responses with JSON bodies:
+/// let data = post::<SomeResponse>(&config, "/api/v0/data", &body).await?;
+///
+/// // Responses without a body, or where you want to ignore the body:
+/// let data = post::<()>(&config, "/api/v0/nothing", &body).await?;
+///
+/// // Requests with JSON bodies:
+/// let data = post::<_>(&config, "/api/v0/sending", &body).await?;
+///
+/// // Requests without a body, or where you want to ignore the body:
+/// let data = post::<_>(&config, "/api/v0/nothing", ()).await?;
+/// ```
+#[tracing::instrument]
+pub async fn post<T: Serialize + std::fmt::Debug, K: DeserializeOwned>(
+    ctx: &Config,
+    path: &str,
+    data: &T,
+) -> Result<K, ErrorResponse> {
+    run_request(async || {
+        ctx.client
+            .post(ctx.endpoint.join(path).unwrap())
+            .json(data)
+            .send()
+            .await
+    })
+    .await
+}
+
+async fn run_request<T, F, G>(runner: G) -> Result<T, ErrorResponse>
+where
+    T: DeserializeOwned,
+    F: Future<Output = Result<reqwest::Response, reqwest::Error>>,
+    G: FnMut() -> F,
+{
+    let res = runner
         .retry_exponential(DEFAULT_ATTEMPTS)
         .await
         .expect("Could not reach API server");

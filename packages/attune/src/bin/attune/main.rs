@@ -62,7 +62,10 @@ async fn main() -> ExitCode {
     let args = Args::parse();
     debug!(?args, "parsed arguments");
 
-    let ctx = config::Config::new(args.api_token, args.api_endpoint);
+    let ctx = config::Config::builder()
+        .api_token(args.api_token)
+        .endpoint(args.api_endpoint)
+        .build();
 
     // Do a check for API version compatibility.
     match http::get(&ctx, "/api/v0/compatibility").await {
