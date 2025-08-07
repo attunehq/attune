@@ -12,6 +12,7 @@ aws-sdk-s3 = "1.82.0"
 aws-sigv4 = "1.3.3"
 axum = { version = "0.8.3", features = ["macros", "multipart"] }
 axum-test = { version = "17.3.0", features = ["all"] }
+backon = "1.5.2"
 base64 = "0.22.1"
 bon = "3.6.5"
 bytes = "1.10.1"
@@ -28,6 +29,7 @@ inquire = "0.7.5"
 itertools = "0.14.0"
 lazy-regex = "3.4.1"
 md-5 = "0.10.6"
+nonzero_ext = "0.3.0"
 percent-encoding = "2.3.1"
 pgp = "0.16.0"
 reqwest = { version = "0.12.22", features = ["json", "multipart"] }

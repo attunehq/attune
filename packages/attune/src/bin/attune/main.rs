@@ -1,7 +1,6 @@
 use std::process::ExitCode;
 
-use attune::{api::ErrorResponse, server::compatibility::CompatibilityResponse};
-use axum::http::StatusCode;
+use attune::server::compatibility::CompatibilityResponse;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use tracing::debug;
@@ -11,6 +10,7 @@ use tracing_subscriber::{
 
 mod cmd;
 mod config;
+mod http;
 
 /// Attune CLI
 ///
@@ -65,36 +65,18 @@ async fn main() -> ExitCode {
     let ctx = config::Config::new(args.api_token, args.api_endpoint);
 
     // Do a check for API version compatibility.
-    let res = ctx
-        .client
-        .get(ctx.endpoint.join("/api/v0/compatibility").unwrap())
-        .send()
-        .await
-        .expect("Could not reach API server");
-    match res.status() {
-        StatusCode::OK => {
-            let compatibility = res
-                .json::<CompatibilityResponse>()
-                .await
-                .expect("Could not parse compatibility response");
-            match compatibility {
-                CompatibilityResponse::Ok => {}
-                CompatibilityResponse::WarnUpgrade { latest } => {
-                    eprintln!("{} {}\n", "New version of attune available".blue(), latest);
-                }
-                CompatibilityResponse::Incompatible { minimum } => {
-                    eprintln!(
-                        "Error: CLI version is incompatible with API server. Please upgrade to version {minimum:?} or newer."
-                    );
-                    return ExitCode::FAILURE;
-                }
-            }
+    match http::get(&ctx, "/api/v0/compatibility").await {
+        Ok(CompatibilityResponse::Ok) => {}
+        Ok(CompatibilityResponse::WarnUpgrade { latest }) => {
+            eprintln!("{} {}\n", "New version of attune available".blue(), latest);
         }
-        _ => {
-            let err = res
-                .json::<ErrorResponse>()
-                .await
-                .expect("Could not parse error response");
+        Ok(CompatibilityResponse::Incompatible { minimum }) => {
+            eprintln!(
+                "Error: CLI version is incompatible with API server. Please upgrade to version {minimum:?} or newer."
+            );
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
             eprintln!(
                 "Error: could not check CLI version compatibility: {}",
                 err.message

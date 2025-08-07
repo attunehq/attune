@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+attune-macros.workspace = true
 aws-config.workspace = true
 aws-sdk-s3.workspace = true
 axum.workspace = true
+backon.workspace = true
 base64.workspace = true
 bon.workspace = true
 bytes.workspace = true
@@ -22,6 +24,7 @@ inquire.workspace = true
 itertools.workspace = true
 lazy-regex.workspace = true
 md-5.workspace = true
+nonzero_ext.workspace = true
 percent-encoding.workspace = true
 pgp.workspace = true
 reqwest.workspace = true
@@ -30,7 +33,6 @@ serde.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
-attune-macros.workspace = true
 tabled.workspace = true
 tabwriter.workspace = true
 time.workspace = true
