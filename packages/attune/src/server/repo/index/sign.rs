@@ -765,62 +765,42 @@ pub async fn handler(
         result.changed_packages_index.architecture
     );
     if result.changed_packages_index_contents.is_empty() {
-        // Index is empty - immediately delete standard + by-hash paths
-        let standard_key = format!(
-            "{}/dists/{}/{}/binary-{}/Packages",
-            repo.s3_prefix,
-            req.change.distribution,
-            result.changed_packages_index.component,
-            result.changed_packages_index.architecture
-        );
-
-        // Create deletion requests for standard + by-hash paths
-        let delete_standard = state
-            .s3
-            .delete_object()
-            .bucket(&repo.s3_bucket)
-            .key(&standard_key)
-            .send();
-
-        let delete_by_hash_sha256 = state
-            .s3
-            .delete_object()
-            .bucket(&repo.s3_bucket)
-            .key(format!(
+        let deletions = [
+            format!(
+                "{}/dists/{}/{}/binary-{}/Packages",
+                repo.s3_prefix,
+                req.change.distribution,
+                result.changed_packages_index.component,
+                result.changed_packages_index.architecture
+            ),
+            format!(
                 "{}/SHA256/{}",
                 by_hash_prefix, result.changed_packages_index.sha256sum
-            ))
-            .send();
-
-        let delete_by_hash_sha1 = state
-            .s3
-            .delete_object()
-            .bucket(&repo.s3_bucket)
-            .key(format!(
+            ),
+            format!(
                 "{}/SHA1/{}",
                 by_hash_prefix, result.changed_packages_index.sha1sum
-            ))
-            .send();
-
-        let delete_by_hash_md5 = state
-            .s3
-            .delete_object()
-            .bucket(&repo.s3_bucket)
-            .key(format!(
+            ),
+            format!(
                 "{}/MD5Sum/{}",
                 by_hash_prefix, result.changed_packages_index.md5sum
-            ))
-            .send();
-
-        // Execute all deletions concurrently
-        let _ = tokio::join!(
-            delete_standard,
-            delete_by_hash_sha256,
-            delete_by_hash_sha1,
-            delete_by_hash_md5
-        );
+            ),
+        ]
+        .into_iter()
+        .map(|key| {
+            state
+                .s3
+                .delete_object()
+                .bucket(&repo.s3_bucket)
+                .key(key)
+                .send()
+        });
+        for deletion in futures_util::future::join_all(deletions).await {
+            if let Err(err) = deletion {
+                tracing::warn!("Failed to delete object during index cleanup: {err:?}");
+            }
+        }
     } else {
-        // Index has content - upload to standard + by-hash paths concurrently
         let upload_packages_index = |key: String| {
             let s3 = state.s3.clone();
             let bucket = repo.s3_bucket.clone();
@@ -869,6 +849,7 @@ pub async fn handler(
             )),
         );
     }
+
     // Upload the updated Release files. This must happen after package uploads
     // and index uploads so that all files are in place for Acquire-By-Hash.
     state
@@ -935,16 +916,7 @@ pub async fn handler(
         .await
         .unwrap();
 
-    // Clean up old by-hash objects individually if they're different from the new ones
     if let Some((old_md5, old_sha1, old_sha256)) = old_hashes {
-        let by_hash_prefix = format!(
-            "{}/dists/{}/{}/binary-{}/by-hash",
-            repo.s3_prefix,
-            req.change.distribution,
-            result.changed_packages_index.component,
-            result.changed_packages_index.architecture
-        );
-
         let deletions = [
             (old_md5, &result.changed_packages_index.md5sum, "MD5Sum"),
             (old_sha1, &result.changed_packages_index.sha1sum, "SHA1"),
@@ -955,25 +927,19 @@ pub async fn handler(
             ),
         ]
         .into_iter()
-        .filter_map(|(old_hash, new_hash, hash_type)| {
-            if &old_hash != new_hash {
-                Some(
-                    state
-                        .s3
-                        .delete_object()
-                        .bucket(&repo.s3_bucket)
-                        .key(format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
-                        .send(),
-                )
-            } else {
-                None
+        .filter(|(old_hash, new_hash, _)| &old_hash != new_hash)
+        .map(|(old_hash, _, hash_type)| {
+            state
+                .s3
+                .delete_object()
+                .bucket(&repo.s3_bucket)
+                .key(format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
+                .send()
+        });
+        for deletion in futures_util::future::join_all(deletions).await {
+            if let Err(err) = deletion {
+                tracing::warn!("Failed to delete old by-hash object: {err:?}");
             }
-        })
-        .collect::<Vec<_>>();
-
-        // Execute only the necessary deletions concurrently
-        if !deletions.is_empty() {
-            let _ = futures_util::future::join_all(deletions).await;
         }
     }
 
