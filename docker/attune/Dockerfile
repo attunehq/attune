@@ -4,8 +4,10 @@ RUN apt-get update && apt-get install -y pkg-config libgpg-error-dev libgpgme-de
 
 COPY Cargo.toml Cargo.lock ./
 COPY ./packages/attune/Cargo.toml ./packages/attune/Cargo.toml
-RUN mkdir -p packages/attune/src && \
-    echo 'fn main() { println!("Placeholder build target")}' > ./packages/attune/src/main.rs
+COPY ./packages/attune-macros/Cargo.toml ./packages/attune-macros/Cargo.toml
+RUN mkdir -p packages/attune/src && mkdir -p packages/attune-macros/src && \
+    echo 'fn main() { println!("Placeholder build target")}' > ./packages/attune/src/main.rs && \
+    echo 'fn main() { println!("Placeholder build target")}' > ./packages/attune-macros/src/lib.rs
 RUN cargo build --release
 COPY ./.sqlx ./.sqlx
 COPY ./packages ./packages
