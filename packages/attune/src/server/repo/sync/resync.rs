@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{Level, debug, instrument};
 
 use crate::{
-    api::ErrorResponse,
-    auth::TenantID,
+    api::{ErrorResponse, TenantID},
     server::{
         ServerState,
         repo::{

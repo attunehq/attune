@@ -6,7 +6,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
+use crate::{
+    api::{ErrorResponse, TenantID},
+    server::ServerState,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PackageInfoResponse {

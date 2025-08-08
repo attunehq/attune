@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};
 
 use crate::{
-    api::ErrorResponse,
-    auth::TenantID,
+    api::{ErrorResponse, TenantID},
     server::{
         ServerState,
         repo::{
