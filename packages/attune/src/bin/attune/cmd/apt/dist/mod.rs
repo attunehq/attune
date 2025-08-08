@@ -46,7 +46,10 @@ pub enum DistSubCommand {
     #[command(visible_alias = "rm")]
     Delete(delete::DeleteArgs),
 
-    /// Check whether the distribution is consistent, and resynchronize if needed.
+    /// Resynchronize repository from database
+    ///
+    /// This is only useful for self-hosted instances. This is primarily for
+    /// restoring repository state after very rare race conditions or crashes.
     Resync(resync::DistResyncCommand),
 }
 

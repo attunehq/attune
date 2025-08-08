@@ -27,7 +27,7 @@ pub async fn run(ctx: Config, cmd: DistResyncCommand) -> Result<String, String> 
         .get(
             ctx.endpoint
                 .join(&format!(
-                    "/api/v0/repositories/{}/distributions/{}",
+                    "/api/v0/repositories/{}/distributions/{}/sync",
                     percent_encode(cmd.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET),
                     percent_encode(cmd.name.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
                 ))
@@ -38,11 +38,12 @@ pub async fn run(ctx: Config, cmd: DistResyncCommand) -> Result<String, String> 
         .expect("Could not send API request");
     match res.status() {
         StatusCode::OK => {
-            let repo = res
+            let _repo = res
                 .json::<ResyncRepositoryResponse>()
                 .await
                 .expect("Could not parse response");
-            todo!()
+            // TODO: Print something informative about what was resynchronized.
+            Ok(format!("Distribution {:?} resynced!", cmd.name))
         }
         _ => {
             let error = res
