@@ -73,13 +73,7 @@ pub async fn handler(
         req.name,
         tenant_id.0,
         state.s3_bucket_name,
-        format!(
-            "{}/{}",
-            tenant_id.0,
-            hex::encode(Sha256::digest(
-                format!("{}/{}", tenant_id.0, req.name).as_bytes()
-            ))
-        ),
+        repo_prefix(tenant_id, &req.name),
     )
     .fetch_one(&mut *tx)
     .await
@@ -91,4 +85,14 @@ pub async fn handler(
         id: inserted.id,
         name: inserted.name,
     }))
+}
+
+pub fn repo_prefix(tenant_id: TenantID, repo_name: &str) -> String {
+    format!(
+        "{}/{}",
+        tenant_id.0,
+        hex::encode(Sha256::digest(
+            format!("{}/{}", tenant_id.0, repo_name).as_bytes()
+        ))
+    )
 }
