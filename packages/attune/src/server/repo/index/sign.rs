@@ -1052,13 +1052,13 @@ mod tests {
         );
         let status = res.json::<CheckConsistencyResponse>().status;
         debug!(?status, "sync check result");
-        assert_eq!(status.release, false, "Release file is inconsistent");
-        assert_eq!(
-            status.release_clearsigned, true,
+        assert!(!status.release, "Release file is inconsistent");
+        assert!(
+            status.release_clearsigned,
             "InRelease file inconsistency was not detected"
         );
-        assert_eq!(
-            status.release_detachsigned, true,
+        assert!(
+            status.release_detachsigned,
             "Release.gpg file inconsistency was not detected"
         );
         assert_eq!(
@@ -1101,23 +1101,18 @@ mod tests {
         );
         let status = res.json::<CheckConsistencyResponse>().status;
         debug!(?status, "sync check result");
-        assert_eq!(status.release, false, "Release file is inconsistent");
-        assert_eq!(
-            status.release_clearsigned, false,
+        assert!(!status.release, "Release file is inconsistent");
+        assert!(
+            !status.release_clearsigned,
             "InRelease file is inconsistent"
         );
-        assert_eq!(
-            status.release_detachsigned, false,
+        assert!(
+            !status.release_detachsigned,
             "Release.gpg file is inconsistent"
         );
-        assert_eq!(
-            status.packages,
-            vec![] as Vec<String>,
-            "Packages are inconsistent"
-        );
-        assert_eq!(
-            status.packages_indexes,
-            vec![] as Vec<String>,
+        assert!(status.packages.is_empty(), "Packages are inconsistent");
+        assert!(
+            status.packages_indexes.is_empty(),
             "Packages indexes are inconsistent"
         );
     }
@@ -1205,7 +1200,7 @@ mod tests {
 
             let response = server
                 .http
-                .post(&format!("/api/v0/repositories/{}/index", REPO_NAME))
+                .post(&format!("/api/v0/repositories/{REPO_NAME}/index"))
                 .add_header("authorization", format!("Bearer {}", server.http_api_token))
                 .json(&sign_request)
                 .await;
@@ -1250,7 +1245,7 @@ mod tests {
             };
             let response = server
                 .http
-                .post(&format!("/api/v0/repositories/{}/index", REPO_NAME))
+                .post(&format!("/api/v0/repositories/{REPO_NAME}/index"))
                 .add_header("authorization", format!("Bearer {}", server.http_api_token))
                 .json(&sign_request)
                 .await;

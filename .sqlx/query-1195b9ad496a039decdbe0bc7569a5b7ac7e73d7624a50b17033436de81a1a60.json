@@ -1,19 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT COUNT(*) AS \"count!: i64\"\n                FROM\n                    debian_repository_package\n                    JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id\n                WHERE\n                    debian_repository_package.tenant_id = $1\n                    AND debian_repository_package.package = $2\n                    AND debian_repository_package.version = $3\n                    AND debian_repository_package.architecture = $4::debian_repository_architecture\n                    AND debian_repository_component_package.filename = $5\n                ",
+  "query": "\n        SELECT id\n        FROM debian_repository_index_packages\n        WHERE\n            component_id = $1\n            AND architecture = $2::debian_repository_architecture\n            AND compression IS NULL\n        LIMIT 1\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "count!: i64",
+        "name": "id",
         "type_info": "Int8"
       }
     ],
     "parameters": {
       "Left": [
         "Int8",
-        "Text",
-        "Text",
         {
           "Custom": {
             "name": "debian_repository_architecture",
@@ -56,13 +54,12 @@
               ]
             }
           }
-        },
-        "Text"
+        }
       ]
     },
     "nullable": [
-      null
+      false
     ]
   },
-  "hash": "456e563e29cb4fd24057d0aaf47a57654120edbb07a978a83c197ce8d4b9589a"
+  "hash": "1195b9ad496a039decdbe0bc7569a5b7ac7e73d7624a50b17033436de81a1a60"
 }
