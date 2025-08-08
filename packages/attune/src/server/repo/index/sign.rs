@@ -651,8 +651,20 @@ pub async fn handler(
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
     //
-    // TODO(#84): Add special handling for aborts to signal the client to retry.
-    tx.commit().await.unwrap();
+    // Technically we should probably check for specific error codes,
+    // but the overwhelmingly most likely cause of an error here is a concurrent change
+    // so for now we just assume all errors are due to this.
+    //
+    // We've added logging here so that we can see the actual error code
+    // and special case it in the future.
+    if let Err(error) = tx.commit().await {
+        tracing::error!(?error, "transaction commit failed");
+        return Err(ErrorResponse::builder()
+            .status(StatusCode::CONFLICT)
+            .error("CONCURRENT_INDEX_CHANGE")
+            .message("concurrent index change")
+            .build());
+    }
 
     // Save the new index state to S3. This must occur after the transaction
     // commits so that we are sure that we are not incorrectly overwriting a
