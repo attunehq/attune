@@ -59,7 +59,7 @@ pub async fn run(ctx: Config, args: EditArgs) -> Result<String, String> {
     }
 
     let url = build_distribution_url(&ctx, &args.repo, Some(&args.name));
-    let response = crate::http::post::<EditDistributionResponse, _>(&ctx, &url, &request)
+    let response = crate::http::put::<EditDistributionResponse, _>(&ctx, &url, &request)
         .await
         .map_err(|err| format!("API error: {}", err.message))?
         .require_body()

@@ -8,7 +8,7 @@ use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
-use crate::http::{ResponseDropStatus, ResponseRequiresBody};
+use crate::http::{NoBody, ResponseDropStatus, ResponseRequiresBody};
 
 mod cmd;
 mod config;
@@ -70,7 +70,7 @@ async fn main() -> ExitCode {
         .build();
 
     // Do a check for API version compatibility.
-    let res = http::get(&ctx, "/api/v0/compatibility")
+    let res = http::get(&ctx, "/api/v0/compatibility", &NoBody)
         .await
         .require_body()
         .drop_status();

@@ -4,7 +4,7 @@ use tabled::settings::Style;
 use crate::{
     cmd::apt::dist::build_distribution_url,
     config::Config,
-    http::{ResponseDropStatus, ResponseRequiresBody},
+    http::{NoBody, ResponseDropStatus, ResponseRequiresBody},
 };
 use attune::server::repo::dist::list::ListDistributionsResponse;
 
@@ -17,7 +17,7 @@ pub struct ListArgs {
 
 pub async fn run(ctx: Config, args: ListArgs) -> Result<String, String> {
     let url = build_distribution_url(&ctx, &args.repo, None);
-    let response = crate::http::get::<ListDistributionsResponse>(&ctx, &url)
+    let response = crate::http::get::<ListDistributionsResponse, _>(&ctx, &url, &NoBody)
         .await
         .map_err(|err| format!("API error: {}", err.message))?
         .require_body()

@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, time::Duration};
+use std::{future::Future, num::NonZeroUsize, time::Duration};
 
 use attune::api::ErrorResponse;
 use backon::{ExponentialBuilder, Retryable};
@@ -11,30 +11,56 @@ use crate::config::Config;
 /// The default number of attempts to retry.
 pub const DEFAULT_ATTEMPTS: NonZeroUsize = nonzero!(3usize);
 
+/// A unit struct used to indicate that an HTTP request should not include a request body,
+/// or that an HTTP response is not expected to have a response body.
+///
+/// This provides a more readable alternative to using `&()` or `()` when calling HTTP helper functions.
+///
+/// # Example Usage
+/// ```no_run
+/// use crate::http::{get, post, NoBody};
+/// use crate::config::Config;
+/// 
+/// # async fn example(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+/// // GET request with no request body:
+/// let response = get::<ResponseType, _>(&config, "/api/v0/data", &NoBody).await?;
+///
+/// // POST request with no expected response body:
+/// let request = serde_json::json!({"action": "delete"});
+/// let _result = post::<NoBody, _>(&config, "/api/v0/action", &request).await?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+pub struct NoBody;
+
 /// Convenience method for GET requests.
 ///
 /// Uses exponential backoff with jitter to retry the request.
 /// ```no_run
-/// # use attune::http::get;
-/// # use attune::config::Config;
+/// # use crate::http::{get, NoBody};
+/// # use crate::config::Config;
 /// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
 /// # #[derive(Debug, serde::Deserialize)]
 /// # struct SomeResponse;
 ///
-/// // Responses with JSON bodies:
-/// let data = get::<SomeResponse>(&config, "/api/v0/data").await?;
+/// // Simple GET requests:
+/// let data = get::<SomeResponse, _>(&config, "/api/v0/data", &NoBody).await?;
 ///
-/// // Responses without a body, or where you want to ignore the body:
-/// let data = get::<()>(&config, "/api/v0/nothing").await?;
+/// // GET requests with JSON body:
+/// let body = serde_json::json!({"key": "value"});
+/// let data = get::<SomeResponse, _>(&config, "/api/v0/data", &body).await?;
 /// ```
 #[tracing::instrument]
-pub async fn get<T: DeserializeOwned>(
+pub async fn get<K: DeserializeOwned, T: Serialize + std::fmt::Debug>(
     ctx: &Config,
     path: impl AsRef<str> + std::fmt::Debug,
-) -> Result<(Option<T>, StatusCode), ErrorResponse> {
+    body: &T,
+) -> Result<(Option<K>, StatusCode), ErrorResponse> {
     run_request(async || {
         ctx.client
             .get(ctx.endpoint.join(path.as_ref()).unwrap())
+            .json(body)
             .send()
             .await
     })
@@ -44,24 +70,18 @@ pub async fn get<T: DeserializeOwned>(
 /// Convenience method for POST requests.
 ///
 /// ```no_run
-/// # use attune::http::get;
-/// # use attune::config::Config;
+/// # use crate::http::{post, NoBody};
+/// # use crate::config::Config;
 /// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
 /// # let body = serde_json::json!({});
 /// # #[derive(Debug, serde::Deserialize)]
 /// # struct SomeResponse;
 ///
-/// // Responses with JSON bodies:
-/// let data = post::<SomeResponse>(&config, "/api/v0/data", &body).await?;
+/// // POST requests with JSON bodies:
+/// let data = post::<SomeResponse, _>(&config, "/api/v0/data", &body).await?;
 ///
-/// // Responses without a body, or where you want to ignore the body:
-/// let data = post::<()>(&config, "/api/v0/nothing", &body).await?;
-///
-/// // Requests with JSON bodies:
-/// let data = post::<_>(&config, "/api/v0/sending", &body).await?;
-///
-/// // Requests without a body, or where you want to ignore the body:
-/// let data = post::<_>(&config, "/api/v0/nothing", ()).await?;
+/// // POST requests without expecting a response body:
+/// let data = post::<(), _>(&config, "/api/v0/action", &body).await?;
 /// ```
 #[tracing::instrument]
 pub async fn post<K: DeserializeOwned, T: Serialize + std::fmt::Debug>(
@@ -82,9 +102,13 @@ pub async fn post<K: DeserializeOwned, T: Serialize + std::fmt::Debug>(
 /// Convenience method for POST requests with `multipart/form-data`.
 ///
 /// ```no_run
-/// # use attune::http::post_multipart;
-/// # use attune::config::Config;
+/// # use crate::http::post_multipart;
+/// # use crate::config::Config;
 /// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+/// # #[derive(Debug, serde::Deserialize)]
+/// # struct UploadResponse;
+/// let form_data = || reqwest::multipart::Form::new();
+/// let data = post_multipart::<UploadResponse>(&config, "/api/v0/upload", form_data).await?;
 pub async fn post_multipart<T: DeserializeOwned>(
     ctx: &Config,
     path: impl AsRef<str> + std::fmt::Debug,
@@ -100,13 +124,47 @@ pub async fn post_multipart<T: DeserializeOwned>(
     .await
 }
 
+/// Convenience method for PUT requests.
+///
+/// ```no_run
+/// # use crate::http::put;
+/// # use crate::config::Config;
+/// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+/// # let body = serde_json::json!({});
+/// # #[derive(Debug, serde::Deserialize)]
+/// # struct SomeResponse;
+///
+/// // PUT requests with JSON bodies:
+/// let data = put::<SomeResponse, _>(&config, "/api/v0/data", &body).await?;
+///
+/// // PUT requests without expecting a response body:
+/// let data = put::<(), _>(&config, "/api/v0/update", &body).await?;
+/// ```
+#[tracing::instrument]
+pub async fn put<K: DeserializeOwned, T: Serialize + std::fmt::Debug>(
+    ctx: &Config,
+    path: impl AsRef<str> + std::fmt::Debug,
+    data: &T,
+) -> Result<(Option<K>, StatusCode), ErrorResponse> {
+    run_request(async || {
+        ctx.client
+            .put(ctx.endpoint.join(path.as_ref()).unwrap())
+            .json(data)
+            .send()
+            .await
+    })
+    .await
+}
+
 /// Convenience method for DELETE requests.
 ///
 /// ```no_run
-/// # use attune::http::delete;
-/// # use attune::config::Config;
+/// # use crate::http::delete;
+/// # use crate::config::Config;
 /// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
-/// let data = delete(&config, "/api/v0/something").await?;
+/// # #[derive(Debug, serde::Deserialize)]
+/// # struct DeleteResponse;
+/// let data = delete::<DeleteResponse>(&config, "/api/v0/something").await?;
 /// ```
 pub async fn delete<T: DeserializeOwned>(
     ctx: &Config,
@@ -115,6 +173,34 @@ pub async fn delete<T: DeserializeOwned>(
     run_request(async || {
         ctx.client
             .delete(ctx.endpoint.join(path.as_ref()).unwrap())
+            .send()
+            .await
+    })
+    .await
+}
+
+
+/// Convenience method for GET requests with query parameters.
+///
+/// ```no_run
+/// # use crate::http::get_with_query;
+/// # use crate::config::Config;
+/// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+/// # let params = serde_json::json!({"search": "value"});
+/// # #[derive(Debug, serde::Deserialize)]
+/// # struct SearchResponse;
+/// let data = get_with_query::<SearchResponse, _>(&config, "/api/v0/search", &params).await?;
+/// ```
+#[tracing::instrument]
+pub async fn get_with_query<K: DeserializeOwned, T: Serialize + std::fmt::Debug>(
+    ctx: &Config,
+    path: impl AsRef<str> + std::fmt::Debug,
+    query: &T,
+) -> Result<(Option<K>, StatusCode), ErrorResponse> {
+    run_request(async || {
+        ctx.client
+            .get(ctx.endpoint.join(path.as_ref()).unwrap())
+            .query(query)
             .send()
             .await
     })
@@ -159,6 +245,7 @@ pub trait ResponseDropStatus {
 }
 
 /// Extension trait for HTTP responses dropping bodies.
+#[allow(dead_code)]
 pub trait ResponseDropBody {
     /// The output type after transformation.
     type Output;
@@ -256,7 +343,7 @@ where
 
         self.retry(strategy)
             .sleep(tokio::time::sleep)
-            .when(|err| should_retry_reqwest_error(err))
+            .when(should_retry_reqwest_error)
             .notify(|err, delay| {
                 let url = err.url().map(|url| url.as_str()).unwrap_or("<unknown url>");
                 tracing::warn!(?url, ?err, ?delay, "HTTP request failed, will retry");
@@ -271,11 +358,10 @@ fn should_retry_response(code: StatusCode) -> bool {
         return true;
     }
 
-    match code {
-        StatusCode::REQUEST_TIMEOUT => true,
-        StatusCode::TOO_MANY_REQUESTS => true,
-        _ => false,
-    }
+    matches!(
+        code,
+        StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
+    )
 }
 
 /// Determine if a reqwest error should trigger a retry

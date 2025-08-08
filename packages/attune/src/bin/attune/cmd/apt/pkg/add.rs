@@ -10,7 +10,7 @@ use tracing::debug;
 
 use crate::{
     config::Config,
-    http::{ResponseDropStatus, ResponseRequiresBody},
+    http::{NoBody, ResponseDropStatus, ResponseRequiresBody},
 };
 use attune::{
     api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
@@ -119,7 +119,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
 
     debug!(?sha256sum, "checking whether package exists");
     let url = format!("/api/v0/packages/{sha256sum}");
-    let res = crate::http::get::<PackageInfoResponse>(&ctx, &url)
+    let res = crate::http::get::<PackageInfoResponse, _>(&ctx, &url, &NoBody)
         .await
         .drop_status();
     match res {
@@ -162,7 +162,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             },
         },
     };
-    let res = crate::http::post::<GenerateIndexResponse, _>(
+    let res = crate::http::get::<GenerateIndexResponse, _>(
         &ctx,
         format!(
             "/api/v0/repositories/{}/index",

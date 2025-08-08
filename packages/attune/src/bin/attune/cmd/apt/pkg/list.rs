@@ -1,13 +1,12 @@
 use std::process::ExitCode;
 
-use axum::http::StatusCode;
 use clap::Args;
 
-use crate::config::Config;
-use attune::{
-    api::ErrorResponse,
-    server::pkg::list::{PackageListParams, PackageListResponse},
+use crate::{
+    config::Config,
+    http::{ResponseDropStatus, ResponseRequiresBody},
 };
+use attune::server::pkg::list::{PackageListParams, PackageListResponse};
 
 #[derive(Args, Debug)]
 pub struct PkgListCommand {
@@ -26,26 +25,23 @@ pub struct PkgListCommand {
 }
 
 pub async fn run(ctx: Config, command: PkgListCommand) -> ExitCode {
-    let res = ctx
-        .client
-        .get(ctx.endpoint.join("/api/v0/packages").unwrap())
-        .query(&PackageListParams {
+    let res = crate::http::get_with_query::<PackageListResponse, _>(
+        &ctx,
+        "/api/v0/packages",
+        &PackageListParams {
             repository: command.repository,
             distribution: command.distribution,
             component: command.component,
             name: command.name,
             version: command.version,
             architecture: command.architecture,
-        })
-        .send()
-        .await
-        .expect("Could not send API request");
-    match res.status() {
-        StatusCode::OK => {
-            let packages = res
-                .json::<PackageListResponse>()
-                .await
-                .expect("Could not parse response");
+        },
+    )
+    .await
+    .require_body()
+    .drop_status();
+    match res {
+        Ok(packages) => {
             let mut builder = tabled::builder::Builder::new();
             builder.push_record([
                 "Package",
@@ -69,11 +65,7 @@ pub async fn run(ctx: Config, command: PkgListCommand) -> ExitCode {
             println!("{table}");
             ExitCode::SUCCESS
         }
-        _ => {
-            let error = res
-                .json::<ErrorResponse>()
-                .await
-                .expect("Could not parse error response");
+        Err(error) => {
             eprintln!("Error listing packages: {}", error.message);
             ExitCode::FAILURE
         }

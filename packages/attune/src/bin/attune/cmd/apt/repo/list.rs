@@ -1,32 +1,24 @@
 use std::process::ExitCode;
 
-use axum::http::StatusCode;
 use clap::Args;
 use tabled::settings::Style;
 
-use crate::config::Config;
-use attune::{
-    api::ErrorResponse,
-    server::repo::list::{ListRepositoryRequest, ListRepositoryResponse},
+use crate::{
+    config::Config,
+    http::{NoBody, ResponseDropStatus, ResponseRequiresBody},
 };
+use attune::server::repo::list::ListRepositoryResponse;
 
 #[derive(Args, Debug)]
 pub struct RepoListCommand {}
 
 pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {
-    let res = ctx
-        .client
-        .get(ctx.endpoint.join("/api/v0/repositories").unwrap())
-        .json(&ListRepositoryRequest {})
-        .send()
+    let res = crate::http::get::<ListRepositoryResponse, _>(&ctx, "/api/v0/repositories", &NoBody)
         .await
-        .expect("Could not send API request");
-    match res.status() {
-        StatusCode::OK => {
-            let repo = res
-                .json::<ListRepositoryResponse>()
-                .await
-                .expect("Could not parse response");
+        .require_body()
+        .drop_status();
+    match res {
+        Ok(repo) => {
             let mut builder = tabled::builder::Builder::new();
             builder.push_record(["Name".to_string()]);
             for repo in repo.repositories {
@@ -37,11 +29,7 @@ pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {
             println!("{table}");
             ExitCode::SUCCESS
         }
-        _ => {
-            let error = res
-                .json::<ErrorResponse>()
-                .await
-                .expect("Could not parse error response");
+        Err(error) => {
             eprintln!("Error listing repositories: {}", error.message);
             ExitCode::FAILURE
         }

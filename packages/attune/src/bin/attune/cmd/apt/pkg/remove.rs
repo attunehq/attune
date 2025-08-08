@@ -1,14 +1,16 @@
 use std::{iter::once, process::ExitCode};
 
-use axum::http::StatusCode;
 use clap::Args;
 use gpgme::{Context, ExportMode, Protocol};
 use percent_encoding::percent_encode;
 use tracing::debug;
 
-use crate::config::Config;
+use crate::{
+    config::Config,
+    http::{ResponseDropStatus, ResponseRequiresBody},
+};
 use attune::{
-    api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
+    api::PATH_SEGMENT_PERCENT_ENCODE_SET,
     server::repo::index::{
         PackageChange, PackageChangeAction,
         generate::{GenerateIndexRequest, GenerateIndexResponse},
@@ -58,37 +60,23 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
             },
         },
     };
-    let res = ctx
-        .client
-        .get(
-            ctx.endpoint
-                .join(
-                    format!(
-                        "/api/v0/repositories/{}/index",
-                        percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
-                    )
-                    .as_str(),
-                )
-                .unwrap(),
-        )
-        .json(&generate_index_request)
-        .send()
-        .await
-        .expect("Could not send API request");
-    let (index, release_ts) = match res.status() {
-        StatusCode::OK => {
-            let res = res
-                .json::<GenerateIndexResponse>()
-                .await
-                .expect("Could not parse response");
+    let res = crate::http::get::<GenerateIndexResponse, _>(
+        &ctx,
+        format!(
+            "/api/v0/repositories/{}/index",
+            percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+        ),
+        &generate_index_request,
+    )
+    .await
+    .require_body()
+    .drop_status();
+    let (index, release_ts) = match res {
+        Ok(res) => {
             debug!(index = ?res.release, "generated index to sign");
             (res.release, res.release_ts)
         }
-        status => {
-            let body = res.text().await.expect("Could not read response");
-            debug!(?body, ?status, "error response");
-            let error = serde_json::from_str::<ErrorResponse>(&body)
-                .expect("Could not parse error response");
+        Err(error) => {
             eprintln!("Error removing package from index: {}", error.message);
             return ExitCode::FAILURE;
         }
@@ -131,44 +119,30 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
     //
     // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
-    let res = ctx
-        .client
-        .post(
-            ctx.endpoint
-                .join(
-                    format!(
-                        "/api/v0/repositories/{}/index",
-                        percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
-                    )
-                    .as_str(),
-                )
-                .unwrap(),
-        )
-        .json(&SignIndexRequest {
+    let res = crate::http::post::<SignIndexResponse, _>(
+        &ctx,
+        format!(
+            "/api/v0/repositories/{}/index",
+            percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+        ),
+        &SignIndexRequest {
             change: generate_index_request.change,
             release_ts,
             clearsigned,
             detachsigned,
             public_key_cert,
-        })
-        .send()
-        .await
-        .expect("Could not send API request");
-    match res.status() {
-        StatusCode::OK => {
-            let _ = res
-                .json::<SignIndexResponse>()
-                .await
-                .expect("Could not parse response");
+        },
+    )
+    .await
+    .require_body()
+    .drop_status();
+    match res {
+        Ok(_) => {
             debug!("signed index");
             ExitCode::SUCCESS
         }
         // TODO(#84): Handle 409 status code to signal retry.
-        status => {
-            let body = res.text().await.expect("Could not read response");
-            debug!(?body, ?status, "error response");
-            let error = serde_json::from_str::<ErrorResponse>(&body)
-                .expect("Could not parse error response");
+        Err(error) => {
             eprintln!("Error signing index: {}", error.message);
             ExitCode::FAILURE
         }
