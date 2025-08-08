@@ -1,8 +1,9 @@
 use clap::Args;
 
 use crate::{
-    cmd::apt::dist::{build_distribution_url, handle_api_response},
+    cmd::apt::dist::build_distribution_url,
     config::Config,
+    http::{ResponseDropStatus, ResponseRequiresBody},
 };
 use attune::server::repo::dist::create::{CreateDistributionRequest, CreateDistributionResponse};
 
@@ -66,15 +67,14 @@ pub async fn run(ctx: Config, args: CreateArgs) -> Result<String, String> {
         .build();
 
     let url = build_distribution_url(&ctx, &args.repo, None);
-    ctx.client
-        .post(url)
-        .json(&request)
-        .send()
+    let response = crate::http::post::<CreateDistributionResponse, _>(&ctx, &url, &request)
         .await
-        .map(handle_api_response::<CreateDistributionResponse>)
-        .map_err(|err| format!("Failed to send request: {err}"))?
-        .await
-        .map(|CreateDistributionResponse { distribution, .. }| {
-            format!("Distribution {distribution:?} created successfully")
-        })
+        .map_err(|err| format!("API error: {}", err.message))?
+        .require_body()
+        .drop_status();
+
+    Ok(format!(
+        "Distribution {:?} created successfully",
+        response.distribution,
+    ))
 }

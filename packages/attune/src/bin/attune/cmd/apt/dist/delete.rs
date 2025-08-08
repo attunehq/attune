@@ -2,10 +2,7 @@ use clap::Args;
 use colored::Colorize;
 use inquire::Confirm;
 
-use crate::{
-    cmd::apt::dist::{build_distribution_url, handle_api_response},
-    config::Config,
-};
+use crate::{cmd::apt::dist::build_distribution_url, config::Config};
 use attune::server::repo::dist::delete::DeleteDistributionResponse;
 
 #[derive(Args, Debug)]
@@ -34,12 +31,8 @@ pub async fn run(ctx: Config, args: DeleteArgs) -> Result<String, String> {
     }
 
     let url = build_distribution_url(&ctx, &args.repo, Some(&args.name));
-    ctx.client
-        .delete(url)
-        .send()
+    crate::http::delete::<DeleteDistributionResponse>(&ctx, &url)
         .await
-        .map(handle_api_response::<DeleteDistributionResponse>)
-        .map_err(|err| format!("Failed to send request: {err}"))?
-        .await
+        .map_err(|err| format!("API error: {}", err.message))
         .map(|_| format!("Distribution {:?} deleted successfully", args.name))
 }

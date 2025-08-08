@@ -28,10 +28,13 @@ pub const DEFAULT_ATTEMPTS: NonZeroUsize = nonzero!(3usize);
 /// let data = get::<()>(&config, "/api/v0/nothing").await?;
 /// ```
 #[tracing::instrument]
-pub async fn get<T: DeserializeOwned>(ctx: &Config, path: &str) -> Result<T, ErrorResponse> {
+pub async fn get<T: DeserializeOwned>(
+    ctx: &Config,
+    path: impl AsRef<str> + std::fmt::Debug,
+) -> Result<(Option<T>, StatusCode), ErrorResponse> {
     run_request(async || {
         ctx.client
-            .get(ctx.endpoint.join(path).unwrap())
+            .get(ctx.endpoint.join(path.as_ref()).unwrap())
             .send()
             .await
     })
@@ -61,14 +64,14 @@ pub async fn get<T: DeserializeOwned>(ctx: &Config, path: &str) -> Result<T, Err
 /// let data = post::<_>(&config, "/api/v0/nothing", ()).await?;
 /// ```
 #[tracing::instrument]
-pub async fn post<T: Serialize + std::fmt::Debug, K: DeserializeOwned>(
+pub async fn post<K: DeserializeOwned, T: Serialize + std::fmt::Debug>(
     ctx: &Config,
-    path: &str,
+    path: impl AsRef<str> + std::fmt::Debug,
     data: &T,
-) -> Result<K, ErrorResponse> {
+) -> Result<(Option<K>, StatusCode), ErrorResponse> {
     run_request(async || {
         ctx.client
-            .post(ctx.endpoint.join(path).unwrap())
+            .post(ctx.endpoint.join(path.as_ref()).unwrap())
             .json(data)
             .send()
             .await
@@ -76,7 +79,49 @@ pub async fn post<T: Serialize + std::fmt::Debug, K: DeserializeOwned>(
     .await
 }
 
-async fn run_request<T, F, G>(runner: G) -> Result<T, ErrorResponse>
+/// Convenience method for POST requests with `multipart/form-data`.
+///
+/// ```no_run
+/// # use attune::http::post_multipart;
+/// # use attune::config::Config;
+/// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+pub async fn post_multipart<T: DeserializeOwned>(
+    ctx: &Config,
+    path: impl AsRef<str> + std::fmt::Debug,
+    data: impl Fn() -> reqwest::multipart::Form,
+) -> Result<(Option<T>, StatusCode), ErrorResponse> {
+    run_request(async || {
+        ctx.client
+            .post(ctx.endpoint.join(path.as_ref()).unwrap())
+            .multipart(data())
+            .send()
+            .await
+    })
+    .await
+}
+
+/// Convenience method for DELETE requests.
+///
+/// ```no_run
+/// # use attune::http::delete;
+/// # use attune::config::Config;
+/// # let config = Config::builder().api_token("test").endpoint("http://localhost:8080").build();
+/// let data = delete(&config, "/api/v0/something").await?;
+/// ```
+pub async fn delete<T: DeserializeOwned>(
+    ctx: &Config,
+    path: impl AsRef<str> + std::fmt::Debug,
+) -> Result<(Option<T>, StatusCode), ErrorResponse> {
+    run_request(async || {
+        ctx.client
+            .delete(ctx.endpoint.join(path.as_ref()).unwrap())
+            .send()
+            .await
+    })
+    .await
+}
+
+async fn run_request<T, F, G>(runner: G) -> Result<(Option<T>, StatusCode), ErrorResponse>
 where
     T: DeserializeOwned,
     F: Future<Output = Result<reqwest::Response, reqwest::Error>>,
@@ -87,23 +132,108 @@ where
         .await
         .expect("Could not reach API server");
 
+    let status = res.status();
+    let url = res.url().to_string();
     let body = res.text().await.expect("Could not download response");
+    if body.is_empty() {
+        return Ok((None, status));
+    }
     if let Ok(error) = serde_json::from_str::<ErrorResponse>(&body) {
         return Err(error);
     }
     if let Ok(data) = serde_json::from_str::<T>(&body) {
-        return Ok(data);
+        return Ok((Some(data), status));
     }
 
-    Err(ErrorResponse::builder()
-        .status(StatusCode::NOT_IMPLEMENTED)
-        .message(format!("Unknown response: {body}"))
-        .error("UNKNOWN_RESPONSE")
-        .build())
+    tracing::warn!(?url, ?body, "Unknown response");
+    Ok((None, status))
+}
+
+/// Extension trait for HTTP responses dropping status codes.
+pub trait ResponseDropStatus {
+    /// The output type after transformation.
+    type Output;
+
+    /// Drop the status code from the response.
+    fn drop_status(self) -> Self::Output;
+}
+
+/// Extension trait for HTTP responses dropping bodies.
+pub trait ResponseDropBody {
+    /// The output type after transformation.
+    type Output;
+
+    /// Drop the body from the response.
+    fn drop_body(self) -> Self::Output;
+}
+
+/// Extension trait for requiring HTTP bodies have responses.
+pub trait ResponseRequiresBody {
+    /// The output type after transformation.
+    type Output;
+
+    /// Require that the body was present.
+    /// Panics otherwise.
+    fn require_body(self) -> Self::Output;
+}
+
+impl<T> ResponseRequiresBody for Result<(Option<T>, StatusCode), ErrorResponse> {
+    type Output = Result<(T, StatusCode), ErrorResponse>;
+
+    #[track_caller]
+    fn require_body(self) -> Self::Output {
+        self.map(|(body, status)| {
+            let body = body.expect("Response body was empty, but was required");
+            (body, status)
+        })
+    }
+}
+
+impl<T> ResponseRequiresBody for (Option<T>, StatusCode) {
+    type Output = (T, StatusCode);
+
+    #[track_caller]
+    fn require_body(self) -> Self::Output {
+        let (body, status) = self;
+        let body = body.expect("Response body was empty, but was required");
+        (body, status)
+    }
+}
+
+impl<T> ResponseDropBody for (T, StatusCode) {
+    type Output = StatusCode;
+
+    fn drop_body(self) -> Self::Output {
+        self.1
+    }
+}
+
+impl<T> ResponseDropBody for Result<(T, StatusCode), ErrorResponse> {
+    type Output = Result<StatusCode, ErrorResponse>;
+
+    fn drop_body(self) -> Self::Output {
+        self.map(|(_, status)| status)
+    }
+}
+
+impl<T> ResponseDropStatus for (T, StatusCode) {
+    type Output = T;
+
+    fn drop_status(self) -> Self::Output {
+        self.0
+    }
+}
+
+impl<T> ResponseDropStatus for Result<(T, StatusCode), ErrorResponse> {
+    type Output = Result<T, ErrorResponse>;
+
+    fn drop_status(self) -> Self::Output {
+        self.map(|(body, _)| body)
+    }
 }
 
 /// Extension trait to add retry functionality to reqwest operations using backon
-pub trait RetryableHttp<T> {
+pub trait ReqwestRetryable<T> {
     /// Retry with exponential backoff.
     ///
     /// Uses exponential backoff starting with 100ms, multiplying by 2 each time,
@@ -111,7 +241,7 @@ pub trait RetryableHttp<T> {
     async fn retry_exponential(self, attempts: NonZeroUsize) -> Result<T, reqwest::Error>;
 }
 
-impl<T, F, G> RetryableHttp<T> for G
+impl<T, F, G> ReqwestRetryable<T> for G
 where
     F: Future<Output = Result<T, reqwest::Error>>,
     G: FnMut() -> F,

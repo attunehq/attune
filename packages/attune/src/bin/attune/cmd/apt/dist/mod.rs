@@ -1,9 +1,8 @@
-use axum::http::StatusCode;
 use clap::{Args, Subcommand};
 use percent_encoding::percent_encode;
 
 use crate::config::Config;
-use attune::api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET};
+use attune::api::PATH_SEGMENT_PERCENT_ENCODE_SET;
 
 mod create;
 mod delete;
@@ -74,23 +73,4 @@ fn build_distribution_url(
         .endpoint
         .join(&path)
         .expect("Invalid URL construction")
-}
-
-/// Handle API response, accounting for the structured error type.
-async fn handle_api_response<T>(response: reqwest::Response) -> Result<T, String>
-where
-    T: for<'de> serde::Deserialize<'de>,
-{
-    if response.status() == StatusCode::OK {
-        response
-            .json::<T>()
-            .await
-            .map_err(|e| format!("Failed to parse API response: {e}"))
-    } else {
-        response
-            .json::<ErrorResponse>()
-            .await
-            .map(|err| Err(format!("API error: {}", err.message)))
-            .map_err(|err| format!("Failed to parse error response: {err}"))?
-    }
 }

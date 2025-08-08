@@ -8,6 +8,8 @@ use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
+use crate::http::{ResponseDropStatus, ResponseRequiresBody};
+
 mod cmd;
 mod config;
 mod http;
@@ -68,7 +70,11 @@ async fn main() -> ExitCode {
         .build();
 
     // Do a check for API version compatibility.
-    match http::get(&ctx, "/api/v0/compatibility").await {
+    let res = http::get(&ctx, "/api/v0/compatibility")
+        .await
+        .require_body()
+        .drop_status();
+    match res {
         Ok(CompatibilityResponse::Ok) => {}
         Ok(CompatibilityResponse::WarnUpgrade { latest }) => {
             eprintln!("{} {}\n", "New version of attune available".blue(), latest);

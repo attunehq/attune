@@ -8,7 +8,10 @@ use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
 use tracing::debug;
 
-use crate::config::Config;
+use crate::{
+    config::Config,
+    http::{ResponseDropStatus, ResponseRequiresBody},
+};
 use attune::{
     api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
     server::{
@@ -114,59 +117,30 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // TODO(#48): Add an `--overwrite` flag to allow the user to deliberately upload
     // a package with a different SHA256sum.
 
-    debug!(sha256sum = ?sha256sum, "checking whether package exists");
-    let res = ctx
-        .client
-        .get(
-            ctx.endpoint
-                .join(format!("/api/v0/packages/{sha256sum}").as_str())
-                .unwrap(),
-        )
-        .send()
+    debug!(?sha256sum, "checking whether package exists");
+    let url = format!("/api/v0/packages/{sha256sum}");
+    let res = crate::http::get::<PackageInfoResponse>(&ctx, &url)
         .await
-        .expect("Could not send API request");
-    match res.status() {
-        StatusCode::OK => {
-            let pkg = res
-                .json::<PackageInfoResponse>()
-                .await
-                .expect("Could not parse response");
-            debug!(?sha256sum, ?pkg, "package already exists, skipping upload");
-        }
-        StatusCode::NOT_FOUND => {
-            debug!(sha256sum = ?sha256sum, "package does not exist, uploading");
-            let multipart = multipart::Form::new().part("file", Part::bytes(package_file));
+        .drop_status();
+    match res {
+        Ok(Some(pkg)) => debug!(?sha256sum, ?pkg, "package already exists, skipping upload"),
+        Ok(None) => {
+            debug!(?sha256sum, "package does not exist, uploading");
 
-            let res = ctx
-                .client
-                .post(ctx.endpoint.join("/api/v0/packages").unwrap())
-                .multipart(multipart)
-                .send()
+            let body = || multipart::Form::new().part("file", Part::bytes(package_file.clone()));
+            let upload = crate::http::post_multipart::<PackageUploadResponse>(&ctx, &url, body)
                 .await
-                .expect("Could not upload package file");
-            match res.status() {
-                StatusCode::OK => {
-                    let uploaded = res
-                        .json::<PackageUploadResponse>()
-                        .await
-                        .expect("Could not parse response");
-                    debug!(?sha256sum, ?uploaded, "package uploaded");
-                }
-                _ => {
-                    let error = res
-                        .json::<ErrorResponse>()
-                        .await
-                        .expect("Could not parse error response");
+                .require_body()
+                .drop_status();
+            match upload {
+                Ok(uploaded) => debug!(?sha256sum, ?uploaded, "package uploaded"),
+                Err(error) => {
                     eprintln!("Error uploading package: {}", error.message);
                     return ExitCode::FAILURE;
                 }
             }
         }
-        _ => {
-            let error = res
-                .json::<ErrorResponse>()
-                .await
-                .expect("Could not parse error response");
+        Err(error) => {
             eprintln!("Error checking whether package exists: {}", error.message);
             return ExitCode::FAILURE;
         }
@@ -188,37 +162,23 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             },
         },
     };
-    let res = ctx
-        .client
-        .get(
-            ctx.endpoint
-                .join(
-                    format!(
-                        "/api/v0/repositories/{}/index",
-                        percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
-                    )
-                    .as_str(),
-                )
-                .unwrap(),
-        )
-        .json(&generate_index_request)
-        .send()
-        .await
-        .expect("Could not send API request");
-    let (index, release_ts) = match res.status() {
-        StatusCode::OK => {
-            let res = res
-                .json::<GenerateIndexResponse>()
-                .await
-                .expect("Could not parse response");
-            debug!(index = ?res.release, "generated index to sign");
-            (res.release, res.release_ts)
+    let res = crate::http::post::<GenerateIndexResponse, _>(
+        &ctx,
+        format!(
+            "/api/v0/repositories/{}/index",
+            percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+        ),
+        &generate_index_request,
+    )
+    .await
+    .require_body()
+    .drop_status();
+    let (index, release_ts) = match res {
+        Ok(index) => {
+            debug!(?index, "generated index to sign");
+            (index.release, index.release_ts)
         }
-        status => {
-            let body = res.text().await.expect("Could not read response");
-            debug!(?body, ?status, "error response");
-            let error = serde_json::from_str::<ErrorResponse>(&body)
-                .expect("Could not parse error response");
+        Err(error) => {
             eprintln!("Error adding package to index: {}", error.message);
             return ExitCode::FAILURE;
         }
@@ -259,48 +219,30 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     debug!(?public_key_cert, "public key cert");
 
     // Submit signatures.
-    //
-    // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
-    let res = ctx
-        .client
-        .post(
-            ctx.endpoint
-                .join(
-                    format!(
-                        "/api/v0/repositories/{}/index",
-                        percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
-                    )
-                    .as_str(),
-                )
-                .unwrap(),
-        )
-        .json(&SignIndexRequest {
+    let res = crate::http::post::<SignIndexResponse, _>(
+        &ctx,
+        format!(
+            "/api/v0/repositories/{}/index",
+            percent_encode(command.repo.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+        ),
+        &SignIndexRequest {
             change: generate_index_request.change,
             release_ts,
             clearsigned,
             detachsigned,
             public_key_cert,
-        })
-        .send()
-        .await
-        .expect("Could not send API request");
-    match res.status() {
-        StatusCode::OK => {
-            let _ = res
-                .json::<SignIndexResponse>()
-                .await
-                .expect("Could not parse response");
-            debug!("signed index");
+        },
+    )
+    .await
+    .require_body()
+    .drop_status();
+    match res {
+        Ok(signed) => {
+            debug!(?signed, "signed index");
             ExitCode::SUCCESS
         }
-        // TODO(#84): Handle 409 status code to signal retry.
-        status => {
-            let body = res.text().await.expect("Could not read response");
-            debug!(?body, ?status, "error response");
-            let body = serde_json::from_str::<ErrorResponse>(&body)
-                .expect("Could not parse error response");
-
+        Err(body) => {
             match body.error.as_str() {
                 "INVALID_COMPONENT_NAME" => {
                     eprintln!(

@@ -1,8 +1,9 @@
 use clap::Args;
 
 use crate::{
-    cmd::apt::dist::{build_distribution_url, handle_api_response},
+    cmd::apt::dist::build_distribution_url,
     config::Config,
+    http::{ResponseDropStatus, ResponseRequiresBody},
 };
 use attune::server::repo::dist::edit::{EditDistributionRequest, EditDistributionResponse};
 
@@ -58,21 +59,16 @@ pub async fn run(ctx: Config, args: EditArgs) -> Result<String, String> {
     }
 
     let url = build_distribution_url(&ctx, &args.repo, Some(&args.name));
-    ctx.client
-        .put(url)
-        .json(&request)
-        .send()
+    let response = crate::http::post::<EditDistributionResponse, _>(&ctx, &url, &request)
         .await
-        .map(handle_api_response::<EditDistributionResponse>)
-        .map_err(|err| format!("Failed to send request: {err}"))?
-        .await
-        .map(|EditDistributionResponse { distribution, .. }| {
-            format!(
-                concat!(
-                    "Distribution {:?} updated successfully\n",
-                    "Note: Changes will be reflected in repository indexes after the next sync."
-                ),
-                distribution
-            )
-        })
+        .map_err(|err| format!("API error: {}", err.message))?
+        .require_body()
+        .drop_status();
+    Ok(format!(
+        concat!(
+            "Distribution {:?} updated successfully\n",
+            "Note: Changes will be reflected in repository indexes after the next sync."
+        ),
+        response.distribution,
+    ))
 }
