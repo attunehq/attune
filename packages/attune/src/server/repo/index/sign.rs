@@ -563,7 +563,6 @@ pub async fn handler(
 
             // Update the Packages index, or delete if it's orphaned.
             if result.changed_packages_index_contents.is_empty() {
-                // Index becomes empty - we'll delete it and immediately clean by-hash objects
                 sqlx::query!(
                     r#"
                     DELETE FROM debian_repository_index_packages
