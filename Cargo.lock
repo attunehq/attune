@@ -422,6 +422,7 @@ dependencies = [
  "derivative",
  "derive_more 2.0.1",
  "digest 0.10.7",
+ "futures-util",
  "gpgme",
  "hex",
  "http 1.3.1",

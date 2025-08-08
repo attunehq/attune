@@ -20,6 +20,8 @@ pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {
     match res {
         Ok(repo) => {
             let mut builder = tabled::builder::Builder::new();
+            // TODO: For EE or self-hosted users, should we display the
+            // repository S3 bucket and prefix as well?
             builder.push_record(["Name".to_string()]);
             for repo in repo.repositories {
                 builder.push_record([&repo.name]);

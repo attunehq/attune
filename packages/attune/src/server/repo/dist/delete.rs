@@ -53,16 +53,19 @@ pub async fn handler(
             .build()
     })?;
 
-    // Query components and their architectures for S3 cleanup
+    // Find all components and their indexes for this distribution.
+    // We need the index content hashes in order to delete by-hash objects.
     let components = sqlx::query!(
         r#"
         SELECT
-            c.name as component_name,
-            p.architecture::text as architecture
+            c.name,
+            i.architecture::text as "architecture!: String",
+            i.md5sum,
+            i.sha1sum,
+            i.sha256sum
         FROM debian_repository_release r
         JOIN debian_repository_component c ON c.release_id = r.id
-        JOIN debian_repository_component_package cp ON cp.component_id = c.id
-        JOIN debian_repository_package p ON p.id = cp.package_id
+        JOIN debian_repository_index_packages i ON i.component_id = c.id
         WHERE r.repository_id = $1 AND r.distribution = $2
         "#,
         repo.id,
@@ -126,15 +129,15 @@ pub async fn handler(
         ];
 
         // Deletes component metadata files.
-        keys.extend(components.iter().map(|record| {
-            let prefix = format!(
-                "{}/{}/binary-{}",
-                prefix,
-                record.component_name,
-                record.architecture.as_ref().unwrap().replace('_', "-")
-            );
+        keys.extend(components.iter().flat_map(|record| {
             // TODO(#94): When compressed indexes are implemented, add their deletion here.
-            format!("{prefix}/Packages")
+            let prefix = format!("{}/{}/binary-{}", prefix, record.name, record.architecture);
+            [
+                format!("{prefix}/Packages"),
+                format!("{prefix}/by-hash/SHA256/{}", record.sha256sum),
+                format!("{prefix}/by-hash/SHA1/{}", record.sha1sum),
+                format!("{prefix}/by-hash/MD5Sum/{}", record.md5sum),
+            ]
         }));
 
         // Deletes orphaned package files.
@@ -143,12 +146,11 @@ pub async fn handler(
                 .iter()
                 .map(|pkg| format!("packages/{}", pkg.sha256sum)),
         );
+
         keys
     };
 
-    // Delete all objects in batches.
-    // TODO: make concurrent with `futures`' `BufferUnordered`.
-    for chunk in keys.chunks(1000) {
+    let deletions = keys.chunks(1000).map(|chunk| {
         let objects = chunk
             .iter()
             .map(|key| {
@@ -164,14 +166,14 @@ pub async fn handler(
             .build()
             .unwrap();
 
-        let result = state
+        state
             .s3
             .delete_objects()
             .bucket(&repo.s3_bucket)
             .delete(delete)
             .send()
-            .await;
-
+    });
+    for result in futures_util::future::join_all(deletions).await {
         if let Err(err) = result {
             tracing::error!("Failed to delete objects: {err:?}");
         }

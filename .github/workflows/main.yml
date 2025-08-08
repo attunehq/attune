@@ -12,6 +12,13 @@ on:
       - "**/*.lock"
       - "**/.gitignore"
       - "**/LICENSE"
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,19 +27,44 @@ env:
 
 jobs:
   cd:
-    name: Development build of `main`
+    name: Development build
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
+    env:
+      ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+      DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+    services:
+      postgres:
+        image: postgres:17.4-bookworm
+        env:
+          POSTGRES_USER: attune
+          POSTGRES_PASSWORD: attune
+          POSTGRES_DB: attune
+        ports:
+          - "5432:5432"
     steps:
-      - uses: actions/checkout@v4
-
-      # Run tests
+      # Since these installation steps don't require checkout, technically we
+      # could do them ahead of time and just cache the resulting image.
+      # Unfortunately, this is actually sometimes _slower_ in GHA because then
+      # you're using a custom image instead of a runner image that's always hot
+      # on the node.
+      #
+      # If you decide to make this change, make sure to benchmark whether it's
+      # actually faster.
       - name: Install Rust
         run: rustup show
+
+      # These should match `../docker/attune/Dockerfile`.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
+      - uses: actions/checkout@v4
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
@@ -43,10 +75,12 @@ jobs:
           cache-workspace-crates: true
           cache-all-crates: true
 
-      - name: Install system dependencies
+      - name: Migrate database
+        working-directory: ./docker/migrate
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+          npm install
+          npm run migrate
+          npm run diff
 
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release

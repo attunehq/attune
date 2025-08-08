@@ -19,6 +19,7 @@ debian-packaging.workspace = true
 derive_more.workspace = true
 derivative.workspace = true
 digest.workspace = true
+futures-util.workspace = true
 gpgme.workspace = true
 hex.workspace = true
 http.workspace = true
