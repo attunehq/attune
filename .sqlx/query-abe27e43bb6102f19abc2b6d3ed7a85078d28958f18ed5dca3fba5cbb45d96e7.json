@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                debian_repository_component.name AS component,\n                debian_repository_index_packages.architecture::TEXT AS \"architecture!: String\",\n                debian_repository_index_packages.size,\n                debian_repository_index_packages.md5sum,\n                debian_repository_index_packages.sha1sum,\n                debian_repository_index_packages.sha256sum\n            FROM\n                debian_repository\n                JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n                JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n                JOIN debian_repository_index_packages ON debian_repository_index_packages.component_id = debian_repository_component.id\n            WHERE\n                debian_repository.tenant_id = $1\n                AND debian_repository.name = $2\n                AND debian_repository_release.distribution = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "component",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "md5sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sha1sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sha256sum",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "abe27e43bb6102f19abc2b6d3ed7a85078d28958f18ed5dca3fba5cbb45d96e7"
+}
