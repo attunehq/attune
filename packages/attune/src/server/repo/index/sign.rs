@@ -674,19 +674,24 @@ pub async fn handler(
     // pool.
     match req.change.action {
         PackageChangeAction::Add { .. } => {
+            let source_key = format!(
+                "{}/packages/{}",
+                result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
+            );
+            let destination_key = format!("{}/{}", repo.s3_prefix, result.changed_package.filename);
+
+            tracing::debug!(
+                ?source_key,
+                ?destination_key,
+                "copy package from pool storage",
+            );
+
             state
                 .s3
                 .copy_object()
                 .bucket(&repo.s3_bucket)
-                .key(format!(
-                    "{}/{}",
-                    repo.s3_prefix, result.changed_package.filename
-                ))
-                .copy_source(format!(
-                    "{}/packages/{}",
-                    result.changed_package.package.s3_bucket,
-                    result.changed_package.package.sha256sum,
-                ))
+                .key(destination_key)
+                .copy_source(source_key)
                 .send()
                 .await
                 .unwrap();
@@ -745,11 +750,13 @@ pub async fn handler(
 
             // Delete the pool file from S3 if it's fully orphaned.
             if remaining_component_packages.count == 0 {
+                let key = format!("{}/{}", repo.s3_prefix, pool_filename);
+                tracing::debug!(?key, "deleting pool file");
                 state
                     .s3
                     .delete_object()
                     .bucket(&repo.s3_bucket)
-                    .key(format!("{}/{}", repo.s3_prefix, pool_filename))
+                    .key(key)
                     .send()
                     .await
                     .unwrap();
@@ -800,6 +807,7 @@ pub async fn handler(
             let sha256sum = result.changed_packages_index.meta.sha256sum.clone();
 
             async move {
+                tracing::debug!(?key, content = %contents, "uploading index file");
                 s3.put_object()
                     .bucket(bucket)
                     .key(key)
@@ -849,6 +857,7 @@ pub async fn handler(
     ]
     .into_iter()
     .map(|(key, content)| {
+        tracing::debug!(?key, content = %String::from_utf8_lossy(&content), "uploading release file");
         state
             .s3
             .put_object()
@@ -875,8 +884,8 @@ pub async fn handler(
     //
     // These two sets may overlap, but that's ok: we'll just dedupe them.
     let delete_via_empty_index = match result.changed_packages_index.contents.is_empty() {
-        true => Vec::new(),
-        false => vec![
+        false => Vec::new(),
+        true => vec![
             format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
@@ -922,6 +931,11 @@ pub async fn handler(
         .map(|(old_hash, _, hash_type)| format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
         .collect::<Vec<_>>(),
     };
+    tracing::debug!(
+        ?delete_via_empty_index,
+        ?delete_via_hash_change,
+        "deletions",
+    );
 
     // Now we just dedupe the two sets and delete them in one go.
     // S3 only allows up to 1000 objects per delete request, but we're dealing with low ones of keys.
@@ -936,19 +950,21 @@ pub async fn handler(
                 .unwrap()
         })
         .collect::<Vec<_>>();
-    let delete = aws_sdk_s3::types::Delete::builder()
-        .set_objects(Some(keys))
-        .build()
-        .unwrap();
-    let deletion = state
-        .s3
-        .delete_objects()
-        .bucket(&repo.s3_bucket)
-        .delete(delete)
-        .send()
-        .await;
-    if let Err(err) = deletion {
-        tracing::error!("Failed to delete objects: {err:?}");
+    if !keys.is_empty() {
+        let delete = aws_sdk_s3::types::Delete::builder()
+            .set_objects(Some(keys))
+            .build()
+            .unwrap();
+        let deletion = state
+            .s3
+            .delete_objects()
+            .bucket(&repo.s3_bucket)
+            .delete(delete)
+            .send()
+            .await;
+        if let Err(err) = deletion {
+            tracing::error!("Failed to delete objects: {err:?}");
+        }
     }
 
     Ok(Json(SignIndexResponse {}))
