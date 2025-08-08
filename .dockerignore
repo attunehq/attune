@@ -15,3 +15,5 @@ postgres-data/
 README.md
 node_modules/
 target/
+
+!docker/migrate/prisma/migrations/*
