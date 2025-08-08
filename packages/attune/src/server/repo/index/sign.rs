@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
 };
 use base64::Engine as _;
+use itertools::Itertools;
 use lazy_regex::lazy_regex;
 use md5::{Digest as _, Md5};
 use pgp::composed::{
@@ -149,7 +150,8 @@ pub async fn handler(
     }
 
     // Save the new state to the database.
-    match req.change.action {
+    // The old hash values are for cleanup after uploading new content.
+    let old_hashes = match req.change.action {
         PackageChangeAction::Add { .. } => {
             // First, we update-or-create the Release. Remember, it's possible that no
             // package has ever been added to this distribution, so the Release may not
@@ -346,6 +348,24 @@ pub async fn handler(
             };
 
             // Then, we update-or-create the Packages index of the changed package.
+            // First, capture the current hash values for cleanup purposes
+            let current_hashes = sqlx::query!(
+                r#"
+                SELECT md5sum, sha1sum, sha256sum
+                FROM debian_repository_index_packages
+                WHERE
+                    component_id = $1
+                    AND architecture = $2::debian_repository_architecture
+                    AND compression IS NULL
+                LIMIT 1
+                "#,
+                component_id,
+                result.changed_packages_index.meta.architecture as _,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap();
+
             match sqlx::query!(
                 r#"
                 SELECT id
@@ -472,6 +492,8 @@ pub async fn handler(
             .execute(&mut *tx)
             .await
             .unwrap();
+
+            current_hashes.map(|hashes| (hashes.md5sum, hashes.sha1sum, hashes.sha256sum))
         }
         PackageChangeAction::Remove {
             ref name,
@@ -516,6 +538,24 @@ pub async fn handler(
                 "COMPONENT_NOT_FOUND".to_string(),
                 "component not found".to_string(),
             ))?;
+
+            // Capture the current hash values for cleanup purposes before any changes
+            let current_hashes = sqlx::query!(
+                r#"
+                SELECT md5sum, sha1sum, sha256sum
+                FROM debian_repository_index_packages
+                WHERE
+                    component_id = $1
+                    AND architecture = $2::debian_repository_architecture
+                    AND compression IS NULL
+                LIMIT 1
+                "#,
+                component_package.component_id,
+                architecture as _,
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .unwrap();
 
             // Delete the component-package.
             sqlx::query!(
@@ -604,8 +644,9 @@ pub async fn handler(
             // pointing to the release file, and we don't want them to be
             // broken. The error they should get from APT is "package missing",
             // rather than "repository not found".
+            current_hashes.map(|hashes| (hashes.md5sum, hashes.sha1sum, hashes.sha256sum))
         }
-    }
+    };
 
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
@@ -633,19 +674,24 @@ pub async fn handler(
     // pool.
     match req.change.action {
         PackageChangeAction::Add { .. } => {
+            let source_key = format!(
+                "{}/packages/{}",
+                result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
+            );
+            let destination_key = format!("{}/{}", repo.s3_prefix, result.changed_package.filename);
+
+            tracing::debug!(
+                ?source_key,
+                ?destination_key,
+                "copy package from pool storage",
+            );
+
             state
                 .s3
                 .copy_object()
                 .bucket(&repo.s3_bucket)
-                .key(format!(
-                    "{}/{}",
-                    repo.s3_prefix, result.changed_package.filename
-                ))
-                .copy_source(format!(
-                    "{}/packages/{}",
-                    result.changed_package.package.s3_bucket,
-                    result.changed_package.package.sha256sum,
-                ))
+                .key(destination_key)
+                .copy_source(source_key)
                 .send()
                 .await
                 .unwrap();
@@ -704,11 +750,13 @@ pub async fn handler(
 
             // Delete the pool file from S3 if it's fully orphaned.
             if remaining_component_packages.count == 0 {
+                let key = format!("{}/{}", repo.s3_prefix, pool_filename);
+                tracing::debug!(?key, "deleting pool file");
                 state
                     .s3
                     .delete_object()
                     .bucket(&repo.s3_bucket)
-                    .key(format!("{}/{}", repo.s3_prefix, pool_filename))
+                    .key(key)
                     .send()
                     .await
                     .unwrap();
@@ -716,121 +764,208 @@ pub async fn handler(
         }
     }
 
-    // Upload the updated Packages index file.
-    if result.changed_packages_index.contents.is_empty() {
-        state
-            .s3
-            .delete_object()
-            .bucket(&repo.s3_bucket)
-            .key(format!(
+    // Upload the updated package index files to standard path and all by-hash paths concurrently.
+    // Index modifications are split on both sides of the release file upload:
+    // - Before release files are uploaded, we upload new index contents.
+    // - After release files are uploaded, we delete old index contents.
+    //
+    // The intention here is that the current release file _always points to valid files_.
+    let by_hash_prefix = format!(
+        "{}/dists/{}/{}/binary-{}/by-hash",
+        repo.s3_prefix,
+        req.change.distribution,
+        result.changed_packages_index.meta.component,
+        result.changed_packages_index.meta.architecture
+    );
+    if !result.changed_packages_index.contents.is_empty() {
+        let uploads = [
+            format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
                 result.changed_packages_index.meta.component,
                 result.changed_packages_index.meta.architecture
-            ))
-            .send()
-            .await
-            .unwrap();
-    } else {
+            ),
+            format!(
+                "{}/SHA256/{}",
+                by_hash_prefix, result.changed_packages_index.meta.sha256sum
+            ),
+            format!(
+                "{}/SHA1/{}",
+                by_hash_prefix, result.changed_packages_index.meta.sha1sum
+            ),
+            format!(
+                "{}/MD5Sum/{}",
+                by_hash_prefix, result.changed_packages_index.meta.md5sum
+            ),
+        ]
+        .into_iter()
+        .map(|key: String| {
+            let s3 = state.s3.clone();
+            let bucket = repo.s3_bucket.clone();
+            let contents = result.changed_packages_index.contents.clone();
+            let sha256sum = result.changed_packages_index.meta.sha256sum.clone();
+
+            async move {
+                tracing::debug!(?key, content = %contents, "uploading index file");
+                s3.put_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .content_md5(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(Md5::digest(contents.as_bytes())),
+                    )
+                    .checksum_algorithm(ChecksumAlgorithm::Sha256)
+                    .checksum_sha256(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(hex::decode(&sha256sum).unwrap()),
+                    )
+                    .body(contents.as_bytes().to_vec().into())
+                    .send()
+                    .await
+            }
+        });
+        for upload in futures_util::future::join_all(uploads).await {
+            upload.unwrap();
+        }
+    }
+
+    // Upload the updated Release files. This must happen after package uploads
+    // and index uploads so that all files are in place for Acquire-By-Hash.
+    let uploads = [
+        (
+            format!(
+                "{}/dists/{}/InRelease",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.clearsigned.as_bytes().to_vec(),
+        ),
+        (
+            format!(
+                "{}/dists/{}/Release",
+                repo.s3_prefix, req.change.distribution
+            ),
+            result.release_file.contents.as_bytes().to_vec(),
+        ),
+        (
+            format!(
+                "{}/dists/{}/Release.gpg",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.detachsigned.as_bytes().to_vec(),
+        ),
+    ]
+    .into_iter()
+    .map(|(key, content)| {
+        tracing::debug!(?key, content = %String::from_utf8_lossy(&content), "uploading release file");
         state
             .s3
             .put_object()
             .bucket(&repo.s3_bucket)
-            .key(format!(
+            .key(key)
+            .content_md5(base64::engine::general_purpose::STANDARD.encode(Md5::digest(&content)))
+            .checksum_algorithm(ChecksumAlgorithm::Sha256)
+            .checksum_sha256(
+                base64::engine::general_purpose::STANDARD.encode(Sha256::digest(&content)),
+            )
+            .body(content.into())
+            .send()
+    });
+    for upload in futures_util::future::join_all(uploads).await {
+        upload.unwrap();
+    }
+
+    // Now we can do deletions: the release files are uploaded and are no longer pointing at the items
+    // that we're about to delete.
+    //
+    // There are two conditions that trigger deletion:
+    // - If the index is empty, we delete the Packages file and all by-hash objects, because they've been removed.
+    // - Additionally, if the hashes have changed in the latest index, we delete the old by-hash objects.
+    //
+    // These two sets may overlap, but that's ok: we'll just dedupe them.
+    let delete_via_empty_index = match result.changed_packages_index.contents.is_empty() {
+        false => Vec::new(),
+        true => vec![
+            format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
                 result.changed_packages_index.meta.component,
                 result.changed_packages_index.meta.architecture
-            ))
-            .content_md5(
-                base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                    result.changed_packages_index.contents.as_bytes(),
-                )),
-            )
-            .checksum_algorithm(ChecksumAlgorithm::Sha256)
-            .checksum_sha256(
-                base64::engine::general_purpose::STANDARD
-                    .encode(hex::decode(&result.changed_packages_index.meta.sha256sum).unwrap()),
-            )
-            .body(
-                result
-                    .changed_packages_index
-                    .contents
-                    .as_bytes()
-                    .to_vec()
-                    .into(),
-            )
-            .send()
-            .await
+            ),
+            format!(
+                "{}/SHA256/{}",
+                by_hash_prefix, result.changed_packages_index.meta.sha256sum
+            ),
+            format!(
+                "{}/SHA1/{}",
+                by_hash_prefix, result.changed_packages_index.meta.sha1sum
+            ),
+            format!(
+                "{}/MD5Sum/{}",
+                by_hash_prefix, result.changed_packages_index.meta.md5sum
+            ),
+        ],
+    };
+    let delete_via_hash_change = match old_hashes {
+        None => Vec::new(),
+        Some((old_md5, old_sha1, old_sha256)) => [
+            (
+                old_md5,
+                &result.changed_packages_index.meta.md5sum,
+                "MD5Sum",
+            ),
+            (
+                old_sha1,
+                &result.changed_packages_index.meta.sha1sum,
+                "SHA1",
+            ),
+            (
+                old_sha256,
+                &result.changed_packages_index.meta.sha256sum,
+                "SHA256",
+            ),
+        ]
+        .into_iter()
+        .filter(|(old_hash, new_hash, _)| &old_hash != new_hash)
+        .map(|(old_hash, _, hash_type)| format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
+        .collect::<Vec<_>>(),
+    };
+    tracing::debug!(
+        ?delete_via_empty_index,
+        ?delete_via_hash_change,
+        "deletions",
+    );
+
+    // Now we just dedupe the two sets and delete them in one go.
+    // S3 only allows up to 1000 objects per delete request, but we're dealing with low ones of keys.
+    let keys = delete_via_empty_index
+        .into_iter()
+        .chain(delete_via_hash_change.into_iter())
+        .unique()
+        .map(|key| {
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key(key)
+                .build()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    if !keys.is_empty() {
+        let delete = aws_sdk_s3::types::Delete::builder()
+            .set_objects(Some(keys))
+            .build()
             .unwrap();
+        let deletion = state
+            .s3
+            .delete_objects()
+            .bucket(&repo.s3_bucket)
+            .delete(delete)
+            .send()
+            .await;
+        if let Err(err) = deletion {
+            tracing::error!("Failed to delete objects: {err:?}");
+        }
     }
-    // Upload the updated Release files. This must happen after package uploads
-    // and index uploads so that all files are in place for Acquire-By-Hash.
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/InRelease",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.clearsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.clearsigned.as_bytes())),
-        )
-        .body(req.clearsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(result.release_file.contents.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(result.release_file.contents.as_bytes())),
-        )
-        .body(result.release_file.contents.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    state
-        .s3
-        .put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release.gpg",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.detachsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.detachsigned.as_bytes())),
-        )
-        .body(req.detachsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
 
     Ok(Json(SignIndexResponse {}))
 }
