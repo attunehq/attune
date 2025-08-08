@@ -4,41 +4,81 @@ Attune is a tool for securely publishing and hosting Linux packages.
 
 For a quick start guide to get up and running in 5 minutes, see the [Quick Start section in the main README](../../README.md#quick-start).
 
-If you are self-hosting Attune, check out our [self-hosting guide](./self-hosting.md).
+> [!NOTE]
+> This guide is for **Attune Cloud** users. Are you using a self-hosted Attune instance? Check out our [self-hosting guide](./self-hosting.md) instead.
 
-## Getting the CLI
+<!-- TODO: Maybe we should move Cloud documentation to the docs site, and instead spotlight the self-hosting documentation? -->
 
-Download the CLI from [GitHub Releases](https://github.com/attunehq/attune/releases).
+## Getting Started
 
-## Authenticating with the CLI
+Download the `attune` CLI from [GitHub Releases](https://github.com/attunehq/attune/releases).
 
-Set `ATTUNE_API_TOKEN` to your provided API token.
-
-<details>
-<summary>Additional setup for self-hosting</summary>
-
-If you're self-hosting, use the same `ATTUNE_API_TOKEN` as the one you set for your control plane. You'll also need to set `ATTUNE_API_ENDPOINT` to the base URL of your control plane (e.g. `http://localhost:3000`).
-
-</details>
+Once that's ready, you'll need to set your `$ATTUNE_API_TOKEN` environment variable to the API token that you received during signup.
 
 ## Publishing packages
 
-Once everything is set up, here's how you can publish a package:
+### Basic concepts
 
-1. Create a repository using `attune repo create`. You'll need to pass some repository fields as flags. These are defined by [the Debian repository format for Release files](https://wiki.debian.org/DebianRepository/Format#A.22Release.22_files). If you're self-hosting, you can set `uri` to anything.
-2. Once created, you should be able to see your repository with `attune repo list`.
-3. Now you can add packages with `attune repo pkg add`. This uploads the package to the backend, which stores it in a _staging area_ in your object storage.
-4. Once you're done adding packages, you can use `attune repo sync` to publish the repository. This will require you to provide an ASCII-armored GPG private key file for signing the indexes. You can generate this file using `gpg --armor --export-secret-keys $KEYID`, where `$KEYID` is from `gpg --list-secret-keys`.
+Every APT package is stored in a _repository_. This is what your users will ultimately install your packages from.
 
-   During this step, Attune will generate your repository indexes, sign them locally on the CLI, and then upload the new indexes and staged packages into the active release area of your object storage bucket.
+Your account should come provisioned with a default repository. You can view it using:
 
-That's it! Your packages have now been published.
+```bash
+$ attune apt repo list
+```
 
-## Testing your Linux repository
+This repository is tied to the subdomain configured during signup. When you publish packages to this repository, they'll be available at your configured subdomain.
 
-If you want to test your new repository:
+Each repository is also split into a set of _distributions_ and a set of _components_. For complicated projects, these can be used to group your packages. For example, you might want to have a different distribution for each version line of your package, or a `stable` distribution separate from a `canary` one.
 
-1. Start a new Debian container using `docker run -it --rm --network=host debian /bin/bash`.
-2. Run `echo 'deb YOUR_REPOSITORY_URI YOUR_DISTRIBUTION_NAME YOUR_COMPONENT_NAME' > /etc/apt/sources.list` to add your new repository to the list of sources in the Debian container. For example, if you're using Minio locally using our Docker Compose file, you might run `echo 'deb http://localhost:9000/your-bucket-name bookworm main' > /etc/apt/sources.list`.
-3. Copy the public key (from `gpg --armor --export $KEYID`) of the key that you signed your repository with into `/etc/apt/trusted.gpg.d/attune.asc`. This will tell APT to trust the key you signed the repository with.
-4. Now you can run `apt update` and then `apt install` one of the packages you published.
+**Most projects don't need these features.** By default, Attune provides smart defaults for these fields for you. You don't need to worry about them at all. If you want to set your own defaults, check out:
+
+```bash
+$ attune apt distribution --help
+```
+
+### Publishing packages
+
+In order to publish a package, you'll need the package file (i.e. a `.deb` file), and a GPG signing key for signing your repository indexes.
+
+If you don't have one, you can generate one using `gpg --generate-key`. **Keep this signing key safe!** Attackers who gain access to your signing key may attempt to construct fake repositories that appear real, and use that to phish your users into installing their malicious code. By default, Attune always signs locally, so your GPG key never leaves your machine. This is provides much less attack surface than cloud-hosted signing services.
+
+Once you have your package and GPG key, run:
+
+```bash
+$ attune apt package add \
+  --repo $YOUR_REPO_NAME \
+  --key-id $YOUR_GPG_KEY_ID \
+  $PATH_TO_YOUR_PACKAGE
+```
+
+And that's it! Your package has been published, and should be available on the Internet now.
+
+### Installing your published packages
+
+Now that your packages are published, your users can install them. For your users to install your packages, they'll need to configure their `apt` client to use your repository.
+
+First, they'll need to download your repository's public key and make it available to their `apt` keyring. To get your public key, use:
+
+```bash
+$ gpg --armor --export $YOUR_GPG_KEY_ID
+```
+
+You should name this file after your organization (e.g. `attune.asc`), and upload it somewhere that your users can access (e.g. your website). They'll need to add this file to their system in `/etc/apt/keyrings/`. For example, if you named your public key `example.asc`, your users would add it to `/etc/apt/keyrings/example.asc`.
+
+Next, they'll need to add the following line to `/etc/apt/sources.list`:
+
+```
+deb [signed-by=/etc/apt/keyrings/$YOUR_PUBLIC_KEY_FILE] $YOUR_REPOSITORY_URL $DISTRIBUTION $COMPONENT
+```
+
+> [!TIP]
+> If you didn't specify a distribution and component name when you uploaded your package, then your default distribution name is `stable` and your default component name is `main`.
+
+For example, if your key was named `example.asc`, your repository URL was `apt.example.attunehq.com/debian`, and you used the default distribution and component, your users might add:
+
+```
+deb [signed-by=/etc/apt/keyrings/example.asc] apt.example.attunehq.com/debian stable main
+```
+
+Once this is done, they can run `apt update` to update their package list, and then `apt install` to install your package.

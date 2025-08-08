@@ -1,22 +1,24 @@
-# Attune Publishing Self-Hosting Guide
+# Attune Self-Hosting Guide
 
-This guide provides detailed steps for self-hosting Attune Publishing.
+Self-hosting Attune is more involved than using Attune Cloud.
+
+This guide will assume you understand the basics of Debian package repositories and hosting. If you need to brush up, check out the sections in the [user guide](./README.md) about publishing packages.
 
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
 
-- **Docker**: Required for running the Attune control plane and required services (PostgreSQL and MinIO)
-- **Go**: Required for building the Attune CLI
+- **Docker**: Required for running the Attune control plane and required services (PostgreSQL and MinIO).
+- **Rust**: Required for building the Attune CLI.
 
-## 1. Clone the Repository
+## 1. Clone the repository
 
 ```bash
 git clone https://github.com/attunehq/attune.git
 cd attune
 ```
 
-## 2. Set Up Environment Variables
+## 2. Set up environment variables
 
 Copy the example environment file and modify it as needed:
 
@@ -26,20 +28,20 @@ cp .env.example .env
 
 Make sure the values in the `.env` file match your local setup. The defaults should work with the Docker Compose configuration.
 
-Consider using direnv](https://direnv.net/) to manage environment variables.
+We use [`direnv`](https://direnv.net/) to manage environment variables, but you can use whatever solution works for you.
 
-## 3. Spin Up Docker Containers
+## 3. Spin up Docker containers
 
 Start the Attune control plane, PostgreSQL and MinIO in the background:
 
 ```bash
-docker compose up -d
+docker compose up --detach
 ```
 
 This will start:
-- Attune control plane on port 3000
-- PostgreSQL on port 5432 (default credentials: attune/attune)
-- MinIO on ports 9000/9001 (default credentials: attuneminio/attuneminio)
+- Attune control plane on port `3000`
+- PostgreSQL on port `5432` (default credentials: `attune`/`attune`)
+- MinIO on ports `9000`/`9001` (default credentials: `attuneminio`/`attuneminio`)
 
 You can check if the containers are running with:
 
@@ -47,55 +49,38 @@ You can check if the containers are running with:
 docker compose ps
 ```
 
-## 4. Build and Install the CLI
-
-Navigate to the CLI directory and build the Go binary:
+You can also check the logs with:
 
 ```bash
-cd cli
-go build -o attune ./cmd/attune
+docker compose logs --follow
 ```
 
-Move the CLI binary to your Go path:
+## 4. Build and install the CLI
+
+You can build and install the CLI with:
 
 ```bash
-mv attune ~/go/bin
+cargo install --path ./packages/attune
 ```
 
-Make sure `~/go/bin` is in your PATH. If not, add it:
+By default, this installs the binary into `$HOME/.cargo/bin`, so make sure that directory is in your `$PATH`.
 
-```bash
-export PATH=$PATH:~/go/bin
-```
+## 5. Publish packages
 
-## 5. Generate a GPG Key
+Now you can follow the [publishing packages](./README.md#publishing-packages) section in the user guide!
 
-This step is only required if you don't already have a GPG key.
+There are some small key differences to be aware of:
 
-```bash
-gpg --generate-key
-```
+1. When running the CLI, your `$ATTUNE_API_TOKEN` should be set to the same value that the control plane has (i.e. the same value as the one in `.env`).
+2. When running the CLI, you will additionally need to set `$ATTUNE_API_ENDPOINT` to `http://localhost:3000`.
+3. You will _not_ have any repositories pre-provisioned for you. To start, you'll need to create one using:
 
-Get the key ID of the secret key you'd like to use to sign. This should be a 40 character hexadecimal string.
+   ```bash
+   attune apt repo create $YOUR_REPO_NAME
+   ```
 
-```bash
-gpg --list-secret-keys
-```
+   The repository's name can be anything, but every repository must have a unique name.
 
-## 6. Test Your Setup
+By default, Attune will publish packages to S3-compatible object storage, as configured via the `.env` file in the `AWS_*` environment variables and the `ATTUNE_S3_BUCKET_NAME` environment variable.
 
-Create a new Debian repository:
-
-```bash
-attune repo create -u 'http://localhost:9000/debian'
-```
-
-This should return a repository ID that you'll use in the next step.
-
-Add a package to your newly created repository:
-
-```bash
-attune repo -r 1 pkg add path-to-package -i gpg-key-id
-```
-
-Replace `1` with the repository ID from the previous step, `path-to-package` with the path to the package you want to add, and `gpg-key-id` with the key ID of the secret key you'd like to use to sign.
+Each repository has its own "S3 prefix" where its published repository files are stored. If you want to serve your repository on the internet, you can serve objects at this prefix (e.g. by using Amazon CloudFront with Amazon S3).
