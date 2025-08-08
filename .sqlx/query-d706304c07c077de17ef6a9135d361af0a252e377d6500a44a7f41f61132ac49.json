@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                debian_repository_package.package,\n                debian_repository_package.version,\n                debian_repository_package.architecture::TEXT AS \"architecture!: String\",\n                debian_repository_package.paragraph,\n                debian_repository_package.size,\n                debian_repository_package.s3_bucket,\n                debian_repository_package.md5sum,\n                debian_repository_package.sha1sum,\n                debian_repository_package.sha256sum,\n                debian_repository_component_package.filename\n            FROM\n                debian_repository\n                JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n                JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n                JOIN debian_repository_component_package ON debian_repository_component_package.component_id = debian_repository_component.id\n                JOIN debian_repository_package ON debian_repository_package.id = debian_repository_component_package.package_id\n            WHERE\n                debian_repository.tenant_id = $1\n                AND debian_repository.name = $2\n                AND debian_repository_release.distribution = $3\n                AND debian_repository_component.name = $4\n                AND debian_repository_package.architecture = $5::debian_repository_architecture\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "package",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "architecture!: String",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "paragraph",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "size",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "s3_bucket",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "md5sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "sha1sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "sha256sum",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "filename",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        {
+          "Custom": {
+            "name": "debian_repository_architecture",
+            "kind": {
+              "Enum": [
+                "amd64",
+                "arm64",
+                "armel",
+                "armhf",
+                "i386",
+                "ppc64el",
+                "riscv64",
+                "s390x",
+                "alpha",
+                "arm",
+                "avr32",
+                "hppa",
+                "hurd-i386",
+                "hurd-amd64",
+                "ia64",
+                "kfreebsd-amd64",
+                "kfreebsd-i386",
+                "loong64",
+                "m32",
+                "m68k",
+                "mips",
+                "mipsel",
+                "mips64el",
+                "netbsd-i386",
+                "netbsd-alpha",
+                "or1k",
+                "powerpc",
+                "powerpcspe",
+                "ppc64",
+                "s390",
+                "sparc",
+                "sparc64",
+                "sh4",
+                "x32"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d706304c07c077de17ef6a9135d361af0a252e377d6500a44a7f41f61132ac49"
+}

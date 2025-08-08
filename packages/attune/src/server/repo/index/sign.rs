@@ -6,6 +6,7 @@ use axum::{
 };
 use base64::Engine as _;
 use itertools::Itertools;
+use lazy_regex::lazy_regex;
 use md5::{Digest as _, Md5};
 use pgp::composed::{
     CleartextSignedMessage, Deserializable as _, SignedPublicKey, StandaloneSignature,
@@ -16,8 +17,7 @@ use time::OffsetDateTime;
 use tracing::{debug, instrument};
 
 use crate::{
-    api::ErrorResponse,
-    auth::TenantID,
+    api::{ErrorResponse, TenantID},
     server::{
         ServerState,
         repo::{
@@ -58,6 +58,16 @@ pub async fn handler(
             StatusCode::BAD_REQUEST,
             "REPOSITORY_MISMATCH".to_string(),
             "repository name in path does not match repository name in request".to_string(),
+        ));
+    }
+
+    if !lazy_regex!(r"^[a-zA-Z0-9_-]+$").is_match(&req.change.component) {
+        return Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            String::from("INVALID_COMPONENT_NAME"),
+            String::from(
+                "component name must contain only letters, numbers, underscores, and hyphens",
+            ),
         ));
     }
 
@@ -179,12 +189,12 @@ pub async fn handler(
                 Some(release) => {
                     // If the release already exists, check whether any fields need to
                     // be updated. If so, update them.
-                    if release.description != result.release_file.release.description ||
-                        release.origin != result.release_file.release.origin ||
-                        release.label != result.release_file.release.label ||
-                        release.version != result.release_file.release.version ||
-                        release.suite != result.release_file.release.suite ||
-                        release.codename != result.release_file.release.codename ||
+                    if release.description != result.release_file.meta.description ||
+                        release.origin != result.release_file.meta.origin ||
+                        release.label != result.release_file.meta.label ||
+                        release.version != result.release_file.meta.version ||
+                        release.suite != result.release_file.meta.suite ||
+                        release.codename != result.release_file.meta.codename ||
                         release.contents != result.release_file.contents ||
                         release.clearsigned.is_none() ||
                         release.clearsigned.is_some_and(|clearsigned| clearsigned != req.clearsigned) ||
@@ -209,12 +219,12 @@ pub async fn handler(
                                 id = $1
                             "#,
                             release.id,
-                            result.release_file.release.description,
-                            result.release_file.release.origin,
-                            result.release_file.release.label,
-                            result.release_file.release.version,
-                            result.release_file.release.suite,
-                            result.release_file.release.codename,
+                            result.release_file.meta.description,
+                            result.release_file.meta.origin,
+                            result.release_file.meta.label,
+                            result.release_file.meta.version,
+                            result.release_file.meta.suite,
+                            result.release_file.meta.codename,
                             result.release_file.contents,
                             req.clearsigned,
                             req.detachsigned,
@@ -277,12 +287,12 @@ pub async fn handler(
                         "#,
                         repo.id,
                         req.change.distribution,
-                        result.release_file.release.description,
-                        result.release_file.release.origin,
-                        result.release_file.release.label,
-                        result.release_file.release.version,
-                        result.release_file.release.suite,
-                        result.release_file.release.codename,
+                        result.release_file.meta.description,
+                        result.release_file.meta.origin,
+                        result.release_file.meta.label,
+                        result.release_file.meta.version,
+                        result.release_file.meta.suite,
+                        result.release_file.meta.codename,
                         result.release_file.contents,
                         req.clearsigned,
                         req.detachsigned,
@@ -367,7 +377,7 @@ pub async fn handler(
                 LIMIT 1
                 "#,
                 component_id,
-                result.changed_packages_index.architecture as _,
+                result.changed_packages_index.meta.architecture as _,
             )
             .fetch_optional(&mut *tx)
             .await
@@ -389,11 +399,11 @@ pub async fn handler(
                         WHERE id = $1
                         "#,
                         index.id,
-                        result.changed_packages_index_contents.as_bytes(),
-                        result.changed_packages_index.size,
-                        result.changed_packages_index.md5sum,
-                        result.changed_packages_index.sha1sum,
-                        result.changed_packages_index.sha256sum,
+                        result.changed_packages_index.contents.as_bytes(),
+                        result.changed_packages_index.meta.size,
+                        result.changed_packages_index.meta.md5sum,
+                        result.changed_packages_index.meta.sha1sum,
+                        result.changed_packages_index.meta.sha256sum,
                     )
                     .execute(&mut *tx)
                     .await
@@ -429,13 +439,13 @@ pub async fn handler(
                         )
                         "#,
                         component_id,
-                        result.changed_packages_index.architecture as _,
+                        result.changed_packages_index.meta.architecture as _,
                         // compression = NULL,
-                        result.changed_packages_index.size,
-                        result.changed_packages_index_contents.as_bytes(),
-                        result.changed_packages_index.md5sum,
-                        result.changed_packages_index.sha1sum,
-                        result.changed_packages_index.sha256sum,
+                        result.changed_packages_index.meta.size,
+                        result.changed_packages_index.contents.as_bytes(),
+                        result.changed_packages_index.meta.md5sum,
+                        result.changed_packages_index.meta.sha1sum,
+                        result.changed_packages_index.meta.sha256sum,
                     )
                     .execute(&mut *tx)
                     .await
@@ -563,7 +573,7 @@ pub async fn handler(
             .unwrap();
 
             // Update the Packages index, or delete if it's orphaned.
-            if result.changed_packages_index_contents.is_empty() {
+            if result.changed_packages_index.contents.is_empty() {
                 sqlx::query!(
                     r#"
                     DELETE FROM debian_repository_index_packages
@@ -592,11 +602,11 @@ pub async fn handler(
                         component_id = $6
                         AND architecture = $7::debian_repository_architecture
                     "#,
-                    result.changed_packages_index_contents.as_bytes(),
-                    result.changed_packages_index.size,
-                    result.changed_packages_index.md5sum,
-                    result.changed_packages_index.sha1sum,
-                    result.changed_packages_index.sha256sum,
+                    result.changed_packages_index.contents.as_bytes(),
+                    result.changed_packages_index.meta.size,
+                    result.changed_packages_index.meta.md5sum,
+                    result.changed_packages_index.meta.sha1sum,
+                    result.changed_packages_index.meta.sha256sum,
                     component_package.component_id,
                     architecture as _,
                 )

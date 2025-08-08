@@ -28,6 +28,8 @@ pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {
                 .await
                 .expect("Could not parse response");
             let mut builder = tabled::builder::Builder::new();
+            // TODO: For EE or self-hosted users, should we display the
+            // repository S3 bucket and prefix as well?
             builder.push_record(["Name".to_string()]);
             for repo in repo.repositories {
                 builder.push_record([&repo.name]);
