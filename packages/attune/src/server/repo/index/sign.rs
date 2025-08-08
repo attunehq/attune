@@ -360,7 +360,7 @@ pub async fn handler(
                 LIMIT 1
                 "#,
                 component_id,
-                result.changed_packages_index.architecture as _,
+                result.changed_packages_index.meta.architecture as _,
             )
             .fetch_optional(&mut *tx)
             .await
@@ -767,37 +767,37 @@ pub async fn handler(
         "{}/dists/{}/{}/binary-{}/by-hash",
         repo.s3_prefix,
         req.change.distribution,
-        result.changed_packages_index.component,
-        result.changed_packages_index.architecture
+        result.changed_packages_index.meta.component,
+        result.changed_packages_index.meta.architecture
     );
-    if !result.changed_packages_index_contents.is_empty() {
+    if !result.changed_packages_index.contents.is_empty() {
         let uploads = [
             format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
+                result.changed_packages_index.meta.component,
+                result.changed_packages_index.meta.architecture
             ),
             format!(
                 "{}/SHA256/{}",
-                by_hash_prefix, result.changed_packages_index.sha256sum
+                by_hash_prefix, result.changed_packages_index.meta.sha256sum
             ),
             format!(
                 "{}/SHA1/{}",
-                by_hash_prefix, result.changed_packages_index.sha1sum
+                by_hash_prefix, result.changed_packages_index.meta.sha1sum
             ),
             format!(
                 "{}/MD5Sum/{}",
-                by_hash_prefix, result.changed_packages_index.md5sum
+                by_hash_prefix, result.changed_packages_index.meta.md5sum
             ),
         ]
         .into_iter()
         .map(|key: String| {
             let s3 = state.s3.clone();
             let bucket = repo.s3_bucket.clone();
-            let contents = result.changed_packages_index_contents.clone();
-            let sha256sum = result.changed_packages_index.sha256sum.clone();
+            let contents = result.changed_packages_index.contents.clone();
+            let sha256sum = result.changed_packages_index.meta.sha256sum.clone();
 
             async move {
                 s3.put_object()
@@ -874,38 +874,46 @@ pub async fn handler(
     // - Additionally, if the hashes have changed in the latest index, we delete the old by-hash objects.
     //
     // These two sets may overlap, but that's ok: we'll just dedupe them.
-    let delete_via_empty_index = match result.changed_packages_index_contents.is_empty() {
+    let delete_via_empty_index = match result.changed_packages_index.contents.is_empty() {
         true => Vec::new(),
         false => vec![
             format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
+                result.changed_packages_index.meta.component,
+                result.changed_packages_index.meta.architecture
             ),
             format!(
                 "{}/SHA256/{}",
-                by_hash_prefix, result.changed_packages_index.sha256sum
+                by_hash_prefix, result.changed_packages_index.meta.sha256sum
             ),
             format!(
                 "{}/SHA1/{}",
-                by_hash_prefix, result.changed_packages_index.sha1sum
+                by_hash_prefix, result.changed_packages_index.meta.sha1sum
             ),
             format!(
                 "{}/MD5Sum/{}",
-                by_hash_prefix, result.changed_packages_index.md5sum
+                by_hash_prefix, result.changed_packages_index.meta.md5sum
             ),
         ],
     };
     let delete_via_hash_change = match old_hashes {
         None => Vec::new(),
         Some((old_md5, old_sha1, old_sha256)) => [
-            (old_md5, &result.changed_packages_index.md5sum, "MD5Sum"),
-            (old_sha1, &result.changed_packages_index.sha1sum, "SHA1"),
+            (
+                old_md5,
+                &result.changed_packages_index.meta.md5sum,
+                "MD5Sum",
+            ),
+            (
+                old_sha1,
+                &result.changed_packages_index.meta.sha1sum,
+                "SHA1",
+            ),
             (
                 old_sha256,
-                &result.changed_packages_index.sha256sum,
+                &result.changed_packages_index.meta.sha256sum,
                 "SHA256",
             ),
         ]
