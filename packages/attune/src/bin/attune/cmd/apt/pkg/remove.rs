@@ -116,8 +116,6 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
     debug!(?public_key_cert, "public key cert");
 
     // Submit signatures.
-    //
-    // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
     let res = crate::http::post::<SignIndexResponse, _>(
         &ctx,
@@ -141,7 +139,6 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
             debug!("signed index");
             ExitCode::SUCCESS
         }
-        // TODO(#84): Handle 409 status code to signal retry.
         Err(error) => {
             eprintln!("Error signing index: {}", error.message);
             ExitCode::FAILURE
