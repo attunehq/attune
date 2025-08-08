@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use aws_sdk_s3::types::ChecksumAlgorithm;
 use axum::{
     Json,
@@ -5,6 +7,7 @@ use axum::{
     http::StatusCode,
 };
 use base64::Engine as _;
+use itertools::Itertools;
 use md5::{Digest as _, Md5};
 use pgp::composed::{
     CleartextSignedMessage, Deserializable as _, SignedPublicKey, StandaloneSignature,
@@ -746,7 +749,12 @@ pub async fn handler(
         }
     }
 
-    // Upload the updated Packages index file to standard path and all by-hash paths concurrently
+    // Upload the updated package index files to standard path and all by-hash paths concurrently.
+    // Index modifications are split on both sides of the release file upload:
+    // - Before release files are uploaded, we upload new index contents.
+    // - After release files are uploaded, we delete old index contents.
+    //
+    // The intention here is that the current release file _always points to valid files_.
     let by_hash_prefix = format!(
         "{}/dists/{}/{}/binary-{}/by-hash",
         repo.s3_prefix,
@@ -754,43 +762,7 @@ pub async fn handler(
         result.changed_packages_index.component,
         result.changed_packages_index.architecture
     );
-    if result.changed_packages_index_contents.is_empty() {
-        let deletions = [
-            format!(
-                "{}/dists/{}/{}/binary-{}/Packages",
-                repo.s3_prefix,
-                req.change.distribution,
-                result.changed_packages_index.component,
-                result.changed_packages_index.architecture
-            ),
-            format!(
-                "{}/SHA256/{}",
-                by_hash_prefix, result.changed_packages_index.sha256sum
-            ),
-            format!(
-                "{}/SHA1/{}",
-                by_hash_prefix, result.changed_packages_index.sha1sum
-            ),
-            format!(
-                "{}/MD5Sum/{}",
-                by_hash_prefix, result.changed_packages_index.md5sum
-            ),
-        ]
-        .into_iter()
-        .map(|key| {
-            state
-                .s3
-                .delete_object()
-                .bucket(&repo.s3_bucket)
-                .key(key)
-                .send()
-        });
-        for deletion in futures_util::future::join_all(deletions).await {
-            if let Err(err) = deletion {
-                tracing::warn!("Failed to delete object during index cleanup: {err:?}");
-            }
-        }
-    } else {
+    if !result.changed_packages_index_contents.is_empty() {
         let uploads = [
             format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
@@ -886,8 +858,41 @@ pub async fn handler(
         upload.unwrap();
     }
 
-    if let Some((old_md5, old_sha1, old_sha256)) = old_hashes {
-        let deletions = [
+    // Now we can do deletions: the release files are uploaded and are no longer pointing at the items
+    // that we're about to delete.
+    //
+    // There are two conditions that trigger deletion:
+    // - If the index is empty, we delete the Packages file and all by-hash objects, because they've been removed.
+    // - Additionally, if the hashes have changed in the latest index, we delete the old by-hash objects.
+    //
+    // These two sets may overlap, but that's ok: we'll just dedupe them.
+    let delete_via_empty_index = match result.changed_packages_index_contents.is_empty() {
+        true => Vec::new(),
+        false => vec![
+            format!(
+                "{}/dists/{}/{}/binary-{}/Packages",
+                repo.s3_prefix,
+                req.change.distribution,
+                result.changed_packages_index.component,
+                result.changed_packages_index.architecture
+            ),
+            format!(
+                "{}/SHA256/{}",
+                by_hash_prefix, result.changed_packages_index.sha256sum
+            ),
+            format!(
+                "{}/SHA1/{}",
+                by_hash_prefix, result.changed_packages_index.sha1sum
+            ),
+            format!(
+                "{}/MD5Sum/{}",
+                by_hash_prefix, result.changed_packages_index.md5sum
+            ),
+        ],
+    };
+    let delete_via_hash_change = match old_hashes {
+        None => Vec::new(),
+        Some((old_md5, old_sha1, old_sha256)) => [
             (old_md5, &result.changed_packages_index.md5sum, "MD5Sum"),
             (old_sha1, &result.changed_packages_index.sha1sum, "SHA1"),
             (
@@ -898,19 +903,36 @@ pub async fn handler(
         ]
         .into_iter()
         .filter(|(old_hash, new_hash, _)| &old_hash != new_hash)
-        .map(|(old_hash, _, hash_type)| {
-            state
-                .s3
-                .delete_object()
-                .bucket(&repo.s3_bucket)
-                .key(format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
-                .send()
-        });
-        for deletion in futures_util::future::join_all(deletions).await {
-            if let Err(err) = deletion {
-                tracing::warn!("Failed to delete old by-hash object: {err:?}");
-            }
-        }
+        .map(|(old_hash, _, hash_type)| format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
+        .collect::<Vec<_>>(),
+    };
+
+    // Now we just dedupe the two sets and delete them in one go.
+    // S3 only allows up to 1000 objects per delete request, but we're dealing with low ones of keys.
+    let keys = delete_via_empty_index
+        .into_iter()
+        .chain(delete_via_hash_change.into_iter())
+        .unique()
+        .map(|key| {
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key(key)
+                .build()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let delete = aws_sdk_s3::types::Delete::builder()
+        .set_objects(Some(keys))
+        .build()
+        .unwrap();
+    let deletion = state
+        .s3
+        .delete_objects()
+        .bucket(&repo.s3_bucket)
+        .delete(delete)
+        .send()
+        .await;
+    if let Err(err) = deletion {
+        tracing::error!("Failed to delete objects: {err:?}");
     }
 
     Ok(Json(SignIndexResponse {}))
