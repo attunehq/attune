@@ -54,51 +54,13 @@ pub async fn handler(
             .build()
     })?;
 
-    // We need two separate queries to handle different deletion scenarios:
-    //
-    // 1. Standard Packages files: These exist for every component/architecture combination
-    //    that has packages, regardless of whether an index was generated. We query through
-    //    the packages table to ensure we delete all standard Packages files.
-    //
-    // 2. By-hash objects: These only exist when package indexes have been generated and
-    //    uploaded with by-hash support. We need the exact hash values (md5sum, sha1sum,
-    //    sha256sum) from the index table to construct the precise S3 keys for deletion.
-    //    Simply knowing component/architecture isn't enough - we need the hash values.
-    //
-    // These queries may return different result sets: packages might exist without indexes
-    // (if index generation failed), or indexes might exist for different architectures
-    // than expected due to package additions/removals over time.
-
-    // NOTE: We'd like to run these queries concurrently with tokio::join!, but SQLx transactions
-    // can't be borrowed mutably by multiple futures simultaneously. This really sucks for performance
-    // since these are independent read-only queries that could easily run in parallel,
-    // but we can't really do anything about this without a larger change.
-    //
-    // Query all component/architecture combinations that have packages (for standard Packages files)
+    // Find all components and their indexes for this distribution.
+    // We need the index content hashes in order to delete by-hash objects.
     let components = sqlx::query!(
         r#"
         SELECT
-            c.name as component_name,
-            p.architecture::text as architecture
-        FROM debian_repository_release r
-        JOIN debian_repository_component c ON c.release_id = r.id
-        JOIN debian_repository_component_package cp ON cp.component_id = c.id
-        JOIN debian_repository_package p ON p.id = cp.package_id
-        WHERE r.repository_id = $1 AND r.distribution = $2
-        "#,
-        repo.id,
-        distribution_name,
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .unwrap();
-
-    // Query current package indexes with their hash values (for by-hash object deletion)
-    let index_hashes = sqlx::query!(
-        r#"
-        SELECT
-            c.name as component_name,
-            i.architecture::text as architecture,
+            c.name,
+            i.architecture::text as "architecture!: String",
             i.md5sum,
             i.sha1sum,
             i.sha256sum
@@ -168,29 +130,14 @@ pub async fn handler(
         ];
 
         // Deletes component metadata files.
-        keys.extend(components.iter().map(|record| {
-            let prefix = format!(
-                "{}/{}/binary-{}",
-                prefix,
-                record.component_name,
-                record.architecture.as_ref().unwrap().replace('_', "-")
-            );
+        keys.extend(components.iter().flat_map(|record| {
             // TODO(#94): When compressed indexes are implemented, add their deletion here.
-            format!("{prefix}/Packages")
-        }));
-
-        // Deletes by-hash objects.
-        keys.extend(index_hashes.iter().flat_map(|record| {
-            let arch = record.architecture.as_ref().unwrap().replace('_', "-");
-            let by_hash_prefix = format!(
-                "{}/{}/binary-{}/by-hash",
-                prefix, record.component_name, arch
-            );
-
+            let prefix = format!("{}/{}/binary-{}", prefix, record.name, record.architecture);
             [
-                format!("{}/SHA256/{}", by_hash_prefix, record.sha256sum),
-                format!("{}/SHA1/{}", by_hash_prefix, record.sha1sum),
-                format!("{}/MD5Sum/{}", by_hash_prefix, record.md5sum),
+                format!("{prefix}/Packages"),
+                format!("{prefix}/by-hash/SHA256/{}", record.sha256sum),
+                format!("{prefix}/by-hash/SHA1/{}", record.sha1sum),
+                format!("{prefix}/by-hash/MD5Sum/{}", record.md5sum),
             ]
         }));
 
