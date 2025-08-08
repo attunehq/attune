@@ -138,13 +138,9 @@ pub async fn handler(
         ));
     }
 
-    // We'll store old hash values for cleanup after uploading new content.
-    // This is pretty awkward to put here but without a larger refactor of the overall function
-    // there's not a dramatically better place.
-    let mut old_hashes = Option::<(String, String, String)>::None;
-
     // Save the new state to the database.
-    match req.change.action {
+    // The old hash values are for cleanup after uploading new content.
+    let old_hashes = match req.change.action {
         PackageChangeAction::Add { .. } => {
             // First, we update-or-create the Release. Remember, it's possible that no
             // package has ever been added to this distribution, so the Release may not
@@ -359,10 +355,6 @@ pub async fn handler(
             .await
             .unwrap();
 
-            if let Some(hashes) = current_hashes {
-                old_hashes = Some((hashes.md5sum, hashes.sha1sum, hashes.sha256sum));
-            }
-
             match sqlx::query!(
                 r#"
                 SELECT id
@@ -489,6 +481,8 @@ pub async fn handler(
             .execute(&mut *tx)
             .await
             .unwrap();
+
+            current_hashes.map(|hashes| (hashes.md5sum, hashes.sha1sum, hashes.sha256sum))
         }
         PackageChangeAction::Remove {
             ref name,
@@ -551,10 +545,6 @@ pub async fn handler(
             .fetch_optional(&mut *tx)
             .await
             .unwrap();
-
-            if let Some(hashes) = current_hashes {
-                old_hashes = Some((hashes.md5sum, hashes.sha1sum, hashes.sha256sum));
-            }
 
             // Delete the component-package.
             sqlx::query!(
@@ -644,8 +634,9 @@ pub async fn handler(
             // pointing to the release file, and we don't want them to be
             // broken. The error they should get from APT is "package missing",
             // rather than "repository not found".
+            current_hashes.map(|hashes| (hashes.md5sum, hashes.sha1sum, hashes.sha256sum))
         }
-    }
+    };
 
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
