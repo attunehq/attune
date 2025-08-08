@@ -12,7 +12,8 @@ on:
       - "**/*.lock"
       - "**/.gitignore"
       - "**/LICENSE"
-  merge_group: [checks_requested]
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
