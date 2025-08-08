@@ -31,12 +31,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: docker-metadata
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
       - name: Build Docker image to test
         id: docker-build
         uses: docker/build-push-action@v6
@@ -44,8 +38,8 @@ jobs:
           context: .
           file: ./docker/attune/Dockerfile
           push: false
-          tags: ${{ steps.docker-metadata.outputs.tags }}
-          labels: ${{ steps.docker-metadata.outputs.labels }}
+          tags: local-test
+          labels: local-test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
