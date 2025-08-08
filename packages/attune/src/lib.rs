@@ -1,5 +1,5 @@
 pub mod api;
-pub mod auth;
+pub mod apt;
 pub mod server;
 
 // Generate static migrator from Prisma migrations.

@@ -18,7 +18,10 @@ use sha2::Sha256;
 use sqlx::{Executor, Postgres, types::JsonValue};
 use tracing::instrument;
 
-use crate::{api::ErrorResponse, auth::TenantID, server::ServerState};
+use crate::{
+    api::{ErrorResponse, TenantID},
+    server::ServerState,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PackageUploadResponse {

@@ -8,8 +8,7 @@ use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    api::ErrorResponse,
-    auth::TenantID,
+    api::{ErrorResponse, TenantID},
     server::{
         ServerState,
         repo::{

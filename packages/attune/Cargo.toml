@@ -17,6 +17,7 @@ clap.workspace = true
 colored.workspace = true
 debian-packaging.workspace = true
 derive_more.workspace = true
+derivative.workspace = true
 digest.workspace = true
 gpgme.workspace = true
 hex.workspace = true
