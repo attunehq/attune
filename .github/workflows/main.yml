@@ -36,6 +36,7 @@ jobs:
       attestations: write
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+      DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
     services:
       postgres:
         image: postgres:17.4-bookworm
