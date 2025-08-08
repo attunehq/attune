@@ -12,6 +12,7 @@ on:
       - "**/*.lock"
       - "**/.gitignore"
       - "**/LICENSE"
+  merge_group: [checks_requested]
   workflow_dispatch:
 
 concurrency:
