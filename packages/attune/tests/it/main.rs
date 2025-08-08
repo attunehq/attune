@@ -4,7 +4,7 @@ use aws_config::BehaviorVersion;
 use axum_test::TestServer;
 use time::OffsetDateTime;
 
-#[sqlx::test(migrator = "attune::MIGRATOR")]
+#[sqlx::test(migrator = "attune::testing::MIGRATOR")]
 async fn migrations_applied(pool: sqlx::PgPool) {
     let table_exists = sqlx::query!(
         "SELECT EXISTS (
@@ -80,7 +80,7 @@ impl AttuneTestServer {
     }
 }
 
-#[sqlx::test(migrator = "attune::MIGRATOR")]
+#[sqlx::test(migrator = "attune::testing::MIGRATOR")]
 async fn component_name_validation(pool: sqlx::PgPool) {
     let server = AttuneTestServer::new(pool).await;
 

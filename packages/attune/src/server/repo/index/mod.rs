@@ -238,7 +238,7 @@ mod tests {
     /// indexes.
     ///
     /// This is a regression test for #105.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn packages_separated_by_architecture(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);
@@ -310,7 +310,7 @@ mod tests {
     }
 
     /// Removing all packages from an architecture results in an empty index.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn remove_all_packages_for_architecture(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);
@@ -358,7 +358,7 @@ mod tests {
     }
 
     /// The release file should list all architecture indexes.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn release_file_lists_all_architectures(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);

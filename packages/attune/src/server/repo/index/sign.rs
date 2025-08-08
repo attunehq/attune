@@ -182,16 +182,7 @@ async fn apply_change_to_db(
             ref version,
             ref architecture,
         } => {
-            remove_package_from_db(
-                tx,
-                tenant_id,
-                req,
-                &result,
-                name,
-                version,
-                architecture,
-            )
-            .await;
+            remove_package_from_db(tx, tenant_id, req, &result, name, version, architecture).await;
         }
     }
 
@@ -798,4 +789,205 @@ async fn apply_change_to_s3(
         .send()
         .await
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    // use tokio::{fs::File, io};
+
+    use crate::testing::AttuneTestServer;
+
+    use super::*;
+
+    async fn setup_empty_repo(pool: &sqlx::PgPool, test_name: &str) {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query!(
+            r#"
+            INSERT INTO attune_tenant (
+                id, display_name, subdomain, created_at, updated_at
+            ) VALUES (
+                1, 'TEST_TENANT', 'test', NOW(), NOW()
+            )
+        "#
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query!(
+            r#"
+            INSERT INTO debian_repository (
+                id, tenant_id, name, s3_bucket, s3_prefix, created_at, updated_at
+            ) VALUES (
+                1000, 1, $1, 'attune-dev-0', $2, NOW(), NOW()
+            )
+        "#,
+            test_name,
+            format!("1/{}", test_name)
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    // static TEST_PACKAGE: &str = "/tmp/attune-test-package_2.0.0_linux_amd64.deb";
+
+    // async fn get_test_package() {
+    //     let expected_sha256sum = "7cc31c4aff9793961f9cede87f01d8d8c205f75adc6fab62513cd06f354d36a2";
+    //     let res = reqwest::get("https://github.com/attunehq/attune-test-package/releases/download/v2.0.0/attune-test-package_2.0.0_linux_amd64.deb")
+    //         .await
+    //         .unwrap();
+    //     let body = res.bytes().await.unwrap();
+    //     let mut tmpfile = File::create(TEST_PACKAGE_PATH)
+    //         .await
+    //         .unwrap();
+    //     io::copy(&mut body.as_ref(), &mut tmpfile).await.unwrap();
+    // }
+
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    async fn resync_mitigates_partial_upload(pool: sqlx::PgPool) {
+        // Set up an empty repository.
+        setup_empty_repo(&pool, "resync_mitigates_partial_upload").await;
+
+        // Upload a package.
+
+        // Generate an index to sign.
+
+        // Sign the index.
+
+        // Partially upload the index changes.
+
+        // Check that we can detect the desynchronization.
+
+        // Resync the repository.
+
+        // Check that the repository is synchronized.
+        todo!()
+    }
+
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    async fn resync_mitigates_out_of_order_upload(pool: sqlx::PgPool) {
+        // Set up an empty repository.
+        setup_empty_repo(&pool, "resync_mitigates_out_of_order_upload").await;
+
+        // Add package 1 to the database.
+
+        // Add package 2 to the database.
+
+        // Upload package 2 to the repository.
+
+        // Upload package 1 to the repository.
+
+        // Check that we can detect the desynchronization.
+
+        // Resync the repository.
+
+        // Check that the repository is synchronized.
+        todo!()
+    }
+
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    async fn reject_invalid_component_names(pool: sqlx::PgPool) {
+        let server = AttuneTestServer::new(pool).await;
+
+        let create_repo = server
+            .http
+            .post("/api/v0/repositories")
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .json(&serde_json::json!({
+                "name": "test-repo",
+                "s3_bucket": server.s3_bucket_name,
+                "s3_prefix": "test"
+            }))
+            .await;
+        assert!(
+            create_repo.status_code().is_success(),
+            "Repository creation failed with status: {}",
+            create_repo.status_code()
+        );
+
+        let invalid_components = [
+            "comp with spaces",
+            "comp@special",
+            "comp#hash",
+            "comp.dot",
+            "comp/slash",
+            "",
+        ];
+        for invalid_component in invalid_components {
+            let sign_request = SignIndexRequest {
+                change: PackageChange {
+                    repository: String::from("test-repo"),
+                    distribution: String::from("stable"),
+                    component: String::from(invalid_component),
+                    action: PackageChangeAction::Add {
+                        package_sha256sum: String::from("dummy-sha256sum"),
+                    },
+                },
+                release_ts: OffsetDateTime::now_utc(),
+                clearsigned: String::from("dummy-clearsigned"),
+                detachsigned: String::from("dummy-detachsigned"),
+                public_key_cert: String::from("dummy-public-key"),
+            };
+
+            let response = server
+                .http
+                .post("/api/v0/repositories/test-repo/index")
+                .add_header("authorization", format!("Bearer {}", server.http_api_token))
+                .json(&sign_request)
+                .await;
+            assert_eq!(
+                response.status_code(),
+                400,
+                "Invalid component name should return 400"
+            );
+
+            let error: ErrorResponse = response.json();
+            assert_eq!(error.error, "INVALID_COMPONENT_NAME");
+            assert!(
+                error
+                    .message
+                    .contains("must contain only letters, numbers, underscores, and hyphens")
+            );
+        }
+
+        // Test valid component names (these should get further before failing due to dummy data)
+        let valid_components = [
+            "main",
+            "contrib",
+            "non-free",
+            "my_component",
+            "comp123",
+            "test-component",
+        ];
+        for valid_component in valid_components {
+            let sign_request = SignIndexRequest {
+                change: PackageChange {
+                    repository: String::from("test-repo"),
+                    distribution: String::from("stable"),
+                    component: String::from(valid_component),
+                    action: PackageChangeAction::Add {
+                        package_sha256sum: String::from("dummy-sha256sum"),
+                    },
+                },
+                release_ts: OffsetDateTime::now_utc(),
+                clearsigned: String::from("dummy-clearsigned"),
+                detachsigned: String::from("dummy-detachsigned"),
+                public_key_cert: String::from("dummy-public-key"),
+            };
+            let response = server
+                .http
+                .post("/api/v0/repositories/test-repo/index")
+                .add_header("authorization", format!("Bearer {}", server.http_api_token))
+                .json(&sign_request)
+                .await;
+
+            // These should not fail with INVALID_COMPONENT_NAME (although they will fail due to dummy data)
+            let body = response.json::<ErrorResponse>();
+            assert_ne!(
+                body.error, "INVALID_COMPONENT_NAME",
+                "Valid component '{valid_component}' should not be rejected with INVALID_COMPONENT_NAME",
+            );
+        }
+    }
 }
