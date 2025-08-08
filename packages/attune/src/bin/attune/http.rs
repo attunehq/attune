@@ -20,7 +20,7 @@ pub const DEFAULT_ATTEMPTS: NonZeroUsize = nonzero!(3usize);
 /// ```no_run
 /// use crate::http::{get, post, NoBody};
 /// use crate::config::Config;
-/// 
+///
 /// # async fn example(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 /// // GET request with no request body:
 /// let response = get::<ResponseType, _>(&config, "/api/v0/data", &NoBody).await?;
@@ -178,7 +178,6 @@ pub async fn delete<T: DeserializeOwned>(
     })
     .await
 }
-
 
 /// Convenience method for GET requests with query parameters.
 ///
@@ -360,7 +359,7 @@ fn should_retry_response(code: StatusCode) -> bool {
 
     matches!(
         code,
-        StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
+        StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS | StatusCode::CONFLICT
     )
 }
 
