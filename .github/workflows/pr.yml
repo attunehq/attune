@@ -157,6 +157,10 @@ jobs:
       - name: Build CLI
         run: cargo build --release --bin attune
 
+      - name: Setup tmate session for debugging
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 300
+
       - name: Run smoke tests
         env:
           ATTUNE_CLI_PATH: ${{ github.workspace }}/target/release/attune
