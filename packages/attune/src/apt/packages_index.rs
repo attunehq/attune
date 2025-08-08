@@ -182,15 +182,15 @@ mod tests {
             .map(|i| {
                 PublishedPackage::from_package(
                     Package {
-                        name: format!("foo_{}", i),
+                        name: format!("foo_{i}"),
                         version: String::from("1.0.0"),
                         architecture: String::from("amd64"),
                         paragraph: serde_json::Value::Object(serde_json::Map::new()),
                         size: 0,
-                        s3_bucket: format!("fake_bucket_{}", i),
-                        md5sum: format!("fake_md5sum_{}", i),
-                        sha1sum: format!("fake_sha1sum_{}", i),
-                        sha256sum: format!("fake_sha256sum_{}", i),
+                        s3_bucket: format!("fake_bucket_{i}"),
+                        md5sum: format!("fake_md5sum_{i}"),
+                        sha1sum: format!("fake_sha1sum_{i}"),
+                        sha256sum: format!("fake_sha256sum_{i}"),
                     },
                     "fake_component",
                 )

@@ -136,6 +136,8 @@ impl PublishedPackage {
             package,
         }
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub async fn query_from_meta<'a>(
         tx: &mut Transaction<'a, Postgres>,
         tenant_id: &TenantID,

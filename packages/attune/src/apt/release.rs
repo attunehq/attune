@@ -101,7 +101,7 @@ impl ReleaseFile {
         .into_iter()
         .fold(String::new(), |mut acc, (k, v)| {
             if let Some(v) = v {
-                write!(acc, "{}: {}\n", k, v).unwrap();
+                writeln!(acc, "{k}: {v}").unwrap();
             }
             acc
         });
