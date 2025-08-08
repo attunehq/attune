@@ -1,12 +1,11 @@
 use axum::http::StatusCode;
 use clap::Args;
 use percent_encoding::percent_encode;
-use tabled::settings::Style;
 
 use crate::config::Config;
 use attune::{
     api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
-    server::repo::sync::{InconsistentObjects, resync::ResyncRepositoryResponse},
+    server::repo::sync::resync::ResyncRepositoryResponse,
 };
 
 #[derive(Args, Debug)]

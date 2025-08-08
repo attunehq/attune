@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
 };
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use crate::{
     api::ErrorResponse,
@@ -12,14 +12,15 @@ use crate::{
         ServerState,
         repo::{
             decode_repo_name,
-            sync::{InconsistentObjects, check_s3_consistency, query_repository_state},
+            sync::{InconsistentSummary, check_s3_consistency, query_repository_state},
         },
     },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CheckConsistencyResponse {
-    pub inconsistent: InconsistentObjects,
+    #[serde(flatten)]
+    pub status: InconsistentSummary,
 }
 
 #[axum::debug_handler]
@@ -33,17 +34,21 @@ pub async fn handler(
     let repo_name = decode_repo_name(&repo_name)?;
     let release_name = decode_repo_name(&release_name)?;
 
+    // Get current repository state.
     let mut tx = state.db.begin().await.unwrap();
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
         .unwrap();
-    let repo_state = query_repository_state(&mut tx, &tenant_id, repo_name, release_name).await?;
+    let repo = query_repository_state(&mut tx, &tenant_id, repo_name, release_name).await?;
     tx.commit().await.unwrap();
+    debug!(?repo, "loaded repository state");
 
-    let inconsistent_objects = check_s3_consistency(state.s3, repo_state).await?;
+    // Check which S3 objects are inconsistent.
+    let inconsistent_objects = check_s3_consistency(&state.s3, repo).await?;
+    debug!(?inconsistent_objects, "checked S3");
 
     Ok(Json(CheckConsistencyResponse {
-        inconsistent: inconsistent_objects,
+        status: InconsistentSummary::from(&inconsistent_objects),
     }))
 }
