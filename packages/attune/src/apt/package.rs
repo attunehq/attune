@@ -1,3 +1,4 @@
+use derivative::Derivative;
 use sqlx::{FromRow, Postgres, Transaction, types::JsonValue};
 
 use crate::api::TenantID;
@@ -113,19 +114,12 @@ impl Package {
 
 /// This newtype wraps Package for use cases (e.g. sets) where you want Packages
 /// to have equality by their (name, version, architecture) fields.
-#[derive(Clone, Debug)]
-pub struct PackageByMeta(pub Package);
+#[derive(Derivative)]
+#[derivative(Clone, Debug, Eq, PartialEq)]
+pub struct PackageByMeta(#[derivative(PartialEq(compare_with = "package_eq_by_meta"))] pub Package);
 
 fn package_eq_by_meta(a: &Package, b: &Package) -> bool {
     a.name == b.name && a.version == b.version && a.architecture == b.architecture
-}
-
-impl Eq for PackageByMeta {}
-
-impl PartialEq for PackageByMeta {
-    fn eq(&self, other: &Self) -> bool {
-        package_eq_by_meta(&self.0, &other.0)
-    }
 }
 
 #[derive(FromRow, Clone, Debug)]
@@ -277,13 +271,12 @@ impl PublishedPackage {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct PublishedPackageByMeta(pub PublishedPackage);
+#[derive(Derivative)]
+#[derivative(Clone, Debug, Eq, PartialEq)]
+pub struct PublishedPackageByMeta(
+    #[derivative(PartialEq(compare_with = "published_package_eq_by_meta"))] pub PublishedPackage,
+);
 
-impl Eq for PublishedPackageByMeta {}
-
-impl PartialEq for PublishedPackageByMeta {
-    fn eq(&self, other: &Self) -> bool {
-        package_eq_by_meta(&self.0.package, &other.0.package)
-    }
+fn published_package_eq_by_meta(a: &PublishedPackage, b: &PublishedPackage) -> bool {
+    package_eq_by_meta(&a.package, &b.package)
 }

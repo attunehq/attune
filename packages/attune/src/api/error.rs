@@ -20,19 +20,26 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
-    pub fn new(status: StatusCode, error: String, message: String) -> Self {
+    pub fn new<E, M>(status: StatusCode, error: E, message: M) -> Self
+    where
+        E: Into<String>,
+        M: Into<String>,
+    {
         Self {
             status,
-            error,
-            message,
+            error: error.into(),
+            message: message.into(),
         }
     }
 
-    pub fn not_found(entity: &str) -> Self {
+    pub fn not_found<S>(entity: S) -> Self
+    where
+        S: AsRef<str>,
+    {
         Self {
             status: StatusCode::NOT_FOUND,
-            error: format!("{}_NOT_FOUND", entity.to_uppercase()),
-            message: format!("{} not found", entity),
+            error: format!("{}_NOT_FOUND", entity.as_ref().to_uppercase()),
+            message: format!("{} not found", entity.as_ref()),
         }
     }
 }

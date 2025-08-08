@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use md5::Md5;
 use sha1::Sha1;
 use sha2::{Digest as _, Sha256};
@@ -85,11 +86,14 @@ impl PackagesIndex {
     }
 
     fn render<'a>(packages: impl Iterator<Item = &'a PublishedPackage>) -> String {
-        // TODO: A better way to ensure index reproducibility is to sort the
-        // packages before we render them.
         let mut index = packages
+            .sorted_by_key(|published| {
+                let pkg = &published.package;
+                (&pkg.name, &pkg.version, &pkg.architecture)
+            })
             .map(|published| {
                 let pkg = &published.package;
+                // TODO(#97): Sort fields by convention order.
                 let fields = pkg
                     .paragraph
                     .as_object()

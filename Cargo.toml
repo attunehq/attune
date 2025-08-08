@@ -19,6 +19,7 @@ chrono = "0.4.41"
 clap = { version = "4.5.35", features = ["derive", "env", "wrap_help"] }
 colored = "3.0.0"
 debian-packaging = "0.18.0"
+derivative = "2.2.0"
 digest = "0.10.7"
 futures-util = "0.3.31"
 gpgme = "0.11.0"

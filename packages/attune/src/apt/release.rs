@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, io::Write as _};
+use std::{collections::BTreeSet, fmt::Write as _, io::Write as _};
 
 use sqlx::{FromRow, Postgres, Transaction};
 use tabwriter::{Alignment, TabWriter};
@@ -87,7 +87,7 @@ impl ReleaseFile {
         let comps = comps.strip_prefix(" ").unwrap_or("");
 
         // Write release fields.
-        let release_fields: Vec<(&str, Option<String>)> = vec![
+        let mut release_file = vec![
             ("Origin", release.origin.clone()),
             ("Label", release.label.clone()),
             ("Version", release.version.clone()),
@@ -97,13 +97,14 @@ impl ReleaseFile {
             ("Architectures", Some(archs.to_string())),
             ("Components", Some(comps.to_string())),
             ("Description", release.description.clone()),
-        ];
-        let mut release_file = String::new();
-        for (k, v) in release_fields {
+        ]
+        .into_iter()
+        .fold(String::new(), |mut acc, (k, v)| {
             if let Some(v) = v {
-                release_file.push_str(&format!("{k}: {v}\n"));
+                write!(acc, "{}: {}\n", k, v).unwrap();
             }
-        }
+            acc
+        });
 
         // Write index fingerprints.
         release_file += "MD5Sum:\n";
