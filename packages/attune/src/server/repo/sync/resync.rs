@@ -15,7 +15,7 @@ use crate::{
         repo::{
             decode_repo_name,
             sync::{
-                InconsistentSummary, Expected, InconsistentObjects, check_s3_consistency,
+                Expected, InconsistentObjects, InconsistentSummary, check_s3_consistency,
                 query_repository_state,
             },
         },

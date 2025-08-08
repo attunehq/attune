@@ -253,19 +253,19 @@ pub async fn check_s3_consistency(
 ) -> Result<InconsistentObjects, ErrorResponse> {
     // Check release files for consistency.
     let release_contents =
-        if s3_object_consistent(&s3, &state.s3_bucket, &state.release_contents).await? {
+        if s3_object_consistent(s3, &state.s3_bucket, &state.release_contents).await? {
             None
         } else {
             Some(state.release_contents)
         };
     let release_clearsigned =
-        if s3_object_consistent(&s3, &state.s3_bucket, &state.release_clearsigned).await? {
+        if s3_object_consistent(s3, &state.s3_bucket, &state.release_clearsigned).await? {
             None
         } else {
             Some(state.release_clearsigned)
         };
     let release_detachsigned =
-        if s3_object_consistent(&s3, &state.s3_bucket, &state.release_detachsigned).await? {
+        if s3_object_consistent(s3, &state.s3_bucket, &state.release_detachsigned).await? {
             None
         } else {
             Some(state.release_detachsigned)
@@ -274,7 +274,7 @@ pub async fn check_s3_consistency(
     // Check package indexes for consistency.
     let mut packages_indexes = Vec::new();
     for packages_index in state.packages_indexes {
-        if !s3_object_consistent(&s3, &state.s3_bucket, &packages_index).await? {
+        if !s3_object_consistent(s3, &state.s3_bucket, &packages_index).await? {
             packages_indexes.push(packages_index);
         }
     }
@@ -282,7 +282,7 @@ pub async fn check_s3_consistency(
     // Check packages for consistency.
     let mut packages = Vec::new();
     for package in state.packages {
-        if !s3_object_consistent(&s3, &state.s3_bucket, &package).await? {
+        if !s3_object_consistent(s3, &state.s3_bucket, &package).await? {
             packages.push(package);
         }
     }
