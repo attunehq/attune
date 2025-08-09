@@ -1,4 +1,4 @@
-use std::{iter::once, process::ExitCode};
+use std::{iter::once, process::ExitCode, time::Duration};
 
 use axum::http::StatusCode;
 use clap::Args;
@@ -103,7 +103,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // files (ones that don't fit in memory). For small ones, I think keeping
     // the file in memory might be faster.
     debug!(package_file = ?command.package_file, "calculating SHA256 sum");
-    let package_file = std::fs::read(command.package_file).unwrap();
+    let package_file = std::fs::read(&command.package_file).unwrap();
     let sha256sum = hex::encode(Sha256::digest(&package_file).as_slice());
     debug!(sha256sum = ?sha256sum, "calculated SHA256 sum");
 
@@ -113,7 +113,6 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     //
     // TODO(#48): Add an `--overwrite` flag to allow the user to deliberately upload
     // a package with a different SHA256sum.
-
     debug!(sha256sum = ?sha256sum, "checking whether package exists");
     let res = ctx
         .client
@@ -177,6 +176,43 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // skip re-signing.
 
     // Add the package to the index, retrying if needed.
+    const STATIC_RETRY_DELAY_MS: u64 = 2000;
+    loop {
+        match add_package(&ctx, &command, &sha256sum).await {
+            Ok(_) => {
+                tracing::info!(?sha256sum, "package added to index");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => match error.error.as_str() {
+                "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
+                    let delay = Duration::from_millis(
+                        STATIC_RETRY_DELAY_MS + rand::random_range(0..STATIC_RETRY_DELAY_MS),
+                    );
+                    tracing::warn!(?delay, ?error, "retrying: concurrent index change");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                "INVALID_COMPONENT_NAME" => {
+                    eprintln!(
+                        "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
+                        command.component, error.message
+                    );
+                    return ExitCode::FAILURE;
+                }
+                _ => {
+                    eprintln!("Error adding package to index: {}", error.message);
+                    return ExitCode::FAILURE;
+                }
+            },
+        }
+    }
+}
+
+async fn add_package(
+    ctx: &Config,
+    command: &PkgAddCommand,
+    sha256sum: &str,
+) -> Result<(), ErrorResponse> {
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
     let generate_index_request = GenerateIndexRequest {
         change: PackageChange {
@@ -184,7 +220,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             distribution: command.distribution.clone(),
             component: command.component.clone(),
             action: PackageChangeAction::Add {
-                package_sha256sum: sha256sum.clone(),
+                package_sha256sum: sha256sum.to_string(),
             },
         },
     };
@@ -219,8 +255,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
             debug!(?body, ?status, "error response");
             let error = serde_json::from_str::<ErrorResponse>(&body)
                 .expect("Could not parse error response");
-            eprintln!("Error adding package to index: {}", error.message);
-            return ExitCode::FAILURE;
+            return Err(error);
         }
     };
 
@@ -259,8 +294,6 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     debug!(?public_key_cert, "public key cert");
 
     // Submit signatures.
-    //
-    // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
     let res = ctx
         .client
@@ -292,27 +325,14 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
                 .await
                 .expect("Could not parse response");
             debug!("signed index");
-            ExitCode::SUCCESS
+            Ok(())
         }
-        // TODO(#84): Handle 409 status code to signal retry.
         status => {
             let body = res.text().await.expect("Could not read response");
             debug!(?body, ?status, "error response");
-            let body = serde_json::from_str::<ErrorResponse>(&body)
+            let error = serde_json::from_str::<ErrorResponse>(&body)
                 .expect("Could not parse error response");
-
-            match body.error.as_str() {
-                "INVALID_COMPONENT_NAME" => {
-                    eprintln!(
-                        "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
-                        command.component, body.message
-                    );
-                }
-                _ => {
-                    eprintln!("Error signing index: {}", body.message);
-                }
-            }
-            ExitCode::FAILURE
+            Err(error)
         }
     }
 }

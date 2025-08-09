@@ -104,6 +104,9 @@ async fn main() -> ExitCode {
     }
 
     // Execute subcommand.
+    //
+    // TODO: We should update all the subcommands to return `Result<String, ErrorResponse>`
+    //       so that we can centralize retries, pretty printing, etc.
     match args.tool {
         ToolCommand::Apt(command) => cmd::apt::handle_apt(ctx, command).await,
     }
