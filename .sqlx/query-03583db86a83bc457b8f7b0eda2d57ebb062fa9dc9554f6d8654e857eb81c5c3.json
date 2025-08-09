@@ -1,14 +1,8 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id\n                FROM debian_repository_index_packages\n                WHERE\n                    component_id = $1\n                    AND architecture = $2::debian_repository_architecture\n                    AND compression IS NULL\n                LIMIT 1\n                ",
+  "query": "\n            DELETE FROM debian_repository_index_packages\n            WHERE\n                component_id = $1\n                AND architecture = $2::debian_repository_architecture\n        ",
   "describe": {
-    "columns": [
-      {
-        "ordinal": 0,
-        "name": "id",
-        "type_info": "Int8"
-      }
-    ],
+    "columns": [],
     "parameters": {
       "Left": [
         "Int8",
@@ -57,9 +51,7 @@
         }
       ]
     },
-    "nullable": [
-      false
-    ]
+    "nullable": []
   },
-  "hash": "8e4a2538e63bd7a14dc414503825c29c669ae4398fe9c344f5c66fef6eca958f"
+  "hash": "03583db86a83bc457b8f7b0eda2d57ebb062fa9dc9554f6d8654e857eb81c5c3"
 }

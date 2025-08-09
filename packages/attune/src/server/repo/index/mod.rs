@@ -39,6 +39,7 @@ struct PackageChangeResult {
     release_file: ReleaseFile,
     changed_packages_index: PackagesIndex,
     changed_package: PublishedPackage,
+    orphaned_pool_filename: bool,
 }
 
 /// Given a single package change, generate the new release file and the changed
@@ -152,10 +153,41 @@ async fn generate_release_file_with_change(
     // Construct the new Release file.
     let release_file = ReleaseFile::from_indexes(release, release_ts, &packages_indexes);
 
+    // Determine whether there exist other component-packages with the same
+    // filename. In the case of removals, this is used to clean up orphaned pool
+    // files.
+    //
+    // Note that it is NOT sufficient to examine whether the resulting index has
+    // been deleted, because each index is specific to (distribution, component,
+    // architecture), and pool objects are shared between distributions!
+    let remaining_component_packages = sqlx::query!(
+        r#"
+        SELECT COUNT(*) AS "count!: i64"
+        FROM
+            debian_repository_package
+            JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id
+        WHERE
+            debian_repository_package.tenant_id = $1
+            AND debian_repository_package.package = $2
+            AND debian_repository_package.version = $3
+            AND debian_repository_package.architecture = $4::debian_repository_architecture
+            AND debian_repository_component_package.filename = $5
+        "#,
+        tenant_id.0,
+        &changed_package.package.name,
+        &changed_package.package.version,
+        &changed_package.package.architecture as _,
+        &changed_package.filename,
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
+
     Ok(PackageChangeResult {
         release_file,
         changed_packages_index,
         changed_package,
+        orphaned_pool_filename: remaining_component_packages.count == 0,
     })
 }
 
@@ -206,7 +238,7 @@ mod tests {
     /// indexes.
     ///
     /// This is a regression test for #105.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn packages_separated_by_architecture(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);
@@ -278,7 +310,7 @@ mod tests {
     }
 
     /// Removing all packages from an architecture results in an empty index.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn remove_all_packages_for_architecture(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);
@@ -326,7 +358,7 @@ mod tests {
     }
 
     /// The release file should list all architecture indexes.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn release_file_lists_all_architectures(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);

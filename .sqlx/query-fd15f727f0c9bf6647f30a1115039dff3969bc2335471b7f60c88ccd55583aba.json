@@ -1,15 +1,10 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                    UPDATE debian_repository_index_packages\n                    SET\n                        contents = $1,\n                        size = $2,\n                        md5sum = $3,\n                        sha1sum = $4,\n                        sha256sum = $5,\n                        updated_at = NOW()\n                    WHERE\n                        component_id = $6\n                        AND architecture = $7::debian_repository_architecture\n                    ",
+  "query": "\n                INSERT INTO debian_repository_index_packages (\n                    component_id,\n                    architecture,\n                    compression,\n                    size,\n                    contents,\n                    md5sum,\n                    sha1sum,\n                    sha256sum,\n                    created_at,\n                    updated_at\n                )\n                VALUES (\n                    $1,\n                    $2::debian_repository_architecture,\n                    NULL,\n                    $3,\n                    $4,\n                    $5,\n                    $6,\n                    $7,\n                    NOW(),\n                    NOW()\n                )\n                ",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
-        "Bytea",
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
         "Int8",
         {
           "Custom": {
@@ -53,10 +48,15 @@
               ]
             }
           }
-        }
+        },
+        "Int8",
+        "Bytea",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": []
   },
-  "hash": "699eea04112728d34827fa6d3bad038d20899332c84f78af1a3d11332039fcd8"
+  "hash": "fd15f727f0c9bf6647f30a1115039dff3969bc2335471b7f60c88ccd55583aba"
 }

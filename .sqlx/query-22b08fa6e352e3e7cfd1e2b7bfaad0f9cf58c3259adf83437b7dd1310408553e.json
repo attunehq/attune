@@ -1,26 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT md5sum, sha1sum, sha256sum\n                FROM debian_repository_index_packages\n                WHERE\n                    component_id = $1\n                    AND architecture = $2::debian_repository_architecture\n                    AND compression IS NULL\n                LIMIT 1\n                ",
+  "query": "\n            UPDATE debian_repository_index_packages\n            SET\n                contents = $1,\n                size = $2,\n                md5sum = $3,\n                sha1sum = $4,\n                sha256sum = $5,\n                updated_at = NOW()\n            WHERE\n                component_id = $6\n                AND architecture = $7::debian_repository_architecture\n                AND compression IS NULL\n            ",
   "describe": {
-    "columns": [
-      {
-        "ordinal": 0,
-        "name": "md5sum",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 1,
-        "name": "sha1sum",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 2,
-        "name": "sha256sum",
-        "type_info": "Text"
-      }
-    ],
+    "columns": [],
     "parameters": {
       "Left": [
+        "Bytea",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
         "Int8",
         {
           "Custom": {
@@ -67,11 +56,7 @@
         }
       ]
     },
-    "nullable": [
-      false,
-      false,
-      false
-    ]
+    "nullable": []
   },
-  "hash": "abf17a7f0fdf91c15553695eb2a07b2aefdef2b96f21985a1026d48574313dee"
+  "hash": "22b08fa6e352e3e7cfd1e2b7bfaad0f9cf58c3259adf83437b7dd1310408553e"
 }

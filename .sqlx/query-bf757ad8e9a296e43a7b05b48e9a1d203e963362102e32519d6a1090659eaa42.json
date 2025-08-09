@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id\n                FROM debian_repository_component\n                WHERE release_id = $1 AND name = $2\n                LIMIT 1\n                ",
+  "query": "\n        SELECT id\n        FROM debian_repository_component\n        WHERE release_id = $1 AND name = $2\n        LIMIT 1\n        ",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "e1d249db4a1e087e5aba64a3867adaa63ade11a65488ab4027d529f2bc45cf92"
+  "hash": "bf757ad8e9a296e43a7b05b48e9a1d203e963362102e32519d6a1090659eaa42"
 }

@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 
 /// An extractor for tenants authenticated via API token.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TenantID(pub i64);
 
 fn parse_api_token(header: &axum::http::header::HeaderMap) -> Result<&str, &'static str> {

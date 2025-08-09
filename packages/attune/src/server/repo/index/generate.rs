@@ -40,6 +40,7 @@ pub async fn handler(
     State(state): State<ServerState>,
     tenant_id: TenantID,
     Path(repo_name): Path<String>,
+    // FIXME: This is a GET request with a body.
     Json(req): Json<GenerateIndexRequest>,
 ) -> Result<Json<GenerateIndexResponse>, ErrorResponse> {
     // The repository name in the path is percent-encoded.
