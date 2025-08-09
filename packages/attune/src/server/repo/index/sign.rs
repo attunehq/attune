@@ -657,14 +657,7 @@ pub async fn handler(
     //
     // We've added logging here so that we can see the actual error code
     // and special case it in the future.
-    if let Err(error) = tx.commit().await {
-        tracing::error!(?error, "transaction commit failed");
-        return Err(ErrorResponse::builder()
-            .status(StatusCode::CONFLICT)
-            .error("CONCURRENT_INDEX_CHANGE")
-            .message("concurrent index change")
-            .build());
-    }
+    tx.commit().await.map_err(translate_psql_error)?;
 
     // Save the new index state to S3. This must occur after the transaction
     // commits so that we are sure that we are not incorrectly overwriting a
