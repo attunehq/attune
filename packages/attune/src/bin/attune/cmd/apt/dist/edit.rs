@@ -1,10 +1,12 @@
+use std::process::ExitCode;
+
 use clap::Args;
 
-use crate::{
-    cmd::apt::dist::{build_distribution_url, handle_api_response},
-    config::Config,
+use crate::{cmd::apt::dist::build_distribution_url, config::Config};
+use attune::{
+    api::ErrorResponse,
+    server::repo::dist::edit::{EditDistributionRequest, EditDistributionResponse},
 };
-use attune::server::repo::dist::edit::{EditDistributionRequest, EditDistributionResponse};
 
 #[derive(Args, Debug)]
 pub struct EditArgs {
@@ -41,38 +43,89 @@ pub struct EditMetadata {
     codename: Option<String>,
 }
 
-pub async fn run(ctx: Config, args: EditArgs) -> Result<String, String> {
+pub async fn run(ctx: Config, args: EditArgs) -> ExitCode {
     let request = EditDistributionRequest::builder()
-        .maybe_description(args.metadata.description)
-        .maybe_origin(args.metadata.origin)
-        .maybe_label(args.metadata.label)
-        .maybe_version(args.metadata.version)
-        .maybe_suite(args.metadata.suite)
-        .maybe_codename(args.metadata.codename)
+        .maybe_description(args.metadata.description.clone())
+        .maybe_origin(args.metadata.origin.clone())
+        .maybe_label(args.metadata.label.clone())
+        .maybe_version(args.metadata.version.clone())
+        .maybe_suite(args.metadata.suite.clone())
+        .maybe_codename(args.metadata.codename.clone())
         .build();
 
     if !request.any_some() {
-        return Err(String::from(
-            "No fields to update provided. Use --help to see available options.",
-        ));
+        eprintln!("No fields to update provided. Use --help to see available options.");
+        return ExitCode::FAILURE;
     }
 
-    let url = build_distribution_url(&ctx, &args.repo, Some(&args.name));
-    ctx.client
+    loop {
+        match edit_distribution(&ctx, &args, &request).await {
+            Ok(message) => {
+                println!("{message}");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => {
+                if crate::retry::should_retry(&error) {
+                    let delay = crate::retry::calculate_retry_delay();
+                    tracing::warn!(?delay, ?error, "retrying: concurrent change");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                } else {
+                    eprintln!("Error editing distribution: {}", error.message);
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+    }
+}
+
+async fn edit_distribution(
+    ctx: &Config,
+    args: &EditArgs,
+    request: &EditDistributionRequest,
+) -> Result<String, ErrorResponse> {
+    let url = build_distribution_url(ctx, &args.repo, Some(&args.name));
+    let res = ctx
+        .client
         .put(url)
-        .json(&request)
+        .json(request)
         .send()
         .await
-        .map(handle_api_response::<EditDistributionResponse>)
-        .map_err(|err| format!("Failed to send request: {err}"))?
-        .await
-        .map(|EditDistributionResponse { distribution, .. }| {
-            format!(
-                concat!(
-                    "Distribution {:?} updated successfully\n",
-                    "Note: Changes will be reflected in repository indexes after the next sync."
-                ),
-                distribution
-            )
-        })
+        .map_err(|err| {
+            ErrorResponse::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .error("REQUEST_FAILED")
+                .message(format!("Failed to send request: {err}"))
+                .build()
+        })?;
+
+    let status = res.status();
+    if status == axum::http::StatusCode::OK {
+        let response = res
+            .json::<EditDistributionResponse>()
+            .await
+            .map_err(|err| {
+                ErrorResponse::builder()
+                    .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                    .error("PARSE_ERROR")
+                    .message(format!("Failed to parse response: {err}"))
+                    .build()
+            })?;
+        Ok(format!(
+            concat!(
+                "Distribution {:?} updated successfully\n",
+                "Note: Changes will be reflected in repository indexes after the next sync."
+            ),
+            response.distribution
+        ))
+    } else {
+        let error = res.json::<ErrorResponse>().await.map_err(|err| {
+            ErrorResponse::builder()
+                .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+                .error("PARSE_ERROR")
+                .message(format!("Failed to parse error response: {err}"))
+                .build()
+        })?;
+        Err(error)
+    }
 }
