@@ -1189,9 +1189,18 @@ mod tests {
             vec![] as Vec<String>,
             "Packages are inconsistent"
         );
+        let actual_inconsistent_packages_indexes = {
+            let mut pis = status.packages_indexes.clone();
+            pis.sort();
+            pis
+        };
         assert_eq!(
-            status.packages_indexes,
-            vec![] as Vec<String>,
+            actual_inconsistent_packages_indexes,
+            vec![
+                "dists/stable/main/binary-amd64/by-hash/MD5Sum/f80941151667622221b97e18dc854ecd",
+                "dists/stable/main/binary-amd64/by-hash/SHA1/cc7bc34cfd50b7418c673477515828da8bbdeb60",
+                "dists/stable/main/binary-amd64/by-hash/SHA256/bc5815deb20e1ea8a750a3e83de009f87d492ae13518198a3f59373145912cad",
+            ],
             "Packages indexes are inconsistent"
         );
 

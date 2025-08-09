@@ -145,6 +145,8 @@ pub async fn query_repository_state(
         SELECT
             debian_repository_component.name AS "component",
             debian_repository_index_packages.architecture::TEXT AS "architecture!: String",
+            debian_repository_index_packages.md5sum,
+            debian_repository_index_packages.sha1sum,
             debian_repository_index_packages.sha256sum,
             debian_repository_index_packages.contents
         FROM
@@ -160,17 +162,34 @@ pub async fn query_repository_state(
     .unwrap();
     let packages_indexes = packages_indexes
         .into_iter()
-        .map(|packages_index| Expected::Exists {
-            key: format!(
-                "{}/dists/{}/{}/binary-{}/Packages",
-                &repo.s3_prefix,
+        .flat_map(|packages_index| {
+            let by_hash_prefix = format!(
+                "{}/dists/{}/{}/binary-{}/by-hash",
+                repo.s3_prefix,
                 &release_name,
                 &packages_index.component,
                 &packages_index.architecture
-            ),
-            sha256sum: hex::decode(&packages_index.sha256sum)
-                .expect("could not decode Packages index SHA256 sum"),
-            contents: String::from_utf8(packages_index.contents).unwrap(),
+            );
+            let sha256sum = hex::decode(&packages_index.sha256sum)
+                .expect("could not decode Packages index SHA256 sum");
+            let contents = String::from_utf8(packages_index.contents).unwrap();
+            [
+                format!(
+                    "{}/dists/{}/{}/binary-{}/Packages",
+                    &repo.s3_prefix,
+                    &release_name,
+                    &packages_index.component,
+                    &packages_index.architecture
+                ),
+                format!("{}/SHA256/{}", by_hash_prefix, packages_index.sha256sum),
+                format!("{}/SHA1/{}", by_hash_prefix, packages_index.sha1sum),
+                format!("{}/MD5Sum/{}", by_hash_prefix, packages_index.md5sum),
+            ]
+            .map(|key| Expected::Exists {
+                key,
+                sha256sum: sha256sum.clone(),
+                contents: contents.clone(),
+            })
         })
         .collect::<Vec<_>>();
 
@@ -282,7 +301,6 @@ pub async fn check_s3_consistency(
     // Check package indexes for consistency.
     let mut packages_indexes = Vec::new();
     for packages_index in state.packages_indexes {
-        // TODO: Also check for by-hash files.
         if !s3_object_consistent(s3, &state.s3_bucket, &packages_index).await? {
             packages_indexes.push(packages_index);
         }
