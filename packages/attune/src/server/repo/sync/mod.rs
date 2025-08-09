@@ -282,6 +282,7 @@ pub async fn check_s3_consistency(
     // Check package indexes for consistency.
     let mut packages_indexes = Vec::new();
     for packages_index in state.packages_indexes {
+        // TODO: Also check for by-hash files.
         if !s3_object_consistent(s3, &state.s3_bucket, &packages_index).await? {
             packages_indexes.push(packages_index);
         }

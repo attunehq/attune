@@ -95,7 +95,7 @@ pub async fn handler(
     .ok_or(ErrorResponse::not_found("repository"))?;
 
     // Apply the change to the database.
-    let result = apply_change_to_db(&mut tx, &tenant_id, &req).await?;
+    let (result, previous_by_hash_indexes) = apply_change_to_db(&mut tx, &tenant_id, &req).await?;
 
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
@@ -118,7 +118,7 @@ pub async fn handler(
     // unlikely, but there is no good mitigation here besides a cron job. Note
     // that any _subsequent_ upload will still upload the correct indexes,
     // because the _database_ state is transactionally consistent.
-    apply_change_to_s3(&state.s3, &repo, &req, &result).await;
+    apply_change_to_s3(&state.s3, &repo, &req, &result, previous_by_hash_indexes).await;
 
     Ok(Json(SignIndexResponse {}))
 }
@@ -127,11 +127,11 @@ async fn apply_change_to_db(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     tenant_id: &TenantID,
     req: &SignIndexRequest,
-) -> Result<PackageChangeResult, ErrorResponse> {
+) -> Result<(PackageChangeResult, Option<PreviousByHashIndexes>), ErrorResponse> {
     // Verify the request cleartext signature.
     let (public_key, _headers) = SignedPublicKey::from_string(&req.public_key_cert)
         .expect("could not parse public key certificate");
-    tracing::debug!(?public_key, "public key");
+    debug!(?public_key, "public key");
     if let Err(e) = public_key.verify() {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
@@ -141,7 +141,7 @@ async fn apply_change_to_db(
     }
     let (clearsigned, _headers) = CleartextSignedMessage::from_string(&req.clearsigned)
         .expect("could not parse clearsigned index");
-    tracing::debug!(clearsigned = ?clearsigned.text(), "clearsigned index");
+    debug!(clearsigned = ?clearsigned.text(), "clearsigned index");
     if let Err(e) = clearsigned.verify(&public_key) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
@@ -161,7 +161,7 @@ async fn apply_change_to_db(
     // If the signatures match, this validates that the index signed by the client is the same as the one we replayed.
     let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
         .expect("could not parse detached signature");
-    tracing::debug!(index = ?result.release_file.contents, ?detachsigned, "detachsigned index");
+    debug!(index = ?result.release_file.contents, ?detachsigned, "detachsigned index");
     if let Err(e) = detachsigned.verify(&public_key, result.release_file.contents.as_bytes()) {
         return Err(ErrorResponse::new(
             StatusCode::BAD_REQUEST,
@@ -173,20 +173,25 @@ async fn apply_change_to_db(
     }
 
     // Save the new state to the database.
-    match req.change.action {
-        PackageChangeAction::Add { .. } => {
-            add_package_to_db(tx, tenant_id, req, &result).await;
-        }
+    let previous_by_hash_indexes = match req.change.action {
+        PackageChangeAction::Add { .. } => add_package_to_db(tx, tenant_id, req, &result).await,
         PackageChangeAction::Remove {
             ref name,
             ref version,
             ref architecture,
-        } => {
-            remove_package_from_db(tx, tenant_id, req, &result, name, version, architecture).await;
-        }
-    }
+        } => Some(
+            remove_package_from_db(tx, tenant_id, req, &result, name, version, architecture).await,
+        ),
+    };
 
-    Ok(result)
+    Ok((result, previous_by_hash_indexes))
+}
+
+#[derive(Debug)]
+struct PreviousByHashIndexes {
+    md5sum: String,
+    sha1sum: String,
+    sha256sum: String,
 }
 
 async fn add_package_to_db(
@@ -194,7 +199,7 @@ async fn add_package_to_db(
     tenant_id: &TenantID,
     req: &SignIndexRequest,
     update: &PackageChangeResult,
-) {
+) -> Option<PreviousByHashIndexes> {
     // First, we update-or-create the Release. Remember, it's possible that no
     // package has ever been added to this distribution, so the Release may not
     // exist.
@@ -378,9 +383,9 @@ async fn add_package_to_db(
     };
 
     // Then, we update-or-create the Packages index of the changed package.
-    match sqlx::query!(
+    let previous_by_hash_indexes = match sqlx::query!(
         r#"
-        SELECT id
+        SELECT id, md5sum, sha1sum, sha256sum
         FROM debian_repository_index_packages
         WHERE
             component_id = $1
@@ -396,6 +401,15 @@ async fn add_package_to_db(
     .unwrap()
     {
         Some(index) => {
+            // Before we do an update, we need to capture the hashes of the
+            // previous Packages index since its by-hash files need to be
+            // deleted after the update.
+            let previous_by_hash_indexes = PreviousByHashIndexes {
+                md5sum: index.md5sum,
+                sha1sum: index.sha1sum,
+                sha256sum: index.sha256sum,
+            };
+
             // No need to check whether an update is needed - we know already
             // that the index has changed because a package was added into it.
             sqlx::query!(
@@ -420,6 +434,7 @@ async fn add_package_to_db(
             .execute(&mut **tx)
             .await
             .unwrap();
+            Some(previous_by_hash_indexes)
         }
         None => {
             // Otherwise, create the index.
@@ -462,8 +477,9 @@ async fn add_package_to_db(
             .execute(&mut **tx)
             .await
             .unwrap();
+            None
         }
-    }
+    };
 
     // Lastly, we create the component-package.
     //
@@ -504,6 +520,8 @@ async fn add_package_to_db(
     .execute(&mut **tx)
     .await
     .unwrap();
+
+    previous_by_hash_indexes
 }
 
 async fn remove_package_from_db(
@@ -514,7 +532,7 @@ async fn remove_package_from_db(
     package: &str,
     version: &str,
     architecture: &str,
-) {
+) -> PreviousByHashIndexes {
     // Load the component-package, which should be there if the package exists.
     let component_package = sqlx::query!(
         r#"
@@ -564,6 +582,34 @@ async fn remove_package_from_db(
     .await
     .unwrap();
 
+    // Load the current state of the changed Packages index. We need to record
+    // its hashes so that we can delete the by-hash files after we update this
+    // index.
+    let previous_by_hash_indexes = sqlx::query!(
+        r#"
+        SELECT
+            md5sum,
+            sha1sum,
+            sha256sum
+        FROM debian_repository_index_packages
+        WHERE
+            component_id = $1
+            AND architecture = $2::debian_repository_architecture
+            AND compression IS NULL
+        LIMIT 1
+        "#,
+        component_package.component_id,
+        architecture as _,
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
+    let previous_by_hash_indexes = PreviousByHashIndexes {
+        md5sum: previous_by_hash_indexes.md5sum,
+        sha1sum: previous_by_hash_indexes.sha1sum,
+        sha256sum: previous_by_hash_indexes.sha256sum,
+    };
+
     // Update the Packages index, or delete if it's orphaned.
     if update.changed_packages_index.contents.is_empty() {
         sqlx::query!(
@@ -593,6 +639,7 @@ async fn remove_package_from_db(
             WHERE
                 component_id = $6
                 AND architecture = $7::debian_repository_architecture
+                AND compression IS NULL
             "#,
             update.changed_packages_index.contents.as_bytes(),
             update.changed_packages_index.meta.size,
@@ -636,6 +683,8 @@ async fn remove_package_from_db(
     // clients may still be pointing to the release file, and we don't
     // want them to be broken. The error they should get from APT is
     // "package missing", rather than "repository not found".
+
+    previous_by_hash_indexes
 }
 
 struct Repository {
@@ -648,28 +697,34 @@ async fn apply_change_to_s3(
     repo: &Repository,
     req: &SignIndexRequest,
     result: &PackageChangeResult,
+    previous_by_hash_indexes: Option<PreviousByHashIndexes>,
 ) {
     // Copy the package from its canonical storage location into the repository
     // pool.
     match req.change.action {
         PackageChangeAction::Add { .. } => {
+            let source_key = format!(
+                "{}/packages/{}",
+                result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
+            );
+            let destination_key = format!("{}/{}", repo.s3_prefix, result.changed_package.filename);
+            debug!(
+                ?source_key,
+                ?destination_key,
+                "copy package from pool storage",
+            );
             s3.copy_object()
                 .bucket(&repo.s3_bucket)
-                .key(format!(
-                    "{}/{}",
-                    repo.s3_prefix, result.changed_package.filename
-                ))
-                .copy_source(format!(
-                    "{}/packages/{}",
-                    result.changed_package.package.s3_bucket,
-                    result.changed_package.package.sha256sum,
-                ))
+                .key(destination_key)
+                .copy_source(source_key)
                 .send()
                 .await
                 .unwrap();
         }
         PackageChangeAction::Remove { .. } => {
             // Delete the pool file from S3 if it's fully orphaned.
+            let key = format!("{}/{}", repo.s3_prefix, result.changed_package.filename);
+            debug!(?key, "delete pool file from S3");
             if result.orphaned_pool_filename {
                 s3.delete_object()
                     .bucket(&repo.s3_bucket)
@@ -684,111 +739,172 @@ async fn apply_change_to_s3(
         }
     }
 
-    // Upload the updated Packages index file.
-    if result.changed_packages_index.contents.is_empty() {
-        s3.delete_object()
-            .bucket(&repo.s3_bucket)
-            .key(format!(
+    // Upload the updated package index files to standard path and all by-hash
+    // paths concurrently.
+    //
+    // Index modifications are split on both sides of the release file upload:
+    // - Before release files are uploaded, we upload new index contents.
+    // - After release files are uploaded, we delete old index contents.
+    //
+    // The intention here is that the current release file _always points to
+    // valid files_.
+    let by_hash_prefix = format!(
+        "{}/dists/{}/{}/binary-{}/by-hash",
+        repo.s3_prefix,
+        req.change.distribution,
+        result.changed_packages_index.meta.component,
+        result.changed_packages_index.meta.architecture
+    );
+    if !result.changed_packages_index.contents.is_empty() {
+        let uploads = [
+            format!(
                 "{}/dists/{}/{}/binary-{}/Packages",
                 repo.s3_prefix,
                 req.change.distribution,
                 result.changed_packages_index.meta.component,
                 result.changed_packages_index.meta.architecture
-            ))
-            .send()
-            .await
-            .unwrap();
-    } else {
-        s3.put_object()
-            .bucket(&repo.s3_bucket)
-            .key(format!(
-                "{}/dists/{}/{}/binary-{}/Packages",
-                repo.s3_prefix,
-                req.change.distribution,
-                result.changed_packages_index.meta.component,
-                result.changed_packages_index.meta.architecture
-            ))
-            .content_md5(
-                base64::engine::general_purpose::STANDARD.encode(Md5::digest(
-                    result.changed_packages_index.contents.as_bytes(),
-                )),
-            )
-            .checksum_algorithm(ChecksumAlgorithm::Sha256)
-            .checksum_sha256(
-                base64::engine::general_purpose::STANDARD
-                    .encode(hex::decode(&result.changed_packages_index.meta.sha256sum).unwrap()),
-            )
-            .body(
-                result
-                    .changed_packages_index
-                    .contents
-                    .as_bytes()
-                    .to_vec()
-                    .into(),
-            )
-            .send()
-            .await
-            .unwrap();
+            ),
+            format!(
+                "{}/SHA256/{}",
+                by_hash_prefix, result.changed_packages_index.meta.sha256sum
+            ),
+            format!(
+                "{}/SHA1/{}",
+                by_hash_prefix, result.changed_packages_index.meta.sha1sum
+            ),
+            format!(
+                "{}/MD5Sum/{}",
+                by_hash_prefix, result.changed_packages_index.meta.md5sum
+            ),
+        ]
+        .into_iter()
+        .map(|key: String| {
+            let bucket = &repo.s3_bucket;
+            let contents = &result.changed_packages_index.contents;
+            let sha256sum = &result.changed_packages_index.meta.sha256sum;
+
+            async move {
+                debug!(?key, content = %contents, "uploading index file");
+                s3.put_object()
+                    .bucket(bucket)
+                    .key(key)
+                    .content_md5(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(Md5::digest(contents.as_bytes())),
+                    )
+                    .checksum_algorithm(ChecksumAlgorithm::Sha256)
+                    .checksum_sha256(
+                        base64::engine::general_purpose::STANDARD
+                            .encode(hex::decode(&sha256sum).unwrap()),
+                    )
+                    .body(contents.as_bytes().to_vec().into())
+                    .send()
+                    .await
+            }
+        });
+        for upload in futures_util::future::join_all(uploads).await {
+            upload.unwrap();
+        }
     }
+
     // Upload the updated Release files. This must happen after package uploads
     // and index uploads so that all files are in place for Acquire-By-Hash.
-    s3.put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/InRelease",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.clearsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.clearsigned.as_bytes())),
-        )
-        .body(req.clearsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    s3.put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(result.release_file.contents.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(result.release_file.contents.as_bytes())),
-        )
-        .body(result.release_file.contents.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
-    s3.put_object()
-        .bucket(&repo.s3_bucket)
-        .key(format!(
-            "{}/dists/{}/Release.gpg",
-            repo.s3_prefix, req.change.distribution
-        ))
-        .content_md5(
-            base64::engine::general_purpose::STANDARD
-                .encode(Md5::digest(req.detachsigned.as_bytes())),
-        )
-        .checksum_algorithm(ChecksumAlgorithm::Sha256)
-        .checksum_sha256(
-            base64::engine::general_purpose::STANDARD
-                .encode(Sha256::digest(req.detachsigned.as_bytes())),
-        )
-        .body(req.detachsigned.as_bytes().to_vec().into())
-        .send()
-        .await
-        .unwrap();
+    let uploads = [
+        (
+            format!(
+                "{}/dists/{}/InRelease",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.clearsigned.as_bytes().to_vec(),
+        ),
+        (
+            format!(
+                "{}/dists/{}/Release",
+                repo.s3_prefix, req.change.distribution
+            ),
+            result.release_file.contents.as_bytes().to_vec(),
+        ),
+        (
+            format!(
+                "{}/dists/{}/Release.gpg",
+                repo.s3_prefix, req.change.distribution
+            ),
+            req.detachsigned.as_bytes().to_vec(),
+        ),
+    ]
+    .into_iter()
+    .map(|(key, content)| {
+        debug!(?key, content = %String::from_utf8_lossy(&content), "uploading release file");
+        s3.put_object()
+            .bucket(&repo.s3_bucket)
+            .key(key)
+            .content_md5(base64::engine::general_purpose::STANDARD.encode(Md5::digest(&content)))
+            .checksum_algorithm(ChecksumAlgorithm::Sha256)
+            .checksum_sha256(
+                base64::engine::general_purpose::STANDARD.encode(Sha256::digest(&content)),
+            )
+            .body(content.into())
+            .send()
+    });
+    for upload in futures_util::future::join_all(uploads).await {
+        upload.unwrap();
+    }
+
+    // Now we can do deletions: the release files are uploaded and are no longer
+    // pointing at the by-hash Packages indexes that we're about to delete.
+    let deletions = match previous_by_hash_indexes {
+        None => Vec::new(),
+        Some(PreviousByHashIndexes {
+            md5sum,
+            sha1sum,
+            sha256sum,
+        }) => [
+            (md5sum, &result.changed_packages_index.meta.md5sum, "MD5Sum"),
+            (sha1sum, &result.changed_packages_index.meta.sha1sum, "SHA1"),
+            (
+                sha256sum,
+                &result.changed_packages_index.meta.sha256sum,
+                "SHA256",
+            ),
+        ]
+        .into_iter()
+        // This step is needed because the old hash might equal the new hash!
+        // This can occur if you upload a package that was already in the index,
+        // in which case adding the package to the index is a no-op. In that
+        // case, we don't want to delete the "old" (but actually still
+        // up-to-date) index.
+        .filter(|(old_hash, new_hash, _)| &old_hash != new_hash)
+        .map(|(old_hash, _, hash_type)| format!("{by_hash_prefix}/{hash_type}/{old_hash}"))
+        .collect::<Vec<_>>(),
+    };
+    debug!(?deletions, "deletions");
+
+    // S3 only allows up to 1000 objects per delete request, but we're dealing
+    // with low ones of keys.
+    let keys = deletions
+        .into_iter()
+        .map(|key| {
+            aws_sdk_s3::types::ObjectIdentifier::builder()
+                .key(key)
+                .build()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    if !keys.is_empty() {
+        let delete = aws_sdk_s3::types::Delete::builder()
+            .set_objects(Some(keys))
+            .build()
+            .unwrap();
+        let deletion = s3
+            .delete_objects()
+            .bucket(&repo.s3_bucket)
+            .delete(delete)
+            .send()
+            .await;
+        if let Err(err) = deletion {
+            tracing::error!("Failed to delete objects: {err:?}");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -962,7 +1078,7 @@ mod tests {
             release_ts,
         };
         let mut tx = server.db.begin().await.unwrap();
-        let result = apply_change_to_db(&mut tx, &TENANT_ID, &req).await.unwrap();
+        let (result, _) = apply_change_to_db(&mut tx, &TENANT_ID, &req).await.unwrap();
         tx.commit().await.unwrap();
 
         // Partially upload the index changes. In this case, we upload the
@@ -1231,9 +1347,10 @@ mod tests {
             release_ts,
         };
         let mut tx = server.db.begin().await.unwrap();
-        let result_a = apply_change_to_db(&mut tx, &TENANT_ID, &req_a)
-            .await
-            .unwrap();
+        let (result_a, previous_by_hash_indexes_a) =
+            apply_change_to_db(&mut tx, &TENANT_ID, &req_a)
+                .await
+                .unwrap();
         debug!(?result_a, "applied change to database");
         tx.commit().await.unwrap();
 
@@ -1279,9 +1396,10 @@ mod tests {
             release_ts,
         };
         let mut tx = server.db.begin().await.unwrap();
-        let result_b = apply_change_to_db(&mut tx, &TENANT_ID, &req_b)
-            .await
-            .unwrap();
+        let (result_b, previous_by_hash_indexes_b) =
+            apply_change_to_db(&mut tx, &TENANT_ID, &req_b)
+                .await
+                .unwrap();
         debug!(?result_b, "applied change to database");
         tx.commit().await.unwrap();
 
@@ -1295,6 +1413,7 @@ mod tests {
             },
             &req_b,
             &result_b,
+            previous_by_hash_indexes_b,
         )
         .await;
 
@@ -1307,6 +1426,7 @@ mod tests {
             },
             &req_a,
             &result_a,
+            previous_by_hash_indexes_a,
         )
         .await;
 

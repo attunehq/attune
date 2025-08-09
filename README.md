@@ -24,7 +24,7 @@ Here's how to set up an APT repository in about 5 minutes.
 ### Prerequisites
 
 - **Docker**: Required for running the Attune control plane and required services (PostgreSQL and MinIO)
-- **Go**: Required for building the Attune CLI
+- **Rust**: Required for building the Attune CLI
 - **GnuPG** (`gpg`): Required for signing packages
 
 ### Setup
@@ -46,8 +46,7 @@ docker compose up -d
 # - MinIO on ports 9000/9001 (default credentials: attuneminio/attuneminio)
 
 # 4. Build and install the CLI
-cd cli
-go install ./...
+cargo install --path ./packages/attune
 
 # 5. Generate a GPG key (if you don't already have one)
 gpg --generate-key
@@ -57,18 +56,13 @@ gpg --list-secret-keys
 # Note the 40 character hexadecimal string next to the `sec` entries
 
 # 7. Create a new repository
-attune repo create -u 'http://localhost:9000/debian'
-# This returns a repository ID you'll use in the next steps
+attune apt repo create example.com
 
 # 8. Add a package to your repository
-attune repo -r 1 pkg add path-to-package -i gpg-key-id
+attune apt pkg add --repo example.com --key-id $YOUR_GPG_KEY_ID $PATH_TO_DEB
 # Replace:
-# - '1' with the repository ID from step 7
-# - 'path-to-package' with the path to your .deb package
-# - 'gpg-key-id' with your GPG key ID from step 6
-
-# 9. Sign and deploy the repository
-attune repo -r 1 sync
+# - $YOUR_GPG_KEY_ID with your GPG key ID from step 6
+# - $PATH_TO_DEB with the path to your .deb package
 ```
 
 For more detailed setup instructions and configuration options, refer to the [self-hosting guide](./docs/user-guide/self-hosting.md).
