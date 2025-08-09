@@ -28,15 +28,14 @@ pub fn translate_psql_error(error: sqlx::Error) -> ErrorResponse {
     if let Some(database_error) = error.as_database_error()
         && let Some(code) = database_error.code()
     {
-        match &*code {
-            "40001" => {
-                return ErrorResponse::builder()
-                    .status(StatusCode::CONFLICT)
-                    .error("CONCURRENT_INDEX_CHANGE")
-                    .message("concurrent index change")
-                    .build();
-            }
-            _ => {}
+        // As we encounter other error codes, add them here.
+        // 40001: https://www.postgresql.org/docs/current/mvcc-serialization-failure-handling.html
+        if code == "40001" {
+            return ErrorResponse::builder()
+                .status(StatusCode::CONFLICT)
+                .error("CONCURRENT_INDEX_CHANGE")
+                .message("concurrent index change")
+                .build();
         }
     }
 
