@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};
 
 use crate::{
-    api::{ErrorResponse, TenantID},
+    api::{ErrorResponse, TenantID, translate_psql_error},
     server::{
         ServerState,
         repo::{
@@ -34,13 +34,13 @@ pub async fn handler(
     let release_name = decode_repo_name(&release_name)?;
 
     // Get current repository state.
-    let mut tx = state.db.begin().await.unwrap();
+    let mut tx = state.db.begin().await.map_err(translate_psql_error)?;
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
     let repo = query_repository_state(&mut tx, &tenant_id, repo_name, release_name).await?;
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(translate_psql_error)?;
     debug!(?repo, "loaded repository state");
 
     // Check which S3 objects are inconsistent.

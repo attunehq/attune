@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use tracing::instrument;
 
 use crate::{
-    api::{ErrorResponse, TenantID},
+    api::{ErrorResponse, TenantID, translate_psql_error},
     server::{
         ServerState,
         repo::{
@@ -52,17 +52,17 @@ pub async fn handler(
         ));
     }
 
-    let mut tx = state.db.begin().await.unwrap();
+    let mut tx = state.db.begin().await.map_err(translate_psql_error)?;
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
 
     let release_ts = OffsetDateTime::now_utc();
     let result =
         generate_release_file_with_change(&mut tx, &tenant_id, &req.change, release_ts).await?;
 
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(translate_psql_error)?;
 
     Ok(Json(GenerateIndexResponse {
         release: result.release_file.contents,
