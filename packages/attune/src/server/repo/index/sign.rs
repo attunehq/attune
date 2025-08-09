@@ -795,7 +795,7 @@ async fn apply_change_to_s3(
                     .checksum_algorithm(ChecksumAlgorithm::Sha256)
                     .checksum_sha256(
                         base64::engine::general_purpose::STANDARD
-                            .encode(hex::decode(&sha256sum).unwrap()),
+                            .encode(hex::decode(sha256sum).unwrap()),
                     )
                     .body(contents.as_bytes().to_vec().into())
                     .send()
