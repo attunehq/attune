@@ -1,4 +1,4 @@
-use std::{iter::once, process::ExitCode, time::Duration};
+use std::{iter::once, process::ExitCode};
 
 use axum::http::StatusCode;
 use clap::Args;
@@ -176,34 +176,33 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     // skip re-signing.
 
     // Add the package to the index, retrying if needed.
-    const STATIC_RETRY_DELAY_MS: u64 = 2000;
     loop {
         match add_package(&ctx, &command, &sha256sum).await {
             Ok(_) => {
                 tracing::info!(?sha256sum, "package added to index");
                 return ExitCode::SUCCESS;
             }
-            Err(error) => match error.error.as_str() {
-                "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
-                    let delay = Duration::from_millis(
-                        STATIC_RETRY_DELAY_MS + rand::random_range(0..STATIC_RETRY_DELAY_MS),
-                    );
-                    tracing::warn!(?delay, ?error, "retrying: concurrent index change");
+            Err(error) => {
+                if crate::retry::should_retry(&error) {
+                    let delay = crate::retry::calculate_retry_delay();
+                    tracing::warn!(?delay, ?error, "retrying: concurrent change");
                     tokio::time::sleep(delay).await;
                     continue;
                 }
-                "INVALID_COMPONENT_NAME" => {
-                    eprintln!(
-                        "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
-                        command.component, error.message
-                    );
-                    return ExitCode::FAILURE;
+                match error.error.as_str() {
+                    "INVALID_COMPONENT_NAME" => {
+                        eprintln!(
+                            "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
+                            command.component, error.message
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                    _ => {
+                        eprintln!("Error adding package to index: {}", error.message);
+                        return ExitCode::FAILURE;
+                    }
                 }
-                _ => {
-                    eprintln!("Error adding package to index: {}", error.message);
-                    return ExitCode::FAILURE;
-                }
-            },
+            }
         }
     }
 }

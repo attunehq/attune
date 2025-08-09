@@ -33,7 +33,7 @@ pub fn translate_psql_error(error: sqlx::Error) -> ErrorResponse {
                 return ErrorResponse::builder()
                     .status(StatusCode::CONFLICT)
                     .error("CONCURRENT_INDEX_CHANGE")
-                    .message("concurrent index change")
+                    .message("concurrent change")
                     .build();
             }
         }

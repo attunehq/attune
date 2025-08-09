@@ -1,4 +1,4 @@
-use std::{iter::once, process::ExitCode, time::Duration};
+use std::{iter::once, process::ExitCode};
 
 use axum::http::StatusCode;
 use clap::Args;
@@ -46,27 +46,22 @@ pub struct PkgRemoveCommand {
 pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
     // Remove the package from the index, retrying if needed.
     debug!("removing package from index");
-    const STATIC_RETRY_DELAY_MS: u64 = 2000;
     loop {
         match remove_package(&ctx, &command).await {
             Ok(_) => {
                 tracing::info!(?command.package, "package removed from index");
                 return ExitCode::SUCCESS;
             }
-            Err(error) => match error.error.as_str() {
-                "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
-                    let delay = Duration::from_millis(
-                        STATIC_RETRY_DELAY_MS + rand::random_range(0..STATIC_RETRY_DELAY_MS),
-                    );
-                    tracing::warn!(?delay, ?error, "retrying: concurrent index change");
+            Err(error) => {
+                if crate::retry::should_retry(&error) {
+                    let delay = crate::retry::calculate_retry_delay();
+                    tracing::warn!(?delay, ?error, "retrying: concurrent change");
                     tokio::time::sleep(delay).await;
                     continue;
                 }
-                _ => {
-                    eprintln!("Error removing package from index: {}", error.message);
-                    return ExitCode::FAILURE;
-                }
-            },
+                eprintln!("Error removing package from index: {}", error.message);
+                return ExitCode::FAILURE;
+            }
         }
     }
 }

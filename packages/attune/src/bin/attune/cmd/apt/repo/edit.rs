@@ -22,44 +22,82 @@ pub struct RepoEditCommand {
 }
 
 pub async fn run(ctx: Config, command: RepoEditCommand) -> ExitCode {
+    loop {
+        match edit_repository(&ctx, &command).await {
+            Ok(message) => {
+                println!("{message}");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => {
+                if crate::retry::should_retry(&error) {
+                    let delay = crate::retry::calculate_retry_delay();
+                    tracing::warn!(?delay, ?error, "retrying: concurrent change");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                } else {
+                    eprintln!("Error editing repository: {}", error.message);
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+    }
+}
+
+async fn edit_repository(ctx: &Config, command: &RepoEditCommand) -> Result<String, ErrorResponse> {
+    let url = ctx
+        .endpoint
+        .join(
+            format!(
+                "/api/v0/repositories/{}",
+                percent_encode(command.name.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
+            )
+            .as_str(),
+        )
+        .map_err(|err| {
+            ErrorResponse::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .error("URL_ERROR")
+                .message(format!("Failed to build URL: {err}"))
+                .build()
+        })?;
+
     let res = ctx
         .client
-        .put(
-            ctx.endpoint
-                .join(
-                    format!(
-                        "/api/v0/repositories/{}",
-                        percent_encode(command.name.as_bytes(), PATH_SEGMENT_PERCENT_ENCODE_SET)
-                    )
-                    .as_str(),
-                )
-                .unwrap(),
-        )
+        .put(url)
         .json(&EditRepositoryRequest {
-            new_name: command.new_name,
+            new_name: command.new_name.clone(),
         })
         .send()
         .await
-        .expect("Could not send API request");
-    match res.status() {
-        StatusCode::OK => {
-            let repo = res
-                .json::<EditRepositoryResponse>()
-                .await
-                .expect("Could not parse response");
-            println!(
-                "Repository name changed from {:?} to {:?}",
-                command.name, repo.result.name
-            );
-            ExitCode::SUCCESS
-        }
-        _ => {
-            let error = res
-                .json::<ErrorResponse>()
-                .await
-                .expect("Could not parse error response");
-            eprintln!("Error editing repository: {}", error.message);
-            ExitCode::FAILURE
-        }
+        .map_err(|err| {
+            ErrorResponse::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .error("REQUEST_FAILED")
+                .message(format!("Failed to send request: {err}"))
+                .build()
+        })?;
+
+    let status = res.status();
+    if status == StatusCode::OK {
+        let repo = res.json::<EditRepositoryResponse>().await.map_err(|err| {
+            ErrorResponse::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .error("PARSE_ERROR")
+                .message(format!("Failed to parse response: {err}"))
+                .build()
+        })?;
+        Ok(format!(
+            "Repository name changed from {:?} to {:?}",
+            command.name, repo.result.name
+        ))
+    } else {
+        let error = res.json::<ErrorResponse>().await.map_err(|err| {
+            ErrorResponse::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .error("PARSE_ERROR")
+                .message(format!("Failed to parse error response: {err}"))
+                .build()
+        })?;
+        Err(error)
     }
 }

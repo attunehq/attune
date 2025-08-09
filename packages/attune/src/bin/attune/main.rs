@@ -11,6 +11,7 @@ use tracing_subscriber::{
 
 mod cmd;
 mod config;
+pub mod retry;
 
 /// Attune CLI
 ///
