@@ -809,7 +809,7 @@ mod tests {
                 sync::check::CheckConsistencyResponse,
             },
         },
-        testing::AttuneTestServer,
+        testing::{AttuneTestServer, AttuneTestServerConfig},
     };
 
     const TEST_PACKAGE_AMD64: &[u8] =
@@ -817,10 +817,61 @@ mod tests {
     const TEST_PACKAGE_ARM64: &[u8] =
         include_bytes!("./fixtures/attune-test-package_2.0.0_linux_arm64.deb");
 
+    async fn sign_index(index: &str) -> (String, String, String) {
+        let dir = TempDir::new().await.unwrap();
+        let mut gpg = Context::from_protocol(Protocol::OpenPgp).unwrap();
+        gpg.set_engine_home_dir(dir.dir_path().to_str().unwrap())
+            .unwrap();
+        gpg.set_armor(true);
+        let keygen_result = gpg
+            .create_key_with_flags(
+                "Attune Test",
+                "default",
+                Default::default(),
+                CreateKeyFlags::NOPASSWD,
+            )
+            .unwrap();
+        let key_id = keygen_result.fingerprint().unwrap();
+        let key = gpg
+            .find_secret_keys(vec![key_id])
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        gpg.add_signer(&key).unwrap();
+
+        let mut clearsigned = Vec::new();
+        gpg.sign_clear(index.as_bytes(), &mut clearsigned)
+            .expect("could not clearsign index");
+        let clearsigned =
+            String::from_utf8(clearsigned).expect("clearsigned index contained invalid characters");
+        debug!(?index, ?clearsigned, "clearsigned index");
+        let mut detachsigned = Vec::new();
+        gpg.sign_detached(index.as_bytes(), &mut detachsigned)
+            .expect("could not detach sign index");
+        let detachsigned = String::from_utf8(detachsigned)
+            .expect("detachsigned index contained invalid characters");
+        debug!(?index, ?detachsigned, "detachsigned index");
+
+        let mut public_key_cert = Vec::new();
+        gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
+            .expect("could not export key");
+        let public_key_cert = String::from_utf8(public_key_cert)
+            .expect("public key cert contained invalid characters");
+        debug!(?public_key_cert, "public key cert");
+
+        (clearsigned, detachsigned, public_key_cert)
+    }
+
     #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
     #[test_log::test]
     async fn resync_mitigates_partial_upload(pool: sqlx::PgPool) {
-        let server = AttuneTestServer::new(pool).await;
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
         const TENANT_ID: TenantID = TenantID(1);
         const REPO_NAME: &str = "resync_mitigates_partial_upload";
 
@@ -887,51 +938,7 @@ mod tests {
 
         // Sign the index. We use a temporary homedir to create an ephemeral key
         // and sign the index with it.
-        let dir = TempDir::new().await.unwrap();
-        let (clearsigned, detachsigned, public_key_cert) = {
-            let mut gpg = Context::from_protocol(Protocol::OpenPgp).unwrap();
-            gpg.set_engine_home_dir(dir.dir_path().to_str().unwrap())
-                .unwrap();
-            gpg.set_armor(true);
-            let keygen_result = gpg
-                .create_key_with_flags(
-                    "Attune Test",
-                    "default",
-                    Default::default(),
-                    CreateKeyFlags::NOPASSWD,
-                )
-                .unwrap();
-            let key_id = keygen_result.fingerprint().unwrap();
-            let key = gpg
-                .find_secret_keys(vec![key_id])
-                .unwrap()
-                .next()
-                .unwrap()
-                .unwrap();
-            gpg.add_signer(&key).unwrap();
-
-            let mut clearsigned = Vec::new();
-            gpg.sign_clear(index.as_bytes(), &mut clearsigned)
-                .expect("could not clearsign index");
-            let clearsigned = String::from_utf8(clearsigned)
-                .expect("clearsigned index contained invalid characters");
-            debug!(?index, ?clearsigned, "clearsigned index");
-            let mut detachsigned = Vec::new();
-            gpg.sign_detached(index.as_bytes(), &mut detachsigned)
-                .expect("could not detach sign index");
-            let detachsigned = String::from_utf8(detachsigned)
-                .expect("detachsigned index contained invalid characters");
-            debug!(?index, ?detachsigned, "detachsigned index");
-
-            let mut public_key_cert = Vec::new();
-            gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
-                .expect("could not export key");
-            let public_key_cert = String::from_utf8(public_key_cert)
-                .expect("public key cert contained invalid characters");
-            debug!(?public_key_cert, "public key cert");
-
-            (clearsigned, detachsigned, public_key_cert)
-        };
+        let (clearsigned, detachsigned, public_key_cert) = sign_index(&index).await;
 
         // At this point, we begin running the `sign` handler piecemeal to
         // simulate partial failure.
@@ -1117,47 +1124,289 @@ mod tests {
         );
     }
 
-    // #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
-    // async fn resync_mitigates_out_of_order_upload(pool: sqlx::PgPool) {
-    //     let server = AttuneTestServer::new(pool).await;
-    //     const REPO_NAME: &str = "resync_mitigates_out_of_order_upload";
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    async fn resync_mitigates_out_of_order_upload(pool: sqlx::PgPool) {
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+        const TENANT_ID: TenantID = TenantID(1);
+        const REPO_NAME: &str = "resync_mitigates_out_of_order_upload";
 
-    //     // Set up an empty repository.
-    //     let create_repo = server
-    //         .http
-    //         .post("/api/v0/repositories")
-    //         .add_header("authorization", format!("Bearer {}", server.http_api_token))
-    //         .json(&serde_json::json!({
-    //             "name": REPO_NAME,
-    //         }))
-    //         .await;
-    //     assert!(
-    //         create_repo.status_code().is_success(),
-    //         "Repository creation failed with status: {}",
-    //         create_repo.status_code()
-    //     );
+        // Set up an empty repository.
+        let create_repo = server
+            .http
+            .post("/api/v0/repositories")
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .json(&serde_json::json!({
+                "name": REPO_NAME,
+            }))
+            .await;
+        assert!(
+            create_repo.status_code().is_success(),
+            "Repository creation failed with status: {}",
+            create_repo.status_code()
+        );
 
-    //     // Upload packages.
+        // Upload packages.
+        let package_file_a = TEST_PACKAGE_AMD64;
+        let upload = MultipartForm::new().add_part("file", Part::bytes(package_file_a.to_vec()));
+        let res = server
+            .http
+            .post("/api/v0/packages")
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .multipart(upload)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Package upload failed with status: {}",
+            res.status_code()
+        );
+        let res = res.json::<PackageUploadResponse>();
+        let package_a_sha256sum = res.sha256sum;
 
-    //     // Add package 1 to the database.
+        let package_file_b = TEST_PACKAGE_ARM64;
+        let upload = MultipartForm::new().add_part("file", Part::bytes(package_file_b.to_vec()));
+        let res = server
+            .http
+            .post("/api/v0/packages")
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .multipart(upload)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Package upload failed with status: {}",
+            res.status_code()
+        );
+        let res = res.json::<PackageUploadResponse>();
+        let package_b_sha256sum = res.sha256sum;
 
-    //     // Add package 2 to the database.
+        // At this point, we begin running the sign handler piecemeal. Here, we
+        // first run the database transactions in sequence, and then run the
+        // repository uploads in a different sequence, to simulate a rare race
+        // condition where another an earlier handler invocation updates S3
+        // after a later handler invocation.
 
-    //     // Upload package 2 to the repository.
+        // Add package 1 to the database.
+        let req = GenerateIndexRequest {
+            change: PackageChange {
+                repository: String::from(REPO_NAME),
+                distribution: String::from("stable"),
+                component: String::from("main"),
 
-    //     // Upload package 1 to the repository.
+                action: PackageChangeAction::Add {
+                    package_sha256sum: package_a_sha256sum.clone(),
+                },
+            },
+        };
+        let res = server
+            .http
+            .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .json(&req)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Index generation failed with status: {}",
+            res.status_code()
+        );
+        let res = res.json::<GenerateIndexResponse>();
+        let release_ts = res.release_ts;
+        let index = res.release;
+        let (clearsigned, detachsigned, public_key_cert) = sign_index(&index).await;
+        let req_a = SignIndexRequest {
+            change: PackageChange {
+                repository: String::from(REPO_NAME),
+                distribution: String::from("stable"),
+                component: String::from("main"),
+                action: PackageChangeAction::Add {
+                    package_sha256sum: package_a_sha256sum,
+                },
+            },
+            clearsigned,
+            detachsigned,
+            public_key_cert,
+            release_ts,
+        };
+        let mut tx = server.db.begin().await.unwrap();
+        let result_a = apply_change_to_db(&mut tx, &TENANT_ID, &req_a)
+            .await
+            .unwrap();
+        debug!(?result_a, "applied change to database");
+        tx.commit().await.unwrap();
 
-    //     // Check that we can detect the desynchronization.
+        // Add package 2 to the database.
+        let req = GenerateIndexRequest {
+            change: PackageChange {
+                repository: String::from(REPO_NAME),
+                distribution: String::from("stable"),
+                component: String::from("main"),
 
-    //     // Resync the repository.
+                action: PackageChangeAction::Add {
+                    package_sha256sum: package_b_sha256sum.clone(),
+                },
+            },
+        };
+        let res = server
+            .http
+            .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .json(&req)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Index generation failed with status: {}",
+            res.status_code()
+        );
+        let res = res.json::<GenerateIndexResponse>();
+        let release_ts = res.release_ts;
+        let index = res.release;
+        let (clearsigned, detachsigned, public_key_cert) = sign_index(&index).await;
+        let req_b = SignIndexRequest {
+            change: PackageChange {
+                repository: String::from(REPO_NAME),
+                distribution: String::from("stable"),
+                component: String::from("main"),
+                action: PackageChangeAction::Add {
+                    package_sha256sum: package_b_sha256sum,
+                },
+            },
+            clearsigned,
+            detachsigned,
+            public_key_cert,
+            release_ts,
+        };
+        let mut tx = server.db.begin().await.unwrap();
+        let result_b = apply_change_to_db(&mut tx, &TENANT_ID, &req_b)
+            .await
+            .unwrap();
+        debug!(?result_b, "applied change to database");
+        tx.commit().await.unwrap();
 
-    //     // Check that the repository is synchronized.
-    //     todo!()
-    // }
+        // Upload package 2 to the repository.
+        let s3_prefix = repo_prefix(TENANT_ID, REPO_NAME);
+        apply_change_to_s3(
+            &server.s3,
+            &Repository {
+                s3_bucket: server.s3_bucket_name.clone(),
+                s3_prefix: s3_prefix.clone(),
+            },
+            &req_b,
+            &result_b,
+        )
+        .await;
+
+        // Upload package 1 to the repository.
+        apply_change_to_s3(
+            &server.s3,
+            &Repository {
+                s3_bucket: server.s3_bucket_name.clone(),
+                s3_prefix: s3_prefix.clone(),
+            },
+            &req_a,
+            &result_a,
+        )
+        .await;
+
+        // Check that we can detect the desynchronization.
+        let res = server
+            .http
+            .get(&format!(
+                "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
+            ))
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Sync check failed with status: {}",
+            res.status_code()
+        );
+        let status = res.json::<CheckConsistencyResponse>().status;
+        debug!(?status, "sync check result");
+        assert!(
+            status.release,
+            "Release file inconsistency was not detected"
+        );
+        assert!(
+            status.release_clearsigned,
+            "InRelease file inconsistency was not detected"
+        );
+        assert!(
+            status.release_detachsigned,
+            "Release.gpg file inconsistency was not detected"
+        );
+        assert_eq!(
+            status.packages,
+            vec![] as Vec<String>,
+            "Packages are inconsistent"
+        );
+        // In _this particular case_, the package indexes should be the same,
+        // since the packages we've uploaded are different architectures and
+        // therefore will go into different indexes. This is not always the
+        // case!
+        //
+        // TODO: Add property-based testing for a wide swath of scenarios?
+        assert_eq!(
+            status.packages_indexes,
+            vec![] as Vec<String>,
+            "Packages indexes are inconsistent"
+        );
+
+        // Resync the repository.
+        let res = server
+            .http
+            .post(&format!(
+                "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
+            ))
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Sync failed with status: {}",
+            res.status_code()
+        );
+
+        // Check that the repository is synchronized.
+        let res = server
+            .http
+            .get(&format!(
+                "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
+            ))
+            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Sync check failed with status: {}",
+            res.status_code()
+        );
+        let status = res.json::<CheckConsistencyResponse>().status;
+        debug!(?status, "sync check result");
+        assert!(!status.release, "Release file is inconsistent");
+        assert!(
+            !status.release_clearsigned,
+            "InRelease file is inconsistent"
+        );
+        assert!(
+            !status.release_detachsigned,
+            "Release.gpg file is inconsistent"
+        );
+        assert!(status.packages.is_empty(), "Packages are inconsistent");
+        assert!(
+            status.packages_indexes.is_empty(),
+            "Packages indexes are inconsistent"
+        );
+    }
 
     #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
     async fn reject_invalid_component_names(pool: sqlx::PgPool) {
-        let server = AttuneTestServer::new(pool).await;
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
         const REPO_NAME: &str = "reject_invalid_component_names";
 
         let create_repo = server

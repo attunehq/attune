@@ -8,4 +8,4 @@ attune_macros::prisma_migrate!("docker/migrate/prisma/migrations");
 mod server;
 
 #[cfg(test)]
-pub use server::AttuneTestServer;
+pub use server::*;

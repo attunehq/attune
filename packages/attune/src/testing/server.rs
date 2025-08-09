@@ -23,19 +23,29 @@ pub struct AttuneTestServer {
     pub s3_bucket_name: String,
 }
 
+pub struct AttuneTestServerConfig {
+    pub db: sqlx::PgPool,
+    pub s3_bucket_name: Option<String>,
+    pub http_api_token: Option<String>,
+}
+
 impl AttuneTestServer {
     /// Create a new test server.
-    pub async fn new(db: sqlx::PgPool) -> Self {
-        let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-        let config = aws_sdk_s3::config::Builder::from(&config).build();
-        let s3 = aws_sdk_s3::Client::from_conf(config);
+    pub async fn new(config: AttuneTestServerConfig) -> Self {
+        let awsconfig = aws_config::defaults(BehaviorVersion::latest()).load().await;
+        let s3config = aws_sdk_s3::config::Builder::from(&awsconfig).build();
+        let s3 = aws_sdk_s3::Client::from_conf(s3config);
 
-        let s3_bucket_name = String::from("attune-dev-0");
-        let http_api_token = String::from("test-api-token");
+        let s3_bucket_name = config
+            .s3_bucket_name
+            .unwrap_or(String::from("attune-dev-0"));
+        let http_api_token = config
+            .http_api_token
+            .unwrap_or(String::from("test-api-token"));
 
         let app = crate::server::new(
             crate::server::ServerState {
-                db: db.clone(),
+                db: config.db.clone(),
                 s3: s3.clone(),
                 s3_bucket_name: s3_bucket_name.clone(),
             },
@@ -50,7 +60,7 @@ impl AttuneTestServer {
 
         AttuneTestServer {
             http,
-            db,
+            db: config.db,
             s3,
             s3_bucket_name,
             http_api_token,

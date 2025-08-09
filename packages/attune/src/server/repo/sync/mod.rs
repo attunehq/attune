@@ -7,7 +7,7 @@ use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Transaction};
-use tracing::{Level, instrument};
+use tracing::{Level, instrument, trace};
 
 use crate::api::{ErrorResponse, TenantID};
 
@@ -230,11 +230,19 @@ async fn s3_object_consistent(
             .map(|head| {
                 head.checksum_sha256()
                     .map(|checksum| {
-                        checksum == base64::engine::general_purpose::STANDARD.encode(sha256sum)
+                        let expected = base64::engine::general_purpose::STANDARD.encode(sha256sum);
+                        trace!(actual = ?checksum, ?expected, "checking object sha256 checksum");
+                        checksum == expected
                     })
-                    .unwrap_or(false)
+                    .unwrap_or_else(|| {
+                        trace!("could not read object sha256 checksum");
+                        false
+                    })
             })
-            .unwrap_or(false),
+            .unwrap_or_else(|err| {
+                trace!(?err, "could not get object");
+                false
+            }),
         Expected::DoesNotExist { key } => s3
             .head_object()
             .bucket(s3_bucket)
