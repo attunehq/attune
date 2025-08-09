@@ -17,7 +17,7 @@ use time::OffsetDateTime;
 use tracing::{debug, instrument};
 
 use crate::{
-    api::{ErrorResponse, TenantID},
+    api::{ErrorResponse, TenantID, translate_psql_error},
     server::{
         ServerState,
         repo::{
@@ -94,11 +94,11 @@ pub async fn handler(
     }
 
     // Start a Serializable database transaction.
-    let mut tx = state.db.begin().await.unwrap();
+    let mut tx = state.db.begin().await.map_err(translate_psql_error)?;
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
 
     // Load the repository. If it does not exist, return an error.
     //
@@ -115,7 +115,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(translate_psql_error)?
     {
         Some(repo) => repo,
         None => {
@@ -185,7 +185,7 @@ pub async fn handler(
             )
             .fetch_optional(&mut *tx)
             .await
-            .unwrap() {
+            .map_err(translate_psql_error)? {
                 Some(release) => {
                     // If the release already exists, check whether any fields need to
                     // be updated. If so, update them.
@@ -250,7 +250,7 @@ pub async fn handler(
                     )
                     .fetch_one(&mut *tx)
                     .await
-                    .unwrap();
+                    .map_err(translate_psql_error)?;
                     let release = sqlx::query!(
                         r#"
                         INSERT INTO debian_repository_release (
@@ -299,7 +299,7 @@ pub async fn handler(
                     )
                     .fetch_one(&mut *tx)
                     .await
-                    .unwrap();
+                    .map_err(translate_psql_error)?;
                     release.id
                 }
             };
@@ -317,7 +317,7 @@ pub async fn handler(
             )
             .fetch_optional(&mut *tx)
             .await
-            .unwrap()
+            .map_err(translate_psql_error)?
             {
                 Some(component) => component.id,
                 None => {
@@ -342,7 +342,7 @@ pub async fn handler(
                     )
                     .fetch_one(&mut *tx)
                     .await
-                    .unwrap()
+                    .map_err(translate_psql_error)?
                     .id
                 }
             };
@@ -364,7 +364,7 @@ pub async fn handler(
             )
             .fetch_optional(&mut *tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
 
             match sqlx::query!(
                 r#"
@@ -381,7 +381,7 @@ pub async fn handler(
             )
             .fetch_optional(&mut *tx)
             .await
-            .unwrap()
+            .map_err(translate_psql_error)?
             {
                 Some(index) => {
                     // No need to check whether an update is needed - we know already
@@ -407,7 +407,7 @@ pub async fn handler(
                     )
                     .execute(&mut *tx)
                     .await
-                    .unwrap();
+                    .map_err(translate_psql_error)?;
                 }
                 None => {
                     // Otherwise, create the index.
@@ -449,7 +449,7 @@ pub async fn handler(
                     )
                     .execute(&mut *tx)
                     .await
-                    .unwrap();
+                    .map_err(translate_psql_error)?;
                 }
             }
 
@@ -491,7 +491,7 @@ pub async fn handler(
             )
             .execute(&mut *tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
 
             current_hashes.map(|hashes| (hashes.md5sum, hashes.sha1sum, hashes.sha256sum))
         }
@@ -532,7 +532,7 @@ pub async fn handler(
             )
             .fetch_optional(&mut *tx)
             .await
-            .unwrap()
+            .map_err(translate_psql_error)?
             .ok_or(ErrorResponse::new(
                 StatusCode::NOT_FOUND,
                 "COMPONENT_NOT_FOUND".to_string(),
@@ -555,7 +555,7 @@ pub async fn handler(
             )
             .fetch_optional(&mut *tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
 
             // Delete the component-package.
             sqlx::query!(
@@ -570,7 +570,7 @@ pub async fn handler(
             )
             .execute(&mut *tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
 
             // Update the Packages index, or delete if it's orphaned.
             if result.changed_packages_index.contents.is_empty() {
@@ -586,7 +586,7 @@ pub async fn handler(
                 )
                 .execute(&mut *tx)
                 .await
-                .unwrap();
+                .map_err(translate_psql_error)?;
             } else {
                 sqlx::query!(
                     r#"
@@ -612,7 +612,7 @@ pub async fn handler(
                 )
                 .execute(&mut *tx)
                 .await
-                .unwrap();
+                .map_err(translate_psql_error)?;
             }
 
             // Delete the Component if it's orphaned.
@@ -626,7 +626,7 @@ pub async fn handler(
             )
             .fetch_one(&mut *tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
             if remaining_component_packages.count == 0 {
                 sqlx::query!(
                     r#"
@@ -637,7 +637,7 @@ pub async fn handler(
                 )
                 .execute(&mut *tx)
                 .await
-                .unwrap();
+                .map_err(translate_psql_error)?;
             }
 
             // We do not delete the Release, because clients may still be
@@ -713,11 +713,11 @@ pub async fn handler(
             ref version,
             ref architecture,
         } => {
-            let mut tx = state.db.begin().await.unwrap();
+            let mut tx = state.db.begin().await.map_err(translate_psql_error)?;
             sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
                 .execute(&mut *tx)
                 .await
-                .unwrap();
+                .map_err(translate_psql_error)?;
 
             // This should be safe, because even if we delete the
             // component-package, we never delete the package row, and
@@ -756,9 +756,15 @@ pub async fn handler(
             )
             .fetch_one(&mut *tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
 
-            tx.commit().await.unwrap();
+            // Technically we should probably check for specific error codes,
+            // but the overwhelmingly most likely cause of an error here is a concurrent change
+            // so for now we just assume all errors are due to this.
+            //
+            // We've added logging here so that we can see the actual error code
+            // and special case it in the future.
+            tx.commit().await.map_err(translate_psql_error)?;
 
             // Delete the pool file from S3 if it's fully orphaned.
             if remaining_component_packages.count == 0 {
