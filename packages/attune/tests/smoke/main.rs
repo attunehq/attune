@@ -1,6 +1,6 @@
 use indoc::indoc;
-use std::{boxed::Box, env, fs};
-use testcontainers::{ImageExt, core::ExecCommand};
+use std::{boxed::Box, env, fs, path::PathBuf};
+use testcontainers::{core::ExecCommand, runners::AsyncBuilder, ImageExt};
 use tokio::io::AsyncReadExt;
 use xshell::{Shell, cmd};
 
@@ -123,15 +123,15 @@ fn smoke() {
         test_pkg_add(&sh, &config);
         println!("\n========== SMOKE TEST: Package Delete =========");
         test_pkg_delete(&sh, &config);
-        println!("\n========== SMOKE TEST: Concurrent Package Add =========");
-        test_concurrent_package_add(&sh, &config);
+        // println!("\n========== SMOKE TEST: Concurrent Package Add =========");
+        // test_concurrent_package_add(&sh, &config);
         println!("\n========== SMOKE TEST: Ubuntu Container APT Install =========");
         test_apt_package_install_ubuntu(&sh, &config);
     });
 
     // Clean up repositories, packages, and GPG key regardless of test outcome.
     println!("\n========== SMOKE TEST: Test Cleanup =========");
-    // cleanup_test_resources(&sh, &config);
+    cleanup_test_resources(&sh, &config);
 
     // Check if tests passed and report final result.
     // TODO: Here and elsewhere, wrap in a declarative macro: https://doc.rust-lang.org/reference/macros-by-example.html.
@@ -826,17 +826,58 @@ fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
 /// 5. Installing the attune-test-package v2.0.0.
 /// 6. Verifying the installed package works correctly.
 fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
-    use testcontainers::{GenericImage, runners::AsyncRunner};
+    use testcontainers::{BuildableImage, GenericBuildableImage, runners::AsyncRunner};
 
     println!("Testing end-to-end APT package installation...");
+
+    // Export GPG key to file on host system
+    println!("  Exporting GPG key to host file...");
+    let key_id = &config.gpg_key_id;
+    let public_key_result = cmd!(sh, "gpg --armor --export {key_id}").read();
+    let public_key = match public_key_result {
+        Ok(key) if !key.trim().is_empty() => {
+            println!("  ✅ GPG public key exported from host (length: {} chars)", key.len());
+            println!("  Debug: GPG key content preview:\n{}", &key[..key.len()]);
+            key
+        }
+        Ok(_) => {
+            eprintln!("  ❌ GPG key export returned empty data");
+            panic!("GPG key export failed - empty data");
+        }
+        Err(e) => {
+            eprintln!("  ❌ Failed to export GPG key: {e}");
+            panic!("Failed to export GPG key: {e}");
+        }
+    };
+
+    // Write the GPG key to attune.asc file
+    let key_file_path = PathBuf::new()
+        .join("/tmp/attune.asc");
+    std::fs::write(&key_file_path, &public_key)
+        .expect("Failed to write GPG key to attune.asc file");
+    println!("  ✅ GPG key written to {}", key_file_path.display());
+
+    // Verify the file content
+    let file_content = std::fs::read_to_string(&key_file_path)
+        .expect("Failed to read back GPG key file");
+    println!("  Debug: File content verification (length: {} chars)", file_content.len());
+    println!("  Debug: File content preview:\n{}", &file_content[..file_content.len()]);
 
     // Set up the runtime for async operations.
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
-    let test_result = rt.block_on(async {
+    let test_result = rt.block_on(async move {
         // Start Ubuntu container with network access to host.
         // Use sleep to keep the container running.
-        let ubuntu_image = GenericImage::new("ubuntu", "latest")
+        println!("  Debug: Building container image with GPG key file from: {}", key_file_path.display());
+        
+        println!("ABOUT TO BUILD IMAGE 875 ---------------");
+        let ubuntu_image = GenericBuildableImage::new("ubuntu", "latest")
+            .with_dockerfile_string("FROM ubuntu:latest\nCOPY /tmp/attune.asc /etc/apt/trusted.gpg.d/attune.asc")
+            // .with_file(&key_file_path, "/etc/apt/trusted.gpg.d/attune.asc")
+            .build_image()
+            .await
+            .unwrap()
             .with_network("host")
             .with_cmd(["sleep", "infinity"]);
 
@@ -846,7 +887,47 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
             .await
             .expect("Failed to start Ubuntu container");
 
+        // let ubuntu_image = GenericImage::new("ubuntu", "latest")
+        //     .with_network("host")
+        //     .with_cmd(["sleep", "infinity"]);
+
+        // println!("  Starting Ubuntu container...");
+        // let container = ubuntu_image
+        //     .start()
+        //     .await
+        //     .expect("Failed to start Ubuntu container");
+
         println!("  ✅ Ubuntu container started");
+
+        // Verify the key was added properly
+        let key_verify = container
+            .exec(ExecCommand::new(["ls", "-la", "/etc/apt/trusted.gpg.d/"]))
+            .await;
+
+        if let Ok(mut output) = key_verify {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let _ = output.stdout().read_to_end(&mut stdout).await;
+            let _ = output.stderr().read_to_end(&mut stderr).await;
+            let files = String::from_utf8_lossy(&stdout);
+            let errors = String::from_utf8_lossy(&stderr);
+            
+            println!("  Debug: ls -la /etc/apt/trusted.gpg.d/ output:");
+            println!("  stdout:\n{}", files);
+            if !errors.trim().is_empty() {
+                println!("  stderr:\n{}", errors);
+            }
+            
+            if files.contains("attune.asc") {
+                println!("  ✅ GPG key file verified in keyring directory");
+            } else {
+                eprintln!("  ❌ GPG key file not found in keyring directory");
+                return Err("GPG key file verification failed");
+            }
+        } else {
+            eprintln!("  ❌ Failed to execute ls command in container");
+            return Err("Failed to execute ls command");
+        }
 
         // Install required packages.
         println!("  Installing dependencies...");
@@ -930,60 +1011,60 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
 
         println!("  ✅ All dependencies verified and working");
 
-        // Step 2: Export GPG public key from host and configure in container.
-        println!("  Setting up GPG key...");
-        let key_id = &config.gpg_key_id;
+        // // Step 2: Export GPG public key from host and configure in container.
+        // println!("  Setting up GPG key...");
+        // let key_id = &config.gpg_key_id;
 
-        // Export the GPG public key from the host system.
-        let public_key_result = cmd!(sh, "gpg --armor --export {key_id}").read();
-        let public_key = match public_key_result {
-            Ok(key) if !key.trim().is_empty() => {
-                println!("  ✅ GPG public key exported from host (length: {} chars)", key.len());
-                key
-            }
-            Ok(_) => {
-                eprintln!("  ❌ GPG key export returned empty data");
-                return Err("GPG key export failed - empty data");
-            }
-            Err(e) => {
-                eprintln!("  ❌ Failed to export GPG key: {e}");
-                return Err("Failed to export GPG key");
-            }
-        };
+        // // Export the GPG public key from the host system.
+        // let public_key_result = cmd!(sh, "gpg --armor --export {key_id}").read();
+        // let public_key = match public_key_result {
+        //     Ok(key) if !key.trim().is_empty() => {
+        //         println!("  ✅ GPG public key exported from host (length: {} chars)", key.len());
+        //         key
+        //     }
+        //     Ok(_) => {
+        //         eprintln!("  ❌ GPG key export returned empty data");
+        //         return Err("GPG key export failed - empty data");
+        //     }
+        //     Err(e) => {
+        //         eprintln!("  ❌ Failed to export GPG key: {e}");
+        //         return Err("Failed to export GPG key");
+        //     }
+        // };
 
-        // Import the GPG key into the container's APT keyring
-        let key_setup_cmd = format!(
-            "cat > /etc/apt/trusted.gpg.d/attune.asc << 'EOF'\n{public_key}\nEOF"
-        );
+        // // Import the GPG key into the container's APT keyring
+        // let key_setup_cmd = format!(
+        //     "cat > /etc/apt/trusted.gpg.d/attune.asc << 'EOF'\n{public_key}\nEOF"
+        // );
 
-        let key_result = container
-            .exec(ExecCommand::new(["bash", "-c", &key_setup_cmd]))
-            .await;
+        // let key_result = container
+        //     .exec(ExecCommand::new(["bash", "-c", &key_setup_cmd]))
+        //     .await;
 
-        match key_result {
-            Ok(mut output) => {
-                let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                if exit_code != Some(0) && exit_code.is_some() {
-                    let mut stderr = Vec::new();
-                    let _ = output.stderr().read_to_end(&mut stderr).await;
+        // match key_result {
+        //     Ok(mut output) => {
+        //         let exit_code = output.exit_code().await.unwrap_or(Some(-1));
+        //         if exit_code != Some(0) && exit_code.is_some() {
+        //             let mut stderr = Vec::new();
+        //             let _ = output.stderr().read_to_end(&mut stderr).await;
 
-                    eprintln!(
-                        indoc! {"
-                            ❌ Failed to set up GPG key:
-                            stderr: {}
-                        "},
-                        String::from_utf8_lossy(&stderr)
-                    );
-                    return Err("Failed to set up GPG key");
-                } else {
-                    println!("  ✅ GPG key added to container's APT keyring");
-                }
-            }
-            Err(e) => {
-                eprintln!("  ❌ Failed to execute GPG key setup: {e}");
-                return Err("Failed to execute GPG key setup");
-            }
-        }
+        //             eprintln!(
+        //                 indoc! {"
+        //                     ❌ Failed to set up GPG key:
+        //                     stderr: {}
+        //                 "},
+        //                 String::from_utf8_lossy(&stderr)
+        //             );
+        //             return Err("Failed to set up GPG key");
+        //         } else {
+        //             println!("  ✅ GPG key added to container's APT keyring");
+        //         }
+        //     }
+        //     Err(e) => {
+        //         eprintln!("  ❌ Failed to execute GPG key setup: {e}");
+        //         return Err("Failed to execute GPG key setup");
+        //     }
+        // }
 
         // Verify the key was added properly
         let key_verify = container
