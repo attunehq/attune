@@ -77,7 +77,7 @@ jobs:
           - "9000:9000"
           - "9001:9001"
         volumes:
-          - ./minio-data:/data
+          - ${{ runner.temp }}/minio:/data
     steps:
       # Since these installation steps don't require checkout, technically we
       # could do them ahead of time and just cache the resulting image.
@@ -99,7 +99,8 @@ jobs:
       # This sets up the default integration testing bucket in Minio.
       - name: Create Minio bucket
         run: |
-          sudo mkdir -p ./minio-data/attune-dev-0
+          ls -lah ${{ runner.temp }}
+          mkdir -p ${{ runner.temp }}/minio/attune-dev-0
 
       - uses: actions/checkout@v4
 
