@@ -15,7 +15,7 @@ if [[ ! -d "fixtures" ]]; then
     exit 1
 fi
 
-cargo run --bin attune -- apt repo create testing-concurrent
+cargo run --bin attune -- apt repo create testing-concurrent || true
 
 # Find all .deb files in ~/scratch
 deb_files=("fixtures"/*.deb)

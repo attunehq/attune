@@ -15,6 +15,8 @@ if [[ ! -d "fixtures" ]]; then
     exit 1
 fi
 
+cargo run --bin attune -- apt repo create testing-serial || true
+
 # Find all .deb files in fixtures
 deb_files=("fixtures"/*.deb)
 
