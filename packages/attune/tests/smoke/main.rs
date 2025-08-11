@@ -1,7 +1,9 @@
 use indoc::indoc;
 use std::{boxed::Box, env, fs, path::PathBuf};
-use testcontainers::{core::ExecCommand, runners::AsyncBuilder, ImageExt};
-use tokio::io::AsyncReadExt;
+use bollard::{Docker, exec::{CreateExecOptions, StartExecResults}, models::{HostConfig, ContainerCreateBody}};
+use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, BuildImageOptions};
+use futures_util::stream::StreamExt;
+use tokio_util::io::ReaderStream;
 use xshell::{Shell, cmd};
 
 /// Configuration for smoke tests.
@@ -826,8 +828,6 @@ fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
 /// 5. Installing the attune-test-package v2.0.0.
 /// 6. Verifying the installed package works correctly.
 fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
-    use testcontainers::{BuildableImage, GenericBuildableImage, runners::AsyncRunner};
-
     println!("Testing end-to-end APT package installation...");
 
     // Export GPG key to file on host system
@@ -837,7 +837,6 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
     let public_key = match public_key_result {
         Ok(key) if !key.trim().is_empty() => {
             println!("  ✅ GPG public key exported from host (length: {} chars)", key.len());
-            println!("  Debug: GPG key content preview:\n{}", &key[..key.len()]);
             key
         }
         Ok(_) => {
@@ -851,264 +850,239 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
     };
 
     // Write the GPG key to attune.asc file
-    let key_file_path = PathBuf::new()
-        .join("/tmp/attune.asc");
+    let key_file_path = PathBuf::new().join("/tmp/attune.asc");
     std::fs::write(&key_file_path, &public_key)
         .expect("Failed to write GPG key to attune.asc file");
     println!("  ✅ GPG key written to {}", key_file_path.display());
-
-    // Verify the file content
-    let file_content = std::fs::read_to_string(&key_file_path)
-        .expect("Failed to read back GPG key file");
-    println!("  Debug: File content verification (length: {} chars)", file_content.len());
-    println!("  Debug: File content preview:\n{}", &file_content[..file_content.len()]);
 
     // Set up the runtime for async operations.
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     let test_result = rt.block_on(async move {
-        // Start Ubuntu container with network access to host.
-        // Use sleep to keep the container running.
-        println!("  Debug: Building container image with GPG key file from: {}", key_file_path.display());
+        // Connect to Docker daemon
+        let docker = Docker::connect_with_local_defaults()
+            .map_err(|e| format!("Failed to connect to Docker: {e}"))?;
+
+        println!("  ✅ Connected to Docker daemon");
+
+        // Build a custom Ubuntu image with the GPG key
+        println!("  Building custom Ubuntu image with GPG key...");
         
-        println!("ABOUT TO BUILD IMAGE 875 ---------------");
-        let ubuntu_image = GenericBuildableImage::new("ubuntu", "latest")
-            .with_dockerfile_string("FROM ubuntu:latest\nCOPY /tmp/attune.asc /etc/apt/trusted.gpg.d/attune.asc")
-            // .with_file(&key_file_path, "/etc/apt/trusted.gpg.d/attune.asc")
-            .build_image()
+        let dockerfile = format!(
+            "FROM ubuntu:latest\n\
+            COPY attune.asc /etc/apt/trusted.gpg.d/attune.asc\n\
+            CMD [\"sleep\", \"infinity\"]"
+        );
+
+        // Create build context with the GPG key file
+        let mut tar_builder = tar::Builder::new(Vec::new());
+        
+        // Add Dockerfile
+        let dockerfile_bytes = dockerfile.as_bytes();
+        let mut header = tar::Header::new_gnu();
+        header.set_path("Dockerfile").map_err(|e| format!("Failed to set Dockerfile path: {e}"))?;
+        header.set_size(dockerfile_bytes.len() as u64);
+        header.set_cksum();
+        tar_builder.append(&header, dockerfile_bytes).map_err(|e| format!("Failed to add Dockerfile to tar: {e}"))?;
+        
+        // Add GPG key file
+        tar_builder.append_path_with_name(&key_file_path, "attune.asc")
+            .map_err(|e| format!("Failed to add GPG key to tar: {e}"))?;
+        let tar_data = tar_builder.into_inner()
+            .map_err(|e| format!("Failed to finalize tar: {e}"))?;
+
+        // Build the image
+        let build_options = BuildImageOptions {
+            dockerfile: "Dockerfile".to_string(),
+            t: Some("attune-test-ubuntu".to_string()),
+            rm: true,
+            ..Default::default()
+        };
+
+        // Write tar data to a temporary file for bollard
+        let temp_tar_path = "/tmp/attune-test-context.tar";
+        tokio::fs::write(temp_tar_path, &tar_data).await
+            .map_err(|e| format!("Failed to write tar to temp file: {e}"))?;
+
+        let tar_file = tokio::fs::File::open(temp_tar_path).await
+            .map_err(|e| format!("Failed to open tar file: {e}"))?;
+        
+        let tar_stream = ReaderStream::new(tar_file);
+
+        let mut build_stream = docker.build_image(
+            build_options,
+            None,
+            Some(bollard::body_try_stream(tar_stream))
+        );
+
+        // Process build output
+        while let Some(msg) = build_stream.next().await {
+            match msg {
+                Ok(chunk) => {
+                    if let Some(stream) = chunk.stream {
+                        print!("    {}", stream);
+                    }
+                    if let Some(error) = chunk.error {
+                        return Err(format!("Build failed: {error}"));
+                    }
+                }
+                Err(e) => return Err(format!("Build stream error: {e}"))
+            }
+        }
+
+        println!("  ✅ Custom Ubuntu image built successfully");
+
+        // Create container with host networking
+        let container_config = ContainerCreateBody {
+            image: Some("attune-test-ubuntu".to_string()),
+            cmd: Some(vec!["sleep".to_string(), "infinity".to_string()]),
+            host_config: Some(HostConfig {
+                network_mode: Some("host".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let container_options = CreateContainerOptions {
+            name: Some("attune-test-container".to_string()),
+            ..Default::default()
+        };
+
+        let container = docker
+            .create_container(Some(container_options), container_config)
             .await
-            .unwrap()
-            .with_network("host")
-            .with_cmd(["sleep", "infinity"]);
+            .map_err(|e| format!("Failed to create container: {e}"))?;
 
-        println!("  Starting Ubuntu container...");
-        let container = ubuntu_image
-            .start()
+        println!("  ✅ Container created: {}", container.id);
+
+        // Start the container
+        docker
+            .start_container(&container.id, None::<StartContainerOptions>)
             .await
-            .expect("Failed to start Ubuntu container");
-
-        // let ubuntu_image = GenericImage::new("ubuntu", "latest")
-        //     .with_network("host")
-        //     .with_cmd(["sleep", "infinity"]);
-
-        // println!("  Starting Ubuntu container...");
-        // let container = ubuntu_image
-        //     .start()
-        //     .await
-        //     .expect("Failed to start Ubuntu container");
+            .map_err(|e| format!("Failed to start container: {e}"))?;
 
         println!("  ✅ Ubuntu container started");
 
-        // Verify the key was added properly
-        let key_verify = container
-            .exec(ExecCommand::new(["ls", "-la", "/etc/apt/trusted.gpg.d/"]))
-            .await;
+        // Helper function to execute commands in the container
+        async fn exec_command(docker: &Docker, container_id: &str, cmd: Vec<String>) -> Result<(i64, Vec<u8>, Vec<u8>), String> {
+            let exec_options = CreateExecOptions {
+                cmd: Some(cmd),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                ..Default::default()
+            };
 
-        if let Ok(mut output) = key_verify {
+            let exec_result = docker
+                .create_exec(container_id, exec_options)
+                .await
+                .map_err(|e| format!("Failed to create exec: {e}"))?;
+
+            let start_result = docker.start_exec(&exec_result.id, None).await
+                .map_err(|e| format!("Failed to start exec: {e}"))?;
+
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
-            let _ = output.stdout().read_to_end(&mut stdout).await;
-            let _ = output.stderr().read_to_end(&mut stderr).await;
-            let files = String::from_utf8_lossy(&stdout);
-            let errors = String::from_utf8_lossy(&stderr);
-            
-            println!("  Debug: ls -la /etc/apt/trusted.gpg.d/ output:");
-            println!("  stdout:\n{}", files);
-            if !errors.trim().is_empty() {
-                println!("  stderr:\n{}", errors);
+
+            match start_result {
+                StartExecResults::Attached { mut output, .. } => {
+                    while let Some(chunk) = output.next().await {
+                        match chunk {
+                            Ok(bollard::container::LogOutput::StdOut { message }) => {
+                                stdout.extend_from_slice(&message);
+                            }
+                            Ok(bollard::container::LogOutput::StdErr { message }) => {
+                                stderr.extend_from_slice(&message);
+                            }
+                            Ok(_) => {},
+                            Err(e) => return Err(format!("Exec output error: {e}"))
+                        }
+                    }
+                }
+                StartExecResults::Detached => {
+                    return Err("Unexpected detached exec result".to_string());
+                }
             }
-            
-            if files.contains("attune.asc") {
-                println!("  ✅ GPG key file verified in keyring directory");
-            } else {
-                eprintln!("  ❌ GPG key file not found in keyring directory");
-                return Err("GPG key file verification failed");
-            }
+
+            // Get exit code
+            let inspect_result = docker.inspect_exec(&exec_result.id).await
+                .map_err(|e| format!("Failed to inspect exec: {e}"))?;
+
+            Ok((
+                inspect_result.exit_code.unwrap_or(-1),
+                stdout,
+                stderr
+            ))
+        }
+
+        // Verify the key was added properly
+        let (_exit_code, stdout, stderr) = exec_command(&docker, &container.id, vec!["ls".to_string(), "-la".to_string(), "/etc/apt/trusted.gpg.d/".to_string()]).await?;
+        
+        let files = String::from_utf8_lossy(&stdout);
+        let errors = String::from_utf8_lossy(&stderr);
+        
+        println!("  Debug: ls -la /etc/apt/trusted.gpg.d/ output:");
+        println!("  stdout:\n{}", files);
+        if !errors.trim().is_empty() {
+            println!("  stderr:\n{}", errors);
+        }
+        
+        if files.contains("attune.asc") {
+            println!("  ✅ GPG key file verified in keyring directory");
         } else {
-            eprintln!("  ❌ Failed to execute ls command in container");
-            return Err("Failed to execute ls command");
+            return Err("GPG key file not found in keyring directory".to_string());
         }
 
-        // Install required packages.
+        // Install required packages
         println!("  Installing dependencies...");
-        const DEPS_CMD: &str = "export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y curl gpg ca-certificates";
-        let deps_cmd = DEPS_CMD;
-        let deps_result = container
-            .exec(ExecCommand::new(["bash", "-c", deps_cmd]))
-            .await;
+        let deps_cmd = "export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y curl gpg ca-certificates";
+        let (exit_code, stdout, stderr) = exec_command(&docker, &container.id, vec!["bash".to_string(), "-c".to_string(), deps_cmd.to_string()]).await?;
 
-        match deps_result {
-            Ok(mut output) => {
-                let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                println!("  Debug: dependency installation exit code: {exit_code:?}");
+        let stdout_str = String::from_utf8_lossy(&stdout);
+        let stderr_str = String::from_utf8_lossy(&stderr);
 
-                // Read output regardless of exit code to see what happened.
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                let _ = output.stdout().read_to_end(&mut stdout).await;
-                let _ = output.stderr().read_to_end(&mut stderr).await;
-
-                let stdout_str = String::from_utf8_lossy(&stdout);
-                let stderr_str = String::from_utf8_lossy(&stderr);
-
-                // Accept both Some(0) and None as success since testcontainers may not track exit codes properly.
-                if exit_code != Some(0) && exit_code.is_some() {
-                    eprintln!(
-                        indoc! {"
-                            ❌ Failed to install dependencies:
-                            stdout: {}
-                            stderr: {}
-                        "},
-                        stdout_str,
-                        stderr_str
-                    );
-                    return Err("Failed to install dependencies");
-                } else {
-                    println!("  ✅ Dependencies installed successfully");
-                    println!("  Install summary: {} packages processed", stdout_str.matches("Setting up").count());
-
-                    // Show any warnings in stderr.
-                    if !stderr_str.trim().is_empty() {
-                        println!("  Warnings:\n{}", stderr_str.trim());
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("  ❌ Failed to execute dependency installation: {e}");
-                return Err("Failed to execute dependency installation");
-            }
+        if exit_code != 0 {
+            return Err(format!(
+                "Failed to install dependencies:\nstdout: {}\nstderr: {}",
+                stdout_str, stderr_str
+            ));
         }
 
-        // Verify the installed packages are actually available.
+        println!("  ✅ Dependencies installed successfully");
+        println!("  Install summary: {} packages processed", stdout_str.matches("Setting up").count());
+
+        if !stderr_str.trim().is_empty() {
+            println!("  Warnings:\n{}", stderr_str.trim());
+        }
+
+        // Verify installed packages
         println!("  Verifying installed packages...");
-        let verify_cmds = ["curl --version", "gpg --version"];
-
-        for cmd in &verify_cmds {
-            let verify_result = container
-                .exec(ExecCommand::new(["bash", "-c", cmd]))
-                .await;
-
-            match verify_result {
-                Ok(mut output) => {
-                    let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                    if exit_code == Some(0) || exit_code.is_none() {
-                        let mut stdout = Vec::new();
-                        let _ = output.stdout().read_to_end(&mut stdout).await;
-                        let version_info = String::from_utf8_lossy(&stdout);
-                        let first_line = version_info.lines().next().unwrap_or("unknown");
-                        println!("  ✅ {}: {}", cmd.split_whitespace().next().unwrap(), first_line);
-                    } else {
-                        println!("  ❌ {} not working properly", cmd.split_whitespace().next().unwrap());
-                        return Err("Package verification failed");
-                    }
-                }
-                Err(e) => {
-                    println!("  ❌ Failed to verify {}: {}", cmd.split_whitespace().next().unwrap(), e);
-                    return Err("Package verification failed");
-                }
+        for cmd in &["curl --version", "gpg --version"] {
+            let (exit_code, stdout, _) = exec_command(&docker, &container.id, vec!["bash".to_string(), "-c".to_string(), cmd.to_string()]).await?;
+            
+            if exit_code == 0 {
+                let version_info = String::from_utf8_lossy(&stdout);
+                let first_line = version_info.lines().next().unwrap_or("unknown");
+                println!("  ✅ {}: {}", cmd.split_whitespace().next().unwrap(), first_line);
+            } else {
+                return Err(format!("{} not working properly", cmd.split_whitespace().next().unwrap()));
             }
         }
 
         println!("  ✅ All dependencies verified and working");
 
-        // // Step 2: Export GPG public key from host and configure in container.
-        // println!("  Setting up GPG key...");
-        // let key_id = &config.gpg_key_id;
-
-        // // Export the GPG public key from the host system.
-        // let public_key_result = cmd!(sh, "gpg --armor --export {key_id}").read();
-        // let public_key = match public_key_result {
-        //     Ok(key) if !key.trim().is_empty() => {
-        //         println!("  ✅ GPG public key exported from host (length: {} chars)", key.len());
-        //         key
-        //     }
-        //     Ok(_) => {
-        //         eprintln!("  ❌ GPG key export returned empty data");
-        //         return Err("GPG key export failed - empty data");
-        //     }
-        //     Err(e) => {
-        //         eprintln!("  ❌ Failed to export GPG key: {e}");
-        //         return Err("Failed to export GPG key");
-        //     }
-        // };
-
-        // // Import the GPG key into the container's APT keyring
-        // let key_setup_cmd = format!(
-        //     "cat > /etc/apt/trusted.gpg.d/attune.asc << 'EOF'\n{public_key}\nEOF"
-        // );
-
-        // let key_result = container
-        //     .exec(ExecCommand::new(["bash", "-c", &key_setup_cmd]))
-        //     .await;
-
-        // match key_result {
-        //     Ok(mut output) => {
-        //         let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-        //         if exit_code != Some(0) && exit_code.is_some() {
-        //             let mut stderr = Vec::new();
-        //             let _ = output.stderr().read_to_end(&mut stderr).await;
-
-        //             eprintln!(
-        //                 indoc! {"
-        //                     ❌ Failed to set up GPG key:
-        //                     stderr: {}
-        //                 "},
-        //                 String::from_utf8_lossy(&stderr)
-        //             );
-        //             return Err("Failed to set up GPG key");
-        //         } else {
-        //             println!("  ✅ GPG key added to container's APT keyring");
-        //         }
-        //     }
-        //     Err(e) => {
-        //         eprintln!("  ❌ Failed to execute GPG key setup: {e}");
-        //         return Err("Failed to execute GPG key setup");
-        //     }
-        // }
-
-        // Verify the key was added properly
-        let key_verify = container
-            .exec(ExecCommand::new(["ls", "-la", "/etc/apt/trusted.gpg.d/"]))
-            .await;
-
-        if let Ok(mut output) = key_verify {
-            let mut stdout = Vec::new();
-            let _ = output.stdout().read_to_end(&mut stdout).await;
-            let files = String::from_utf8_lossy(&stdout);
-            if files.contains("attune.asc") {
-                println!("  ✅ GPG key file verified in keyring directory");
-            } else {
-                println!("  ❌ GPG key file not found in keyring directory");
-                return Err("GPG key file verification failed");
-            }
-        }
-
-        // Step 3: Configure APT sources list.
+        // Configure APT repository
         println!("  Configuring APT repository...");
 
-        // Detect container architecture for proper package selection.
-        let arch_result = container
-            .exec(ExecCommand::new(["dpkg", "--print-architecture"]))
-            .await;
-
-        let container_arch = if let Ok(mut output) = arch_result {
-            let mut stdout = Vec::new();
-            let _ = output.stdout().read_to_end(&mut stdout).await;
-            String::from_utf8_lossy(&stdout).trim().to_string()
-        } else {
-            "amd64".to_string() // fallback.
-        };
-
+        // Detect container architecture
+        let (_, stdout, _) = exec_command(&docker, &container.id, vec!["dpkg".to_string(), "--print-architecture".to_string()]).await?;
+        let container_arch = String::from_utf8_lossy(&stdout).trim().to_string();
         println!("  Container architecture: {container_arch}");
 
-        // Configure the repository URL (MinIO direct access).
+        // Configure the repository URL
         const DISTRIBUTION: &str = "stable";
         const COMPONENT: &str = "main";
-
-        // Use the known S3 prefix for debian-test-repo-1 (path-style with tenant ID).
         const REPOSITORY_URL: &str = "http://localhost:9000/attune-dev-0/1/56c3adb4af8bf6505b258bc7543458bc45e1b7a5de78f259aaa0b6d448d83174";
 
-        // Create the APT sources list entry.
         let sources_content = format!("deb [arch={container_arch}] {REPOSITORY_URL} {DISTRIBUTION} {COMPONENT}");
         let sources_cmd = format!(
             "cat > /etc/apt/sources.list.d/attune-test.list << 'EOF'\n{sources_content}\nEOF"
@@ -1116,203 +1090,122 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
 
         println!("  Writing sources file with content: {sources_content}");
 
-        let create_sources_result = container
-            .exec(ExecCommand::new(["bash", "-c", &sources_cmd]))
-            .await;
-
-        match create_sources_result {
-            Ok(mut output) => {
-                let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                if exit_code != Some(0) && exit_code.is_some() {
-                    let mut stderr = Vec::new();
-                    let _ = output.stderr().read_to_end(&mut stderr).await;
-                    eprintln!("  ❌ Failed to create sources file: {}", String::from_utf8_lossy(&stderr));
-                    return Err("Failed to create sources file");
-                } else {
-                    println!("  ✅ Sources file created");
-                }
-            }
-            Err(e) => {
-                eprintln!("  ❌ Failed to create sources file: {e}");
-                return Err("Failed to create sources file");
-            }
+        let (exit_code, _, stderr) = exec_command(&docker, &container.id, vec!["bash".to_string(), "-c".to_string(), sources_cmd.to_string()]).await?;
+        if exit_code != 0 {
+            return Err(format!("Failed to create sources file: {}", String::from_utf8_lossy(&stderr)));
         }
 
-        // Verify the sources file was created correctly.
-        let sources_verify = container
-            .exec(ExecCommand::new(["cat", "/etc/apt/sources.list.d/attune-test.list"]))
-            .await;
+        println!("  ✅ Sources file created");
 
-        match sources_verify {
-            Ok(mut output) => {
-                let mut stdout = Vec::new();
-                let _ = output.stdout().read_to_end(&mut stdout).await;
-                let content = String::from_utf8_lossy(&stdout);
-                println!("  Sources file content: {}", content.trim());
+        // Verify the sources file
+        let (_, stdout, _) = exec_command(&docker, &container.id, vec!["cat".to_string(), "/etc/apt/sources.list.d/attune-test.list".to_string()]).await?;
+        let content = String::from_utf8_lossy(&stdout);
+        println!("  Sources file content: {}", content.trim());
 
-                if content.contains("attune-dev-0") && content.contains(&container_arch) && content.contains(DISTRIBUTION) {
-                    println!("  ✅ Sources file verified with correct content");
-                } else {
-                    println!("  ❌ Sources file content verification failed");
-                    println!("    Expected: attune-dev-0, {container_arch}, {DISTRIBUTION}");
-                    return Err("Sources file content verification failed");
-                }
-            }
-            Err(e) => {
-                println!("  ❌ Failed to read sources file: {e}");
-                return Err("Failed to read sources file");
-            }
+        if content.contains("attune-dev-0") && content.contains(&container_arch) && content.contains(DISTRIBUTION) {
+            println!("  ✅ Sources file verified with correct content");
+        } else {
+            return Err(format!("Sources file content verification failed. Expected: attune-dev-0, {container_arch}, {DISTRIBUTION}"));
         }
 
-        // Update APT package lists to include the new repository.
+        // Update APT package lists
         println!("  Updating APT package lists...");
-        let apt_update_result = container
-            .exec(ExecCommand::new(["bash", "-c", "apt-get update"]))
-            .await;
+        let (exit_code, stdout, stderr) = exec_command(&docker, &container.id, vec!["bash".to_string(), "-c".to_string(), "apt-get update".to_string()]).await?;
 
-        match apt_update_result {
-            Ok(mut output) => {
-                let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                let _ = output.stdout().read_to_end(&mut stdout).await;
-                let _ = output.stderr().read_to_end(&mut stderr).await;
+        let stdout_str = String::from_utf8_lossy(&stdout);
+        let stderr_str = String::from_utf8_lossy(&stderr);
 
-                let stdout_str = String::from_utf8_lossy(&stdout);
-                let stderr_str = String::from_utf8_lossy(&stderr);
-
-                if exit_code != Some(0) && exit_code.is_some() {
-                    eprintln!(
-                        indoc! {"
-                            ❌ Failed to update APT package lists:
-                            stdout: {}
-                            stderr: {}
-                        "},
-                        stdout_str,
-                        stderr_str
-                    );
-                    return Err("Failed to update APT package lists");
-                } else {
-                    println!("  ✅ APT package lists updated successfully");
-
-                    // Show if our repository was accessed.
-                    if stdout_str.contains("attune") || stdout_str.contains("56c3adb4af8bf6505b258bc7543458bc45e1b7a5de78f259aaa0b6d448d83174") {
-                        println!("  ✅ Attune repository was accessed during update");
-                    } else {
-                        println!("  ⚠️  Attune repository not mentioned in update output");
-                    }
-
-                    // Show any warnings.
-                    if !stderr_str.trim().is_empty() {
-                        println!("  Update warnings:\n{}", stderr_str.trim());
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("  ❌ Failed to execute APT update: {e}");
-                return Err("Failed to execute APT update");
-            }
+        if exit_code != 0 {
+            return Err(format!(
+                "Failed to update APT package lists:\nstdout: {}\nstderr: {}",
+                stdout_str, stderr_str
+            ));
         }
 
-        // Step 4: Install the attune-test-package and verify it works
+        println!("  ✅ APT package lists updated successfully");
+
+        if stdout_str.contains("attune") || stdout_str.contains("56c3adb4af8bf6505b258bc7543458bc45e1b7a5de78f259aaa0b6d448d83174") {
+            println!("  ✅ Attune repository was accessed during update");
+        } else {
+            println!("  ⚠️  Attune repository not mentioned in update output");
+        }
+
+        if !stderr_str.trim().is_empty() {
+            println!("  Update warnings:\n{}", stderr_str.trim());
+        }
+
+        // Install the attune-test-package
         println!("  Installing attune-test-package...");
 
-        // Choose version based on architecture: amd64 gets v1.0.3, arm64 gets v2.0.0
         let version = match container_arch.as_str() {
             "amd64" => "1.0.3",
             "arm64" => "2.0.0",
-            _ => "1.0.3", // fallback to amd64 version
+            _ => "1.0.3", // fallback
         };
 
         println!("  Installing attune-test-package version {version} for {container_arch} architecture");
         let install_cmd = format!("export DEBIAN_FRONTEND=noninteractive && apt-get install -y attune-test-package={version}");
-        let install_result = container
-            .exec(ExecCommand::new(["bash", "-c", &install_cmd]))
-            .await;
+        let (exit_code, stdout, stderr) = exec_command(&docker, &container.id, vec!["bash".to_string(), "-c".to_string(), install_cmd.to_string()]).await?;
 
-        match install_result {
-            Ok(mut output) => {
-                let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                let _ = output.stdout().read_to_end(&mut stdout).await;
-                let _ = output.stderr().read_to_end(&mut stderr).await;
+        let stdout_str = String::from_utf8_lossy(&stdout);
+        let stderr_str = String::from_utf8_lossy(&stderr);
 
-                let stdout_str = String::from_utf8_lossy(&stdout);
-                let stderr_str = String::from_utf8_lossy(&stderr);
-
-                if exit_code != Some(0) && exit_code.is_some() {
-                    eprintln!(
-                        indoc! {"
-                            ❌ Failed to install attune-test-package:
-                            stdout: {}
-                            stderr: {}
-                        "},
-                        stdout_str,
-                        stderr_str
-                    );
-                    return Err("Failed to install attune-test-package");
-                } else {
-                    println!("  ✅ attune-test-package installed successfully");
-
-                    // Show installation summary.
-                    if stdout_str.contains("Setting up attune-test-package") {
-                        println!("  ✅ Package setup completed");
-                    }
-
-                    // Show any warnings.
-                    if !stderr_str.trim().is_empty() {
-                        println!("  Install warnings:\n{}", stderr_str.trim());
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("  ❌ Failed to execute package installation: {e}");
-                return Err("Failed to execute package installation");
-            }
+        if exit_code != 0 {
+            return Err(format!(
+                "Failed to install attune-test-package:\nstdout: {}\nstderr: {}",
+                stdout_str, stderr_str
+            ));
         }
 
-        // Verify the installed package works.
+        println!("  ✅ attune-test-package installed successfully");
+
+        if stdout_str.contains("Setting up attune-test-package") {
+            println!("  ✅ Package setup completed");
+        }
+
+        if !stderr_str.trim().is_empty() {
+            println!("  Install warnings:\n{}", stderr_str.trim());
+        }
+
+        // Verify the installed package works
         println!("  Verifying attune-test-package installation...");
-        let verify_result = container
-            .exec(ExecCommand::new(["attune-test-package", "--version"]))
-            .await;
+        let (exit_code, stdout, _) = exec_command(&docker, &container.id, vec!["attune-test-package".to_string(), "--version".to_string()]).await?;
 
-        match verify_result {
-            Ok(mut output) => {
-                let exit_code = output.exit_code().await.unwrap_or(Some(-1));
-                if exit_code == Some(0) || exit_code.is_none() {
-                    let mut stdout = Vec::new();
-                    let _ = output.stdout().read_to_end(&mut stdout).await;
-                    let version_output = String::from_utf8_lossy(&stdout).trim().to_string();
+        if exit_code == 0 {
+            let version_output = String::from_utf8_lossy(&stdout).trim().to_string();
+            let expected_version = match container_arch.as_str() {
+                "amd64" => "1.0.3",
+                "arm64" => "2.0.0",
+                _ => "1.0.3", // fallback
+            };
 
-                    // Verify the correct version based on architecture
-                    let expected_version = match container_arch.as_str() {
-                        "amd64" => "1.0.3",
-                        "arm64" => "2.0.0",
-                        _ => "1.0.3", // fallback
-                    };
-
-                    if version_output.contains(expected_version) {
-                        println!("  ✅ attune-test-package v{expected_version} verified for {container_arch} architecture: {version_output}");
-                    } else {
-                        println!("  ❌ Version mismatch - expected {expected_version} for {container_arch}, got: {version_output}");
-                        return Err("Package version verification failed");
-                    }
-                } else {
-                    println!("  ❌ attune-test-package --version command failed");
-                    return Err("Package verification command failed");
-                }
+            if version_output.contains(expected_version) {
+                println!("  ✅ attune-test-package v{expected_version} verified for {container_arch} architecture: {version_output}");
+            } else {
+                return Err(format!("Version mismatch - expected {expected_version} for {container_arch}, got: {version_output}"));
             }
-            Err(e) => {
-                println!("  ❌ Failed to verify package installation: {e}");
-                return Err("Package verification failed");
-            }
+        } else {
+            return Err("attune-test-package --version command failed".to_string());
         }
+
+        // Clean up: remove the container
+        use bollard::query_parameters::{RemoveContainerOptions, RemoveImageOptions};
+        let _ = docker.remove_container(&container.id, Some(RemoveContainerOptions {
+            force: true,
+            ..Default::default()
+        })).await;
+
+        // Clean up: remove the custom image
+        let _ = docker.remove_image("attune-test-ubuntu", Some(RemoveImageOptions {
+            force: true,
+            ..Default::default()
+        }), None).await;
+
+        // Clean up temporary tar file
+        let _ = tokio::fs::remove_file("/tmp/attune-test-context.tar").await;
 
         println!("  ✅ End-to-end APT package installation test completed successfully!");
-
-        Ok(())
+        Ok::<(), String>(())
     });
 
     match test_result {

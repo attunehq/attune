@@ -45,6 +45,10 @@ uuid.workspace = true
 
 [dev-dependencies]
 indoc = "2"
-testcontainers = "0.25.0"
+bollard = "0.19.2"
+tar = "0.4"
+tokio-util = "0.7"
+http-body-util = "0.1"
+http-body = "1.0"
 xshell = "0.2.7"
 axum-test.workspace = true
