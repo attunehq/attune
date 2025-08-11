@@ -728,10 +728,7 @@ async fn apply_change_to_s3(
             if result.orphaned_pool_filename {
                 s3.delete_object()
                     .bucket(&repo.s3_bucket)
-                    .key(format!(
-                        "{}/{}",
-                        repo.s3_prefix, result.changed_package.filename
-                    ))
+                    .key(key)
                     .send()
                     .await
                     .unwrap();
