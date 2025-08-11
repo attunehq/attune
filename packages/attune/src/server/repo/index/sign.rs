@@ -1001,7 +1001,7 @@ mod tests {
         let res = server
             .http
             .post("/api/v0/packages")
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .multipart(upload)
             .await;
         assert!(
@@ -1028,7 +1028,7 @@ mod tests {
         let res = server
             .http
             .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .json(&req)
             .await;
         assert!(
@@ -1153,7 +1153,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1197,7 +1197,7 @@ mod tests {
             .post(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1211,7 +1211,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1256,7 +1256,7 @@ mod tests {
         let res = server
             .http
             .post("/api/v0/packages")
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .multipart(upload)
             .await;
         assert!(
@@ -1272,7 +1272,7 @@ mod tests {
         let res = server
             .http
             .post("/api/v0/packages")
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .multipart(upload)
             .await;
         assert!(
@@ -1304,7 +1304,7 @@ mod tests {
         let res = server
             .http
             .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .json(&req)
             .await;
         assert!(
@@ -1353,7 +1353,7 @@ mod tests {
         let res = server
             .http
             .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .json(&req)
             .await;
         assert!(
@@ -1419,7 +1419,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1463,7 +1463,7 @@ mod tests {
             .post(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1477,7 +1477,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", api_token))
+            .add_header("authorization", format!("Bearer {api_token}"))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1542,7 +1542,7 @@ mod tests {
             let response = server
                 .http
                 .post(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-                .add_header("authorization", format!("Bearer {}", api_token))
+                .add_header("authorization", format!("Bearer {api_token}"))
                 .json(&sign_request)
                 .await;
             assert_eq!(
@@ -1587,7 +1587,7 @@ mod tests {
             let response = server
                 .http
                 .post(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-                .add_header("authorization", format!("Bearer {}", api_token))
+                .add_header("authorization", format!("Bearer {api_token}"))
                 .json(&sign_request)
                 .await;
 

@@ -91,7 +91,7 @@ impl AttuneTestServer {
     /// repository in S3.
     pub async fn create_test_tenant(&self, test_name: &str) -> (TenantID, String) {
         let run_id = uuid::Uuid::new_v7(Timestamp::now(ContextV7::new()));
-        let unique_id = format!("TEST/{}/{}", test_name, run_id);
+        let unique_id = format!("TEST/{test_name}/{run_id}");
 
         let mut tx = self.db.begin().await.unwrap();
         sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
@@ -115,7 +115,7 @@ impl AttuneTestServer {
         .fetch_one(&mut *tx)
         .await
         .unwrap();
-        let api_token = format!("test-api-token-{}", unique_id);
+        let api_token = format!("test-api-token-{unique_id}");
         sqlx::query!(
             r#"
             INSERT INTO attune_tenant_api_token (tenant_id, name, token, created_at, updated_at)

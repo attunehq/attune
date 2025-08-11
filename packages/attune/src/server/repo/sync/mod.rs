@@ -9,7 +9,7 @@ use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Transaction};
-use tracing::{Level, instrument, debug};
+use tracing::{Level, debug, instrument};
 
 use crate::api::{ErrorResponse, TenantID};
 
