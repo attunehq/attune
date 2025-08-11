@@ -5,9 +5,11 @@ use axum::{
 };
 use bon::Builder;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tracing::error;
 
-#[derive(Serialize, Deserialize, Builder, Debug)]
+#[derive(Serialize, Deserialize, Builder, Debug, Error)]
+#[error("{error} ({status}): {message}")]
 pub struct ErrorResponse {
     /// The HTTP status code.
     #[serde(skip)]

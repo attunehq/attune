@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 
+use attune::cli::apt::pkg::add::CmdAptPkgAdd;
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -18,7 +19,7 @@ pub struct PkgCommand {
 pub enum PkgSubCommand {
     /// Upload a new package
     #[command(visible_aliases = ["new", "upload"])]
-    Add(add::PkgAddCommand),
+    Add(CmdAptPkgAdd),
     /// Show information about packages
     #[command(visible_alias = "ls")]
     List(list::PkgListCommand),

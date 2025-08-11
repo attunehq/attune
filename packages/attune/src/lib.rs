@@ -1,5 +1,6 @@
 pub mod api;
 pub mod apt;
+pub mod cli;
 pub mod server;
 
 // We can't make the whole module `#[cfg(test)]`, because the `MIGRATOR` it
