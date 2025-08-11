@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use attune::cli::apt::pkg::add::CmdAptPkgAdd;
+use attune::cli::apt::pkg::{add::CmdAptPkgAdd, remove::CmdAptPkgRemove};
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -25,7 +25,7 @@ pub enum PkgSubCommand {
     List(list::PkgListCommand),
     /// Remove a package
     #[command(visible_aliases = ["rm", "delete"])]
-    Remove(remove::PkgRemoveCommand),
+    Remove(CmdAptPkgRemove),
 }
 
 pub async fn handle_pkg(ctx: Config, command: PkgCommand) -> ExitCode {
