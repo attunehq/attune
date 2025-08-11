@@ -1,8 +1,12 @@
+use bollard::query_parameters::{BuildImageOptions, CreateContainerOptions, StartContainerOptions};
+use bollard::{
+    Docker,
+    exec::{CreateExecOptions, StartExecResults},
+    models::{ContainerCreateBody, HostConfig},
+};
+use futures_util::stream::StreamExt;
 use indoc::indoc;
 use std::{boxed::Box, env, fs, path::PathBuf};
-use bollard::{Docker, exec::{CreateExecOptions, StartExecResults}, models::{HostConfig, ContainerCreateBody}};
-use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, BuildImageOptions};
-use futures_util::stream::StreamExt;
 use tokio_util::io::ReaderStream;
 use xshell::{Shell, cmd};
 
@@ -639,48 +643,57 @@ fn test_pkg_delete(sh: &Shell, config: &TestConfig) {
 /// 4. All operations run concurrently to test race conditions and database consistency
 fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
     use std::thread;
-    
+
     println!("Testing concurrent package additions with 6 users...");
-    
+
     // Package configuration
     const REPO_NAME: &str = "debian-test-repo-1";
     const DISTRIBUTION: &str = "stable";
     const COMPONENT: &str = "main";
-    
+
     // Base package names and architectures
-    const PACKAGE_NAMES: [&str; 4] = ["attune-test-package", "cod-test-package", "salmon-test-package", "tuna-test-package"];
+    const PACKAGE_NAMES: [&str; 4] = [
+        "attune-test-package",
+        "cod-test-package",
+        "salmon-test-package",
+        "tuna-test-package",
+    ];
     const ARCHITECTURES: [&str; 2] = ["amd64", "arm64"];
-    
+
     // Versions for each user (v3.0.0 through v3.0.5)
     const VERSIONS: [&str; 6] = ["3.0.0", "3.0.1", "3.0.2", "3.0.3", "3.0.4", "3.0.5"];
-    
+
     let cli_path = &config.cli_path;
     let key_id = &config.gpg_key_id;
-    
+
     println!("Using repository: {REPO_NAME}, distribution: {DISTRIBUTION}, component: {COMPONENT}");
     println!("Using GPG key ID: {key_id}");
-    
+
     // First, download all packages sequentially to avoid network bottlenecks
     println!("Downloading all packages first...");
     let mut package_paths = Vec::new();
-    
+
     for user_index in 0..6 {
         let version = VERSIONS[user_index];
-        println!("  Downloading packages for user {} (version {})...", user_index + 1, version);
-        
+        println!(
+            "  Downloading packages for user {} (version {})...",
+            user_index + 1,
+            version
+        );
+
         for package_name in &PACKAGE_NAMES {
             for arch in &ARCHITECTURES {
                 let url = format!(
                     "https://github.com/attunehq/attune-test-package/releases/download/v{}/{}_{}_linux_{}.deb",
                     version, package_name, version, arch
                 );
-                
+
                 let filename = format!("{}_{}_linux_{}.deb", package_name, version, arch);
                 let filepath = format!("/tmp/concurrent_{}_{}", user_index, filename);
-                
+
                 // Download the package
                 let download_result = cmd!(sh, "curl -L -o {filepath} {url}").run();
-                
+
                 match download_result {
                     Ok(_) => {
                         // Verify file exists and has reasonable size
@@ -693,10 +706,17 @@ fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
                                     arch.to_string(),
                                     filepath,
                                 ));
-                                println!("    ✅ Downloaded {}: {} bytes", filename, metadata.len());
+                                println!(
+                                    "    ✅ Downloaded {}: {} bytes",
+                                    filename,
+                                    metadata.len()
+                                );
                             }
                             _ => {
-                                println!("    ❌ Download failed for {}: file too small or missing", filename);
+                                println!(
+                                    "    ❌ Download failed for {}: file too small or missing",
+                                    filename
+                                );
                             }
                         }
                     }
@@ -707,39 +727,51 @@ fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
             }
         }
     }
-    
+
     println!("✅ Downloaded {} packages total", package_paths.len());
-    
+
     // Now create 6 concurrent threads to upload packages simultaneously
     println!("Starting concurrent package uploads with 6 users...");
     let mut handles = vec![];
-    
+
     for user_index in 0..6 {
         let user_packages: Vec<_> = package_paths
             .iter()
             .filter(|(uid, _, _, _, _)| *uid == user_index)
             .cloned()
             .collect();
-        
+
         let cli_path = cli_path.clone();
         let key_id = key_id.clone();
-        
-        println!("Starting user {} with {} packages", user_index + 1, user_packages.len());
-        
+
+        println!(
+            "Starting user {} with {} packages",
+            user_index + 1,
+            user_packages.len()
+        );
+
         let handle = thread::spawn(move || {
             let user_sh = Shell::new().unwrap();
-            
+
             // Copy environment variables to the new shell
-            user_sh.set_var("ATTUNE_API_ENDPOINT", &std::env::var("ATTUNE_API_ENDPOINT").unwrap_or_else(|_| "http://localhost:3000".to_string()));
-            user_sh.set_var("ATTUNE_API_TOKEN", &std::env::var("ATTUNE_API_TOKEN").unwrap_or_else(|_| "INSECURE_TEST_TOKEN".to_string()));
+            user_sh.set_var(
+                "ATTUNE_API_ENDPOINT",
+                &std::env::var("ATTUNE_API_ENDPOINT")
+                    .unwrap_or_else(|_| "http://localhost:3000".to_string()),
+            );
+            user_sh.set_var(
+                "ATTUNE_API_TOKEN",
+                &std::env::var("ATTUNE_API_TOKEN")
+                    .unwrap_or_else(|_| "INSECURE_TEST_TOKEN".to_string()),
+            );
             user_sh.set_var("GPG_KEY_ID", &key_id);
-            
+
             let mut user_results = Vec::new();
-            
+
             // Upload all packages for this user
             for (_, package_name, version, arch, filepath) in user_packages {
                 let add_result = cmd!(user_sh, "{cli_path} apt package add {filepath} --repo {REPO_NAME} --distribution {DISTRIBUTION} --component {COMPONENT} --key-id {key_id}").run();
-                
+
                 let success = add_result.is_ok();
                 user_results.push((
                     user_index + 1,
@@ -747,21 +779,28 @@ fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
                     version,
                     arch,
                     success,
-                    if success { "Success".to_string() } else { format!("Error: {}", add_result.unwrap_err()) }
+                    if success {
+                        "Success".to_string()
+                    } else {
+                        format!("Error: {}", add_result.unwrap_err())
+                    },
                 ));
-                
+
                 // Clean up downloaded file after upload attempt
                 let _ = std::fs::remove_file(&filepath);
             }
-            
+
             user_results
         });
-        
+
         handles.push(handle);
     }
-    
-    println!("All {} user threads started, uploading packages concurrently...", handles.len());
-    
+
+    println!(
+        "All {} user threads started, uploading packages concurrently...",
+        handles.len()
+    );
+
     // Wait for all tasks to complete and collect results
     let mut all_results = Vec::new();
     for handle in handles {
@@ -774,47 +813,72 @@ fn test_concurrent_package_add(sh: &Shell, config: &TestConfig) {
             }
         }
     }
-    
+
     // Analyze results
     let total_attempts = all_results.len();
-    let successful_adds = all_results.iter().filter(|(_, _, _, _, success, _)| *success).count();
+    let successful_adds = all_results
+        .iter()
+        .filter(|(_, _, _, _, success, _)| *success)
+        .count();
     let failed_adds = total_attempts - successful_adds;
-    
+
     println!("\n========== CONCURRENT PACKAGE ADD RESULTS ==========");
     println!("Total package add attempts: {}", total_attempts);
     println!("Successful additions: {}", successful_adds);
     println!("Failed additions: {}", failed_adds);
-    println!("Success rate: {:.1}%", (successful_adds as f64 / total_attempts as f64) * 100.0);
-    
+    println!(
+        "Success rate: {:.1}%",
+        (successful_adds as f64 / total_attempts as f64) * 100.0
+    );
+
     // Show detailed results by user
     println!("\nDetailed results by user:");
     for user_id in 1..=6 {
-        let user_results: Vec<_> = all_results.iter().filter(|(uid, _, _, _, _, _)| *uid == user_id).collect();
-        let user_successes = user_results.iter().filter(|(_, _, _, _, success, _)| *success).count();
-        println!("  User {}: {}/{} packages added successfully", user_id, user_successes, user_results.len());
+        let user_results: Vec<_> = all_results
+            .iter()
+            .filter(|(uid, _, _, _, _, _)| *uid == user_id)
+            .collect();
+        let user_successes = user_results
+            .iter()
+            .filter(|(_, _, _, _, success, _)| *success)
+            .count();
+        println!(
+            "  User {}: {}/{} packages added successfully",
+            user_id,
+            user_successes,
+            user_results.len()
+        );
     }
-    
+
     // Show any failures for debugging
-    let failures: Vec<_> = all_results.iter().filter(|(_, _, _, _, success, _)| !*success).collect();
+    let failures: Vec<_> = all_results
+        .iter()
+        .filter(|(_, _, _, _, success, _)| !*success)
+        .collect();
     if !failures.is_empty() {
         println!("\nFailure details:");
         for (user_id, pkg_name, version, arch, _, error) in failures {
-            println!("  User {}: {} {} {} - {}", user_id, pkg_name, version, arch, error);
+            println!(
+                "  User {}: {} {} {} - {}",
+                user_id, pkg_name, version, arch, error
+            );
         }
     }
-    
+
     // The test is successful if we had reasonable concurrent behavior
     // We expect some conflicts/failures due to concurrent access, but the system should handle it gracefully
     if successful_adds > 0 {
         println!("✅ Concurrent package add test completed - system handled concurrent operations");
         if failed_adds > 0 {
-            println!("ℹ️  Some operations failed due to concurrency conflicts, which is expected behavior");
+            println!(
+                "ℹ️  Some operations failed due to concurrency conflicts, which is expected behavior"
+            );
         }
     } else {
         eprintln!("❌ Concurrent package add test failed - no packages were added successfully");
         panic!("Concurrent package addition test failed completely");
     }
-    
+
     println!("✅ Concurrent package add test completed successfully!\n");
 }
 
@@ -836,7 +900,10 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
     let public_key_result = cmd!(sh, "gpg --armor --export {key_id}").read();
     let public_key = match public_key_result {
         Ok(key) if !key.trim().is_empty() => {
-            println!("  ✅ GPG public key exported from host (length: {} chars)", key.len());
+            println!(
+                "  ✅ GPG public key exported from host (length: {} chars)",
+                key.len()
+            );
             key
         }
         Ok(_) => {
@@ -867,7 +934,7 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
 
         // Build a custom Ubuntu image with the GPG key
         println!("  Building custom Ubuntu image with GPG key...");
-        
+
         let dockerfile = format!(
             "FROM ubuntu:latest\n\
             COPY attune.asc /etc/apt/trusted.gpg.d/attune.asc\n\
@@ -876,7 +943,7 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
 
         // Create build context with the GPG key file
         let mut tar_builder = tar::Builder::new(Vec::new());
-        
+
         // Add Dockerfile
         let dockerfile_bytes = dockerfile.as_bytes();
         let mut header = tar::Header::new_gnu();
@@ -884,7 +951,7 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
         header.set_size(dockerfile_bytes.len() as u64);
         header.set_cksum();
         tar_builder.append(&header, dockerfile_bytes).map_err(|e| format!("Failed to add Dockerfile to tar: {e}"))?;
-        
+
         // Add GPG key file
         tar_builder.append_path_with_name(&key_file_path, "attune.asc")
             .map_err(|e| format!("Failed to add GPG key to tar: {e}"))?;
@@ -906,7 +973,7 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
 
         let tar_file = tokio::fs::File::open(temp_tar_path).await
             .map_err(|e| format!("Failed to open tar file: {e}"))?;
-        
+
         let tar_stream = ReaderStream::new(tar_file);
 
         let mut build_stream = docker.build_image(
@@ -1016,16 +1083,16 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
 
         // Verify the key was added properly
         let (_exit_code, stdout, stderr) = exec_command(&docker, &container.id, vec!["ls".to_string(), "-la".to_string(), "/etc/apt/trusted.gpg.d/".to_string()]).await?;
-        
+
         let files = String::from_utf8_lossy(&stdout);
         let errors = String::from_utf8_lossy(&stderr);
-        
+
         println!("  Debug: ls -la /etc/apt/trusted.gpg.d/ output:");
         println!("  stdout:\n{}", files);
         if !errors.trim().is_empty() {
             println!("  stderr:\n{}", errors);
         }
-        
+
         if files.contains("attune.asc") {
             println!("  ✅ GPG key file verified in keyring directory");
         } else {
@@ -1058,7 +1125,7 @@ fn test_apt_package_install_ubuntu(sh: &Shell, config: &TestConfig) {
         println!("  Verifying installed packages...");
         for cmd in &["curl --version", "gpg --version"] {
             let (exit_code, stdout, _) = exec_command(&docker, &container.id, vec!["bash".to_string(), "-c".to_string(), cmd.to_string()]).await?;
-            
+
             if exit_code == 0 {
                 let version_info = String::from_utf8_lossy(&stdout);
                 let first_line = version_info.lines().next().unwrap_or("unknown");
