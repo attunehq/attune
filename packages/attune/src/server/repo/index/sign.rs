@@ -16,7 +16,7 @@ use time::OffsetDateTime;
 use tracing::{debug, instrument};
 
 use crate::{
-    api::{ErrorResponse, TenantID},
+    api::{ErrorResponse, TenantID, translate_psql_error},
     server::{
         ServerState,
         repo::{
@@ -72,11 +72,11 @@ pub async fn handler(
     }
 
     // Start a Serializable database transaction.
-    let mut tx = state.db.begin().await.unwrap();
+    let mut tx = state.db.begin().await.map_err(translate_psql_error)?;
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
 
     // Load the repository. If it does not exist, return an error.
     let repo = sqlx::query_as!(
@@ -91,7 +91,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(translate_psql_error)?
     .ok_or(ErrorResponse::not_found("repository"))?;
 
     // Apply the change to the database.
@@ -100,8 +100,13 @@ pub async fn handler(
     // Commit the transaction. At this point, the transaction may abort because
     // of a concurrent index change. This should trigger the client to retry.
     //
-    // TODO(#84): Add special handling for aborts to signal the client to retry.
-    tx.commit().await.unwrap();
+    // Technically we should probably check for specific error codes,
+    // but the overwhelmingly most likely cause of an error here is a concurrent change
+    // so for now we just assume all errors are due to this.
+    //
+    // We've added logging here so that we can see the actual error code
+    // and special case it in the future.
+    tx.commit().await.map_err(translate_psql_error)?;
 
     // Save the new index state to S3. This must occur after the transaction
     // commits so that we are sure that we are not incorrectly overwriting a
@@ -174,13 +179,14 @@ async fn apply_change_to_db(
 
     // Save the new state to the database.
     let previous_by_hash_indexes = match req.change.action {
-        PackageChangeAction::Add { .. } => add_package_to_db(tx, tenant_id, req, &result).await,
+        PackageChangeAction::Add { .. } => add_package_to_db(tx, tenant_id, req, &result).await?,
         PackageChangeAction::Remove {
             ref name,
             ref version,
             ref architecture,
         } => Some(
-            remove_package_from_db(tx, tenant_id, req, &result, name, version, architecture).await,
+            remove_package_from_db(tx, tenant_id, req, &result, name, version, architecture)
+                .await?,
         ),
     };
 
@@ -199,7 +205,7 @@ async fn add_package_to_db(
     tenant_id: &TenantID,
     req: &SignIndexRequest,
     update: &PackageChangeResult,
-) -> Option<PreviousByHashIndexes> {
+) -> Result<Option<PreviousByHashIndexes>, ErrorResponse> {
     // First, we update-or-create the Release. Remember, it's possible that no
     // package has ever been added to this distribution, so the Release may not
     // exist.
@@ -230,7 +236,7 @@ async fn add_package_to_db(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap() {
+    .map_err(translate_psql_error)? {
         Some(release) => {
             // If the release already exists, check whether any fields need to
             // be updated. If so, update them.
@@ -276,7 +282,7 @@ async fn add_package_to_db(
                 )
                 .execute(&mut **tx)
                 .await
-                .unwrap();
+                .map_err(translate_psql_error)?;
             }
             release.id
         },
@@ -334,7 +340,7 @@ async fn add_package_to_db(
             )
             .fetch_one(&mut **tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
             release.id
         }
     };
@@ -352,7 +358,7 @@ async fn add_package_to_db(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap()
+    .map_err(translate_psql_error)?
     {
         Some(component) => component.id,
         None => {
@@ -377,7 +383,7 @@ async fn add_package_to_db(
             )
             .fetch_one(&mut **tx)
             .await
-            .unwrap()
+            .map_err(translate_psql_error)?
             .id
         }
     };
@@ -398,7 +404,7 @@ async fn add_package_to_db(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap()
+    .map_err(translate_psql_error)?
     {
         Some(index) => {
             // Before we do an update, we need to capture the hashes of the
@@ -433,7 +439,7 @@ async fn add_package_to_db(
             )
             .execute(&mut **tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
             Some(previous_by_hash_indexes)
         }
         None => {
@@ -476,7 +482,7 @@ async fn add_package_to_db(
             )
             .execute(&mut **tx)
             .await
-            .unwrap();
+            .map_err(translate_psql_error)?;
             None
         }
     };
@@ -519,9 +525,9 @@ async fn add_package_to_db(
     )
     .execute(&mut **tx)
     .await
-    .unwrap();
+    .map_err(translate_psql_error)?;
 
-    previous_by_hash_indexes
+    Ok(previous_by_hash_indexes)
 }
 
 async fn remove_package_from_db(
@@ -532,7 +538,7 @@ async fn remove_package_from_db(
     package: &str,
     version: &str,
     architecture: &str,
-) -> PreviousByHashIndexes {
+) -> Result<PreviousByHashIndexes, ErrorResponse> {
     // Load the component-package, which should be there if the package exists.
     let component_package = sqlx::query!(
         r#"
@@ -565,7 +571,7 @@ async fn remove_package_from_db(
     )
     .fetch_one(&mut **tx)
     .await
-    .unwrap();
+    .map_err(translate_psql_error)?;
 
     // Delete the component-package.
     sqlx::query!(
@@ -580,7 +586,7 @@ async fn remove_package_from_db(
     )
     .execute(&mut **tx)
     .await
-    .unwrap();
+    .map_err(translate_psql_error)?;
 
     // Load the current state of the changed Packages index. We need to record
     // its hashes so that we can delete the by-hash files after we update this
@@ -603,7 +609,7 @@ async fn remove_package_from_db(
     )
     .fetch_one(&mut **tx)
     .await
-    .unwrap();
+    .map_err(translate_psql_error)?;
     let previous_by_hash_indexes = PreviousByHashIndexes {
         md5sum: previous_by_hash_indexes.md5sum,
         sha1sum: previous_by_hash_indexes.sha1sum,
@@ -624,7 +630,7 @@ async fn remove_package_from_db(
         )
         .execute(&mut **tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
     } else {
         sqlx::query!(
             r#"
@@ -651,7 +657,7 @@ async fn remove_package_from_db(
         )
         .execute(&mut **tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
     }
 
     // Delete the Component if it's orphaned.
@@ -665,7 +671,7 @@ async fn remove_package_from_db(
     )
     .fetch_one(&mut **tx)
     .await
-    .unwrap();
+    .map_err(translate_psql_error)?;
     if remaining_component_packages.count == 0 {
         sqlx::query!(
             r#"
@@ -676,7 +682,7 @@ async fn remove_package_from_db(
         )
         .execute(&mut **tx)
         .await
-        .unwrap();
+        .map_err(translate_psql_error)?;
     }
 
     // We do not delete the Release even if it's orphaned, because
@@ -684,7 +690,7 @@ async fn remove_package_from_db(
     // want them to be broken. The error they should get from APT is
     // "package missing", rather than "repository not found".
 
-    previous_by_hash_indexes
+    Ok(previous_by_hash_indexes)
 }
 
 struct Repository {
@@ -708,11 +714,7 @@ async fn apply_change_to_s3(
                 result.changed_package.package.s3_bucket, result.changed_package.package.sha256sum,
             );
             let destination_key = format!("{}/{}", repo.s3_prefix, result.changed_package.filename);
-            debug!(
-                ?source_key,
-                ?destination_key,
-                "copy package from pool storage",
-            );
+            debug!(?source_key, ?destination_key, "copy package to pool");
             s3.copy_object()
                 .bucket(&repo.s3_bucket)
                 .key(destination_key)
@@ -911,13 +913,13 @@ mod tests {
     use async_tempfile::TempDir;
     use axum_test::multipart::{MultipartForm, Part};
     use gpgme::{Context, CreateKeyFlags, ExportMode, Protocol};
+    use tracing::info;
 
     use super::*;
     use crate::{
         server::{
             pkg::upload::PackageUploadResponse,
             repo::{
-                create::repo_prefix,
                 index::generate::{GenerateIndexRequest, GenerateIndexResponse},
                 sync::check::CheckConsistencyResponse,
             },
@@ -985,23 +987,12 @@ mod tests {
             http_api_token: None,
         })
         .await;
-        const TENANT_ID: TenantID = TenantID(1);
         const REPO_NAME: &str = "resync_mitigates_partial_upload";
+        let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
 
         // Set up an empty repository.
-        let res = server
-            .http
-            .post("/api/v0/repositories")
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
-            .json(&serde_json::json!({
-                "name": REPO_NAME,
-            }))
-            .await;
-        assert!(
-            res.status_code().is_success(),
-            "Repository creation failed with status: {}",
-            res.status_code()
-        );
+        let s3_prefix = server.create_repository(tenant_id, REPO_NAME).await;
+        info!(name = ?REPO_NAME, ?s3_prefix, "created repository");
 
         // Upload a package.
         let package_file = TEST_PACKAGE_AMD64;
@@ -1010,7 +1001,7 @@ mod tests {
         let res = server
             .http
             .post("/api/v0/packages")
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .multipart(upload)
             .await;
         assert!(
@@ -1037,7 +1028,7 @@ mod tests {
         let res = server
             .http
             .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .json(&req)
             .await;
         assert!(
@@ -1075,7 +1066,7 @@ mod tests {
             release_ts,
         };
         let mut tx = server.db.begin().await.unwrap();
-        let (result, _) = apply_change_to_db(&mut tx, &TENANT_ID, &req).await.unwrap();
+        let (result, _) = apply_change_to_db(&mut tx, &tenant_id, &req).await.unwrap();
         tx.commit().await.unwrap();
 
         // Partially upload the index changes. In this case, we upload the
@@ -1086,7 +1077,6 @@ mod tests {
 
         // Copy the package from its canonical storage location into the
         // repository pool.
-        let s3_prefix = repo_prefix(TENANT_ID, REPO_NAME);
         server
             .s3
             .copy_object()
@@ -1163,7 +1153,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1207,7 +1197,7 @@ mod tests {
             .post(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1221,7 +1211,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1254,23 +1244,11 @@ mod tests {
             http_api_token: None,
         })
         .await;
-        const TENANT_ID: TenantID = TenantID(1);
         const REPO_NAME: &str = "resync_mitigates_out_of_order_upload";
+        let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
 
         // Set up an empty repository.
-        let create_repo = server
-            .http
-            .post("/api/v0/repositories")
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
-            .json(&serde_json::json!({
-                "name": REPO_NAME,
-            }))
-            .await;
-        assert!(
-            create_repo.status_code().is_success(),
-            "Repository creation failed with status: {}",
-            create_repo.status_code()
-        );
+        let s3_prefix = server.create_repository(tenant_id, REPO_NAME).await;
 
         // Upload packages.
         let package_file_a = TEST_PACKAGE_AMD64;
@@ -1278,7 +1256,7 @@ mod tests {
         let res = server
             .http
             .post("/api/v0/packages")
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .multipart(upload)
             .await;
         assert!(
@@ -1294,7 +1272,7 @@ mod tests {
         let res = server
             .http
             .post("/api/v0/packages")
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .multipart(upload)
             .await;
         assert!(
@@ -1326,7 +1304,7 @@ mod tests {
         let res = server
             .http
             .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .json(&req)
             .await;
         assert!(
@@ -1354,7 +1332,7 @@ mod tests {
         };
         let mut tx = server.db.begin().await.unwrap();
         let (result_a, previous_by_hash_indexes_a) =
-            apply_change_to_db(&mut tx, &TENANT_ID, &req_a)
+            apply_change_to_db(&mut tx, &tenant_id, &req_a)
                 .await
                 .unwrap();
         debug!(?result_a, "applied change to database");
@@ -1375,7 +1353,7 @@ mod tests {
         let res = server
             .http
             .get(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .json(&req)
             .await;
         assert!(
@@ -1403,14 +1381,13 @@ mod tests {
         };
         let mut tx = server.db.begin().await.unwrap();
         let (result_b, previous_by_hash_indexes_b) =
-            apply_change_to_db(&mut tx, &TENANT_ID, &req_b)
+            apply_change_to_db(&mut tx, &tenant_id, &req_b)
                 .await
                 .unwrap();
         debug!(?result_b, "applied change to database");
         tx.commit().await.unwrap();
 
         // Upload package 2 to the repository.
-        let s3_prefix = repo_prefix(TENANT_ID, REPO_NAME);
         apply_change_to_s3(
             &server.s3,
             &Repository {
@@ -1442,7 +1419,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1486,7 +1463,7 @@ mod tests {
             .post(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1500,7 +1477,7 @@ mod tests {
             .get(&format!(
                 "/api/v0/repositories/{REPO_NAME}/distributions/stable/sync"
             ))
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
+            .add_header("authorization", format!("Bearer {}", api_token))
             .await;
         assert!(
             res.status_code().is_success(),
@@ -1534,20 +1511,9 @@ mod tests {
         })
         .await;
         const REPO_NAME: &str = "reject_invalid_component_names";
+        let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
 
-        let create_repo = server
-            .http
-            .post("/api/v0/repositories")
-            .add_header("authorization", format!("Bearer {}", server.http_api_token))
-            .json(&serde_json::json!({
-                "name": REPO_NAME,
-            }))
-            .await;
-        assert!(
-            create_repo.status_code().is_success(),
-            "Repository creation failed with status: {}",
-            create_repo.status_code()
-        );
+        server.create_repository(tenant_id, REPO_NAME).await;
 
         let invalid_components = [
             "comp with spaces",
@@ -1576,7 +1542,7 @@ mod tests {
             let response = server
                 .http
                 .post(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-                .add_header("authorization", format!("Bearer {}", server.http_api_token))
+                .add_header("authorization", format!("Bearer {}", api_token))
                 .json(&sign_request)
                 .await;
             assert_eq!(
@@ -1621,7 +1587,7 @@ mod tests {
             let response = server
                 .http
                 .post(&format!("/api/v0/repositories/{REPO_NAME}/index"))
-                .add_header("authorization", format!("Bearer {}", server.http_api_token))
+                .add_header("authorization", format!("Bearer {}", api_token))
                 .json(&sign_request)
                 .await;
 
