@@ -103,6 +103,8 @@ jobs:
           mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
 
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
