@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO attune_tenant (\n                display_name,\n                subdomain,\n                created_at,\n                updated_at\n            )\n            VALUES ('TEST_TENANT', $1, NOW(), NOW())\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f84d8e5020c54d1c501f237ce2543fa8db89154078f26d528117a48dc23560ad"
+}
