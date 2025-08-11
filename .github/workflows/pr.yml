@@ -21,11 +21,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # These values are from Minio, which is used in integration tests.
-  AWS_REGION: us-east-1
-  AWS_ACCESS_KEY_ID: attuneminio
-  AWS_SECRET_ACCESS_KEY: attuneminio
-  AWS_ENDPOINT_URL_S3: http://localhost:9000
 
 jobs:
   docker:
@@ -58,6 +53,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+      # These values are from Minio, which is used in integration tests.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: attuneminio
+      AWS_SECRET_ACCESS_KEY: attuneminio
+      AWS_ENDPOINT_URL_S3: http://localhost:9000
     services:
       postgres:
         image: postgres:17.4-bookworm
@@ -96,13 +96,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
-      # This sets up the default integration testing bucket in Minio.
-      - name: Create Minio bucket
-        run: sudo mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
-
       - uses: actions/checkout@v4
         with:
           lfs: true
+
+      # This sets up the default integration testing bucket in Minio. This must
+      # come AFTER the checkout step, because otherwise the checkout step
+      # deletes everything in the workspace directory.
+      - name: Create Minio bucket
+        run: mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
