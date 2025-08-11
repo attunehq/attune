@@ -1,10 +1,13 @@
-use std::{process::ExitCode, time::Duration};
+use std::process::ExitCode;
 
 use crate::config::Config;
 use attune::{
     api::ErrorResponse,
-    cli::apt::pkg::add::{
-        CmdAptPkgAdd, add_package, upsert_file_content, validate_repository_exists,
+    cli::{
+        apt::pkg::add::{
+            CmdAptPkgAdd, add_package, upsert_file_content, validate_repository_exists,
+        },
+        retry_delay_default, retry_infinite,
     },
 };
 
@@ -35,40 +38,44 @@ pub async fn run(ctx: Config, command: CmdAptPkgAdd) -> ExitCode {
     // skip re-signing.
 
     // Add the package to the index, retrying if needed.
-    const STATIC_RETRY_DELAY_MS: u64 = 2000;
-    loop {
-        match add_package(&ctx, &command, &sha256sum).await {
-            Ok(_) => {
-                tracing::info!(?sha256sum, "package added to index");
-                return ExitCode::SUCCESS;
-            }
-            Err(error) => match error.downcast::<ErrorResponse>() {
-                Ok(res) => match res.error.as_str() {
-                    "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
-                        let delay = Duration::from_millis(
-                            STATIC_RETRY_DELAY_MS + rand::random_range(0..STATIC_RETRY_DELAY_MS),
-                        );
-                        tracing::warn!(?delay, error = ?res, "retrying: concurrent index change");
-                        tokio::time::sleep(delay).await;
-                        continue;
-                    }
-                    "INVALID_COMPONENT_NAME" => {
-                        eprintln!(
-                            "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
-                            command.component, res.message
-                        );
-                        return ExitCode::FAILURE;
-                    }
-                    _ => {
-                        eprintln!("Error adding package to index: {}", res.message);
-                        return ExitCode::FAILURE;
-                    }
-                },
-                Err(other) => {
-                    eprintln!("Unable to add package to index: {other:#?}");
+    let res = retry_infinite(
+        || add_package(&ctx, &command, &sha256sum),
+        |error| match error.downcast_ref::<ErrorResponse>() {
+            Some(res) => match res.error.as_str() {
+                "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
+                    tracing::warn!(error = ?res, "retrying: concurrent index change");
+                    true
+                }
+                _ => false,
+            },
+            None => false,
+        },
+        retry_delay_default,
+    )
+    .await;
+    match res {
+        Ok(_) => {
+            tracing::info!(?sha256sum, "package added to index");
+            return ExitCode::SUCCESS;
+        }
+        Err(error) => match error.downcast::<ErrorResponse>() {
+            Ok(res) => match res.error.as_str() {
+                "INVALID_COMPONENT_NAME" => {
+                    eprintln!(
+                        "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
+                        command.component, res.message
+                    );
+                    return ExitCode::FAILURE;
+                }
+                _ => {
+                    eprintln!("Unable to add package to index: {}", res.message);
                     return ExitCode::FAILURE;
                 }
             },
-        }
+            Err(other) => {
+                eprintln!("Unable to add package to index: {other:#?}");
+                return ExitCode::FAILURE;
+            }
+        },
     }
 }
