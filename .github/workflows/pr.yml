@@ -98,9 +98,7 @@ jobs:
 
       # This sets up the default integration testing bucket in Minio.
       - name: Create Minio bucket
-        run: |
-          sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/minio-data
-          mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
+        run: sudo mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
 
       - uses: actions/checkout@v4
         with:
