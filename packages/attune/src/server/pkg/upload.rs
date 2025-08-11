@@ -75,7 +75,7 @@ pub async fn handler(
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(ErrorResponse::from)?;
 
     // Insert the package row into the database. At this point, integrity checks
     // may cause the upload to fail (e.g. if this package already exists).
@@ -89,7 +89,7 @@ pub async fn handler(
         size,
     )
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
     // Upload the package to S3.
     state
@@ -115,7 +115,7 @@ pub async fn handler(
     // transactions will successfully record the new package, and we know the
     // package was successfully uploaded to S3 because the upload completed with
     // the checksum header.
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     Ok(Json(PackageUploadResponse {
         sha256sum: hex_hashes.sha256sum,

@@ -50,7 +50,7 @@ pub async fn handler(
     )
     .fetch_optional(&state.db)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     match updated {
         Some(updated) => Ok(Json(EditRepositoryResponse {
             result: Repository { name: updated.name },

@@ -6,6 +6,8 @@ use axum::{
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::api::translate_psql_error;
+
 #[derive(Serialize, Deserialize, Builder, Debug)]
 pub struct ErrorResponse {
     /// The HTTP status code.
@@ -48,5 +50,11 @@ impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response<Body> {
         let body = serde_json::to_string(&self).unwrap();
         (self.status, body).into_response()
+    }
+}
+
+impl From<sqlx::Error> for ErrorResponse {
+    fn from(err: sqlx::Error) -> Self {
+        translate_psql_error(err)
     }
 }

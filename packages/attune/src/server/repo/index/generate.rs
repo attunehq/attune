@@ -56,13 +56,13 @@ pub async fn handler(
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(ErrorResponse::from)?;
 
     let release_ts = OffsetDateTime::now_utc();
     let result =
         generate_release_file_with_change(&mut tx, &tenant_id, &req.change, release_ts).await?;
 
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     Ok(Json(GenerateIndexResponse {
         release: result.release_file.contents,

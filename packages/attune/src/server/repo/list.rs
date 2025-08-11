@@ -38,7 +38,7 @@ pub async fn handler(
     )
     .fetch_all(&state.db)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     let repositories = repositories
         .into_iter()
         .map(|r| Repository {
