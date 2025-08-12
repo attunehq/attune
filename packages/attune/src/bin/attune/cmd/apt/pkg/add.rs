@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 use crate::{config::Config, retry_delay_default, retry_infinite};
 
+use bon::Builder;
 use clap::Args;
 use color_eyre::eyre::{Context as _, OptionExt, Result, bail};
 use gpgme::{Context, ExportMode, Protocol};
@@ -27,22 +28,26 @@ use attune::{
     },
 };
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Builder, Clone)]
 pub struct PkgAddCommand {
     /// Name of the repository to add the package to
     #[arg(long, short)]
+    #[builder(into)]
     pub repo: String,
 
     /// Distribution to add the package to
     #[arg(long, short, default_value = "stable")]
+    #[builder(into)]
     pub distribution: String,
 
     /// Component to add the package to
     #[arg(long, short, default_value = "main")]
+    #[builder(into)]
     pub component: String,
 
     /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
     #[arg(long, short)]
+    #[builder(into)]
     pub key_id: String,
 
     // TODO(#48): Implement.
@@ -50,6 +55,7 @@ pub struct PkgAddCommand {
     // #[arg(long, short)]
     // overwrite: bool,
     /// Path to the package to add
+    #[builder(into)]
     pub package_file: String,
 }
 
@@ -369,5 +375,79 @@ pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str)
                 serde_json::from_str::<ErrorResponse>(&body).context("parse error response")?;
             bail!(error);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::read_dir, path::Path};
+
+    use attune::testing::{
+        AttuneTestServer, AttuneTestServerConfig, MIGRATOR, emphemeral_gpg_key_id,
+    };
+
+    use super::*;
+
+    #[sqlx::test(migrator = "MIGRATOR")]
+    async fn abort_on_concurrent_index_change(pool: sqlx::PgPool) {
+        let (key_id, _gpg, _dir) = emphemeral_gpg_key_id()
+            .await
+            .expect("failed to create GPG key");
+
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+
+        const REPO_NAME: &str = "abort_on_concurrent_index_change";
+        let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
+        server.create_repository(tenant_id, REPO_NAME).await;
+
+        let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fixtures");
+        let fixtures = read_dir(&fixtures_dir)
+            .expect(&format!("read fixtures from {}", fixtures_dir.display()))
+            .filter_map(|entry| {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_file() { Some(path) } else { None }
+            })
+            .collect::<Vec<_>>();
+
+        let ctx = Config::new(api_token, server.base_url);
+        let command = PkgAddCommand::builder()
+            .repo(REPO_NAME)
+            .distribution("test")
+            .component("test")
+            .key_id(key_id)
+            .package_file("test")
+            .build();
+
+        let additions = futures_util::future::join_all(fixtures.iter().map(|file| {
+            let command = command.clone();
+            let ctx = ctx.clone();
+            async move { add_package(&ctx, &command, file.to_str().unwrap()).await }
+        }))
+        .await;
+
+        // Since we aren't retrying these, we expect at least one to fail.
+        let failures = additions
+            .into_iter()
+            .filter_map(|res| res.err())
+            .collect::<Vec<_>>();
+        assert!(
+            !failures.is_empty(),
+            "at least one concurrent add failure expected",
+        );
+        assert!(
+            failures.iter().any(|error| {
+                error.downcast_ref::<ErrorResponse>().is_some_and(|res| {
+                    res.error == "CONCURRENT_INDEX_CHANGE"
+                        || res.error == "DETACHED_SIGNATURE_VERIFICATION_FAILED"
+                })
+            }),
+            "at least one concurrent index change error expected",
+        );
     }
 }

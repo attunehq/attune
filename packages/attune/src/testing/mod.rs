@@ -4,11 +4,8 @@
 // in the integration test binary, which forms a separate crate.
 attune_macros::prisma_migrate!("docker/migrate/prisma/migrations");
 
-#[cfg(test)]
+mod ephemeral;
 mod server;
 
-#[cfg(test)]
+pub use ephemeral::*;
 pub use server::*;
-
-#[cfg(test)]
-pub mod ephemeral;

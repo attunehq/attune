@@ -923,7 +923,7 @@ mod tests {
                 sync::check::CheckConsistencyResponse,
             },
         },
-        testing::{AttuneTestServer, AttuneTestServerConfig, ephemeral::emphemeral_gpg_key_id},
+        testing::{AttuneTestServer, AttuneTestServerConfig, emphemeral_gpg_key_id},
     };
 
     const TEST_PACKAGE_AMD64: &[u8] =
