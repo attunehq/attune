@@ -1,5 +1,6 @@
 use std::process::ExitCode;
 
+use bon::Builder;
 use clap::Args;
 use color_eyre::eyre::{Context as _, Result, bail};
 use http::StatusCode;
@@ -17,20 +18,24 @@ use attune::{
 
 use crate::{config::Config, gpg_sign, retry_delay_default, retry_infinite};
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Builder)]
 pub struct PkgRemoveCommand {
     /// Name of the repository to remove the package from
     #[arg(long, short)]
+    #[builder(into)]
     repo: String,
     /// Distribution to remove the package from
     #[arg(long, short)]
+    #[builder(into)]
     distribution: String,
     /// Component to remove the package from
     #[arg(long, short)]
+    #[builder(into)]
     component: String,
 
     /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
     #[arg(long, short)]
+    #[builder(into)]
     key_id: String,
 
     /// GPG home directory to use for signing.
@@ -38,16 +43,20 @@ pub struct PkgRemoveCommand {
     /// If not set, defaults to the standard GPG home directory
     /// for the platform.
     #[arg(long, short)]
+    #[builder(into)]
     gpg_home_dir: Option<String>,
 
     /// Name of the package to remove
     #[arg(long, short)]
+    #[builder(into)]
     package: String,
     /// Version of the package to remove
     #[arg(long, short)]
+    #[builder(into)]
     version: String,
     /// Architecture of the package to remove
     #[arg(long, short)]
+    #[builder(into)]
     architecture: String,
 }
 
@@ -223,19 +232,17 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let ctx = Config::new(api_token, server.base_url);
-        let gpg_home_dir_str = gpg_home_dir.dir_path().to_string_lossy().to_string();
-
         // The point of the test is to validate that concurrently removing
         // packages trigger the concurrent index change error;
         // in order to do that we need to add all the packages first.
+        let ctx = Config::new(api_token, server.base_url);
         for fixture in &fixtures {
             let command = PkgAddCommand::builder()
                 .repo(REPO_NAME)
                 .distribution("test")
                 .component("test")
                 .key_id(&key_id)
-                .gpg_home_dir(&gpg_home_dir_str)
+                .gpg_home_dir(gpg_home_dir.dir_path().to_string_lossy())
                 .package_file(fixture.to_string_lossy())
                 .build();
 
@@ -274,18 +281,17 @@ mod tests {
             .into_iter()
             .fold(tokio::task::JoinSet::new(), |mut set, pkg| {
                 let ctx = ctx.clone();
-                let gpg_home_dir = gpg_home_dir_str.clone();
                 let key_id = key_id.clone();
-                let command = PkgRemoveCommand {
-                    repo: REPO_NAME.to_string(),
-                    distribution: "test".to_string(),
-                    component: "test".to_string(),
-                    key_id,
-                    gpg_home_dir: Some(gpg_home_dir),
-                    package: pkg.name,
-                    version: pkg.version,
-                    architecture: pkg.architecture,
-                };
+                let command = PkgRemoveCommand::builder()
+                    .repo(REPO_NAME)
+                    .distribution("test")
+                    .component("test")
+                    .key_id(key_id)
+                    .gpg_home_dir(gpg_home_dir.dir_path().to_string_lossy())
+                    .package(pkg.name)
+                    .version(pkg.version)
+                    .architecture(pkg.architecture)
+                    .build();
                 set.spawn(async move { remove_package(&ctx, &command).await });
                 set
             });

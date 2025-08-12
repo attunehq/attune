@@ -32,22 +32,18 @@ pub struct PkgAddCommand {
     #[arg(long, short)]
     #[builder(into)]
     pub repo: String,
-
     /// Distribution to add the package to
     #[arg(long, short, default_value = "stable")]
     #[builder(into)]
     pub distribution: String,
-
     /// Component to add the package to
     #[arg(long, short, default_value = "main")]
     #[builder(into)]
     pub component: String,
-
     /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
     #[arg(long, short)]
     #[builder(into)]
     pub key_id: String,
-
     /// GPG home directory to use for signing.
     ///
     /// If not set, defaults to the standard GPG home directory
@@ -55,7 +51,6 @@ pub struct PkgAddCommand {
     #[arg(long, short)]
     #[builder(into)]
     pub gpg_home_dir: Option<String>,
-
     // TODO(#48): Implement.
     // /// Overwrite existing package, even if different
     // #[arg(long, short)]
