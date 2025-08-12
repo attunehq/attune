@@ -83,8 +83,7 @@ async fn generate_release_file_with_change(
     let changed_package = match &change.action {
         PackageChangeAction::Add { package_sha256sum } => {
             let package = Package::query_from_sha256sum(&mut *tx, tenant_id, package_sha256sum)
-                .await
-                .map_err(ErrorResponse::from)?
+                .await?
                 .ok_or(ErrorResponse::not_found("package"))?;
             PublishedPackage::from_package(package, &change.component)
         }
