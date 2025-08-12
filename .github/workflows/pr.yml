@@ -95,14 +95,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
+      # Checkout tries to clean the workspace directory, including the
+      # `minio-data` directory that is mounted as root (because Docker). First,
+      # we need to chown this folder so the checkout action can delete it and
+      # won't throw an error.
+      - name: Fix MinIO mount permissions
+        run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/minio-data
+
       - uses: actions/checkout@v4
         with:
           lfs: true
 
-      # This sets up the default integration testing bucket in Minio. This must
-      # come AFTER the checkout step, because otherwise the checkout step
-      # deletes everything in the workspace directory.
-      - name: Create Minio bucket
+      # Once the checkout is completed, now we can add the folder back in for
+      # MinIO to work.
+      - name: Create MinIO bucket
         run: mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
 
       - name: Remove empty EE crate
