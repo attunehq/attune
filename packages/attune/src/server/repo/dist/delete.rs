@@ -88,7 +88,8 @@ pub async fn handler(
     .await
     .map_err(ErrorResponse::from)?;
 
-    // If no rows were affected, the distribution was already deleted or never existed.
+    // If no rows were affected, the distribution was already deleted or never
+    // existed.
     if result.rows_affected() == 0 {
         return Err(ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
