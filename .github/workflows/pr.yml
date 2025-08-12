@@ -68,7 +68,7 @@ jobs:
         ports:
           - "5432:5432"
       minio:
-        image: ghcr.io/attunehq/minio:sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
+        image: ghcr.io/attunehq/minio:latest@sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
         env:
           MINIO_ROOT_USER: attuneminio
           MINIO_ROOT_PASSWORD: attuneminio
