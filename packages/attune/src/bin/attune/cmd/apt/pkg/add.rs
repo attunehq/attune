@@ -1,12 +1,10 @@
-use std::iter::once;
 use std::process::ExitCode;
 
-use crate::{config::Config, retry_delay_default, retry_infinite};
+use crate::{config::Config, gpg_sign, retry_delay_default, retry_infinite};
 
 use bon::Builder;
 use clap::Args;
-use color_eyre::eyre::{Context as _, OptionExt, Result, bail};
-use gpgme::{Context, ExportMode, Protocol};
+use color_eyre::eyre::{Context as _, Result, bail};
 use http::StatusCode;
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
@@ -49,6 +47,14 @@ pub struct PkgAddCommand {
     #[arg(long, short)]
     #[builder(into)]
     pub key_id: String,
+
+    /// GPG home directory to use for signing.
+    ///
+    /// If not set, defaults to the standard GPG home directory
+    /// for the platform.
+    #[arg(long, short)]
+    #[builder(into)]
+    pub gpg_home_dir: Option<String>,
 
     // TODO(#48): Implement.
     // /// Overwrite existing package, even if different
@@ -301,38 +307,9 @@ pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str)
     };
 
     // Sign index locally.
-    debug!(?index, "signing index");
-    let mut gpg = Context::from_protocol(Protocol::OpenPgp).context("create gpg context")?;
-    gpg.set_armor(true);
-    let key = gpg
-        .find_secret_keys(vec![command.key_id.as_str()])
-        .context("find secret key")?
-        .next()
-        .ok_or_eyre("find secret key")?
-        .context("find secret key")?;
-    debug!(?key, "using public key");
-    gpg.add_signer(&key).context("add signer")?;
-    // TODO: Configure passphrase provider?
-
-    let mut clearsigned = Vec::new();
-    gpg.sign_clear(index.as_bytes(), &mut clearsigned)
-        .context("clearsign index")?;
-    let clearsigned =
-        String::from_utf8(clearsigned).context("clearsigned index contained invalid characters")?;
-    debug!(?index, ?clearsigned, "clearsigned index");
-    let mut detachsigned = Vec::new();
-    gpg.sign_detached(index.as_bytes(), &mut detachsigned)
-        .context("detach sign index")?;
-    let detachsigned = String::from_utf8(detachsigned)
-        .context("detachsigned index contained invalid characters")?;
-    debug!(?index, ?detachsigned, "detachsigned index");
-
-    let mut public_key_cert = Vec::new();
-    gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
-        .context("export key")?;
-    let public_key_cert = String::from_utf8(public_key_cert)
-        .context("public key cert contained invalid characters")?;
-    debug!(?public_key_cert, "public key cert");
+    let sig = gpg_sign(command.gpg_home_dir.as_deref(), &command.key_id, index)
+        .await
+        .context("sign index")?;
 
     // Submit signatures.
     debug!("submitting signatures");
@@ -352,9 +329,9 @@ pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str)
         .json(&SignIndexRequest {
             change: generate_index_request.change,
             release_ts,
-            clearsigned,
-            detachsigned,
-            public_key_cert,
+            clearsigned: sig.clearsigned,
+            detachsigned: sig.detachsigned,
+            public_key_cert: sig.public_key_cert,
         })
         .send()
         .await
@@ -380,17 +357,18 @@ pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str)
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::read_dir, path::Path};
+    use std::fs::read_dir;
 
     use attune::testing::{
         AttuneTestServer, AttuneTestServerConfig, MIGRATOR, emphemeral_gpg_key_id,
     };
+    use workspace_root::get_workspace_root;
 
     use super::*;
 
-    #[sqlx::test(migrator = "MIGRATOR")]
+    #[test_log::test(sqlx::test(migrator = "MIGRATOR"))]
     async fn abort_on_concurrent_index_change(pool: sqlx::PgPool) {
-        let (key_id, _gpg, _dir) = emphemeral_gpg_key_id()
+        let (key_id, _gpg, gpg_home_dir) = emphemeral_gpg_key_id()
             .await
             .expect("failed to create GPG key");
 
@@ -405,9 +383,9 @@ mod tests {
         let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
         server.create_repository(tenant_id, REPO_NAME).await;
 
-        let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fixtures");
+        let fixtures_dir = get_workspace_root().join("scripts/fixtures");
         let fixtures = read_dir(&fixtures_dir)
-            .expect(&format!("read fixtures from {}", fixtures_dir.display()))
+            .unwrap_or_else(|err| panic!("failed to read fixtures at {fixtures_dir:?}: {err:#?}"))
             .filter_map(|entry| {
                 let entry = entry.unwrap();
                 let path = entry.path();
@@ -416,30 +394,44 @@ mod tests {
             .collect::<Vec<_>>();
 
         let ctx = Config::new(api_token, server.base_url);
-        let command = PkgAddCommand::builder()
-            .repo(REPO_NAME)
-            .distribution("test")
-            .component("test")
-            .key_id(key_id)
-            .package_file("test")
-            .build();
-
-        let additions = futures_util::future::join_all(fixtures.iter().map(|file| {
-            let command = command.clone();
-            let ctx = ctx.clone();
-            async move { add_package(&ctx, &command, file.to_str().unwrap()).await }
-        }))
-        .await;
+        let set = fixtures
+            .into_iter()
+            .fold(tokio::task::JoinSet::new(), |mut set, fixture| {
+                let ctx = ctx.clone();
+                let gpg_home_dir = gpg_home_dir.dir_path().to_string_lossy().to_string();
+                let command = PkgAddCommand::builder()
+                    .repo(REPO_NAME)
+                    .distribution("test")
+                    .component("test")
+                    .key_id(&key_id)
+                    .gpg_home_dir(gpg_home_dir)
+                    .package_file(fixture.to_string_lossy())
+                    .build();
+                set.spawn(async move {
+                    let sha = upsert_file_content(&ctx, &command).await?;
+                    add_package(&ctx, &command, &sha).await
+                });
+                set
+            });
 
         // Since we aren't retrying these, we expect at least one to fail.
-        let failures = additions
+        let (failures, successes) = set
+            .join_all()
+            .await
             .into_iter()
-            .filter_map(|res| res.err())
-            .collect::<Vec<_>>();
-        assert!(
-            !failures.is_empty(),
-            "at least one concurrent add failure expected",
-        );
+            .inspect(|res| debug!("join result: {res:#?}"))
+            .fold(
+                (Vec::new(), Vec::new()),
+                |(mut failures, mut successes), res| {
+                    match res {
+                        Ok(res) => successes.push(res),
+                        Err(res) => failures.push(res),
+                    }
+                    (failures, successes)
+                },
+            );
+        assert!(!failures.is_empty(), "at least one failure expected");
+        assert!(!successes.is_empty(), "at least one success expected");
         assert!(
             failures.iter().any(|error| {
                 error.downcast_ref::<ErrorResponse>().is_some_and(|res| {
@@ -447,7 +439,7 @@ mod tests {
                         || res.error == "DETACHED_SIGNATURE_VERIFICATION_FAILED"
                 })
             }),
-            "at least one concurrent index change error expected",
+            "at least one concurrent index change or detached signature verification error expected",
         );
     }
 }
