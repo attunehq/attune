@@ -9,3 +9,6 @@ mod server;
 
 #[cfg(test)]
 pub use server::*;
+
+#[cfg(test)]
+pub mod ephemeral;

@@ -910,9 +910,8 @@ async fn apply_change_to_s3(
 mod tests {
     use std::iter::once;
 
-    use async_tempfile::TempDir;
     use axum_test::multipart::{MultipartForm, Part};
-    use gpgme::{Context, CreateKeyFlags, ExportMode, Protocol};
+    use gpgme::ExportMode;
     use tracing::info;
 
     use super::*;
@@ -924,7 +923,7 @@ mod tests {
                 sync::check::CheckConsistencyResponse,
             },
         },
-        testing::{AttuneTestServer, AttuneTestServerConfig},
+        testing::{AttuneTestServer, AttuneTestServerConfig, ephemeral::emphemeral_gpg_key_id},
     };
 
     const TEST_PACKAGE_AMD64: &[u8] =
@@ -933,20 +932,9 @@ mod tests {
         include_bytes!("./fixtures/attune-test-package_2.0.0_linux_arm64.deb");
 
     async fn sign_index(index: &str) -> (String, String, String) {
-        let dir = TempDir::new().await.unwrap();
-        let mut gpg = Context::from_protocol(Protocol::OpenPgp).unwrap();
-        gpg.set_engine_home_dir(dir.dir_path().to_str().unwrap())
-            .unwrap();
-        gpg.set_armor(true);
-        let keygen_result = gpg
-            .create_key_with_flags(
-                "Attune Test",
-                "default",
-                Default::default(),
-                CreateKeyFlags::NOPASSWD,
-            )
-            .unwrap();
-        let key_id = keygen_result.fingerprint().unwrap();
+        let (key_id, mut gpg, _dir) = emphemeral_gpg_key_id()
+            .await
+            .expect("failed to create GPG key");
         let key = gpg
             .find_secret_keys(vec![key_id])
             .unwrap()
