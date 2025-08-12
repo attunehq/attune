@@ -66,7 +66,6 @@ pub struct PkgAddCommand {
 }
 
 pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
-    let ctx = ctx.into();
     match validate_repository_exists(&ctx, &command).await {
         Ok(true) => {}
         Ok(false) => {
@@ -110,7 +109,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     match res {
         Ok(_) => {
             tracing::info!(?sha256sum, "package added to index");
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
         Err(error) => match error.downcast::<ErrorResponse>() {
             Ok(res) => match res.error.as_str() {
@@ -119,16 +118,16 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
                         "Error: Invalid component name {:?}: {}\nComponent names must contain only letters, numbers, underscores, and hyphens.",
                         command.component, res.message
                     );
-                    return ExitCode::FAILURE;
+                    ExitCode::FAILURE
                 }
                 _ => {
                     eprintln!("Unable to add package to index: {}", res.message);
-                    return ExitCode::FAILURE;
+                    ExitCode::FAILURE
                 }
             },
             Err(other) => {
                 eprintln!("Unable to add package to index: {other:#?}");
-                return ExitCode::FAILURE;
+                ExitCode::FAILURE
             }
         },
     }

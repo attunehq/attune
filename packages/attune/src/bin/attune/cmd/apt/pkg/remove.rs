@@ -52,7 +52,6 @@ pub struct PkgRemoveCommand {
 }
 
 pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
-    let ctx = ctx.into();
     let res = retry_infinite(
         || remove_package(&ctx, &command),
         |error| match error.downcast_ref::<ErrorResponse>() {
