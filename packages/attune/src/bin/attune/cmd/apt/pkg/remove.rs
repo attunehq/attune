@@ -1,8 +1,7 @@
-use std::{iter::once, process::ExitCode};
+use std::process::ExitCode;
 
 use clap::Args;
-use color_eyre::eyre::{Context as _, OptionExt, Result, bail};
-use gpgme::{Context, ExportMode, Protocol};
+use color_eyre::eyre::{Context as _, Result, bail};
 use http::StatusCode;
 use percent_encoding::percent_encode;
 use tracing::{debug, info, instrument};
@@ -16,7 +15,7 @@ use attune::{
     },
 };
 
-use crate::{config::Config, retry_delay_default, retry_infinite};
+use crate::{config::Config, gpg_sign, retry_delay_default, retry_infinite};
 
 #[derive(Args, Debug)]
 pub struct PkgRemoveCommand {
@@ -33,6 +32,13 @@ pub struct PkgRemoveCommand {
     /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
     #[arg(long, short)]
     key_id: String,
+
+    /// GPG home directory to use for signing.
+    ///
+    /// If not set, defaults to the standard GPG home directory
+    /// for the platform.
+    #[arg(long, short)]
+    gpg_home_dir: Option<String>,
 
     /// Name of the package to remove
     #[arg(long, short)]
@@ -126,37 +132,9 @@ pub async fn remove_package(ctx: &Config, command: &PkgRemoveCommand) -> Result<
     };
 
     // Sign index locally.
-    debug!(?index, "signing index");
-    let mut gpg = Context::from_protocol(Protocol::OpenPgp).context("create gpg context")?;
-    gpg.set_armor(true);
-    let key = gpg
-        .find_secret_keys(vec![command.key_id.as_str()])
-        .context("find secret key")?
-        .next()
-        .ok_or_eyre("find secret key")?
-        .context("find secret key")?;
-    gpg.add_signer(&key).context("add signer")?;
-    // TODO: Configure passphrase provider?
-
-    let mut clearsigned = Vec::new();
-    gpg.sign_clear(index.as_bytes(), &mut clearsigned)
-        .context("clearsign index")?;
-    let clearsigned =
-        String::from_utf8(clearsigned).context("clearsigned index contained invalid characters")?;
-    debug!(?clearsigned, "clearsigned index");
-    let mut detachsigned = Vec::new();
-    gpg.sign_detached(index.as_bytes(), &mut detachsigned)
-        .context("detach sign index")?;
-    let detachsigned = String::from_utf8(detachsigned)
-        .context("detachsigned index contained invalid characters")?;
-    debug!(?detachsigned, "detachsigned index");
-
-    let mut public_key_cert = Vec::new();
-    gpg.export_keys(once(&key), ExportMode::empty(), &mut public_key_cert)
-        .context("export key")?;
-    let public_key_cert = String::from_utf8(public_key_cert)
-        .context("public key cert contained invalid characters")?;
-    debug!(?public_key_cert, "public key cert");
+    let sig = gpg_sign(command.gpg_home_dir.as_deref(), &command.key_id, index)
+        .await
+        .context("sign index")?;
 
     // Submit signatures.
     debug!("submitting signatures");
@@ -176,9 +154,9 @@ pub async fn remove_package(ctx: &Config, command: &PkgRemoveCommand) -> Result<
         .json(&SignIndexRequest {
             change: generate_index_request.change,
             release_ts,
-            clearsigned,
-            detachsigned,
-            public_key_cert,
+            clearsigned: sig.clearsigned,
+            detachsigned: sig.detachsigned,
+            public_key_cert: sig.public_key_cert,
         })
         .send()
         .await
