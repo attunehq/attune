@@ -28,14 +28,14 @@ pub struct EditDistributionRequest {
     pub description: Option<String>,
 
     /// The organization or entity that produces this distribution.
-    /// This appears in package manager output and helps users identify the source.
-    /// Examples: "Debian", "Ubuntu", "ACME Corp"
+    /// This appears in package manager output and helps users identify the
+    /// source. Examples: "Debian", "Ubuntu", "ACME Corp"
     #[builder(into)]
     pub origin: Option<String>,
 
     /// A label for categorizing the distribution.
-    /// Often the same as origin, but can differ for sub-projects or specialized channels.
-    /// Examples: "Debian", "Debian-Security", "Ubuntu"
+    /// Often the same as origin, but can differ for sub-projects or specialized
+    /// channels. Examples: "Debian", "Debian-Security", "Ubuntu"
     #[builder(into)]
     pub label: Option<String>,
 
@@ -47,14 +47,16 @@ pub struct EditDistributionRequest {
     /// The suite name indicates the stability level or release channel.
     /// Common patterns include stability tiers (stable, testing, unstable) or
     /// update channels (release, updates, security).
-    /// APT examples: "stable", "testing", "unstable", "oldstable", "experimental"
+    /// APT examples: "stable", "testing", "unstable", "oldstable",
+    /// "experimental"
     #[builder(into)]
     pub suite: Option<String>,
 
     /// The codename is a unique identifier for a specific release version.
     /// This provides version stability - tools can reference a specific release
     /// regardless of its current stability status.
-    /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal", "jammy"
+    /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal",
+    /// "jammy"
     #[builder(into)]
     pub codename: Option<String>,
 }
@@ -74,8 +76,8 @@ impl EditDistributionRequest {
 /// Response after successfully updating a distribution's metadata.
 ///
 /// Returns the distribution ID and name for confirmation. The updated metadata
-/// is immediately available through the API, though changes may not be reflected
-/// in the repository indexes until the next index generation cycle.
+/// is immediately available through the API, though changes may not be
+/// reflected in the repository indexes until the next index generation cycle.
 #[derive(Serialize, Deserialize, Debug, Builder)]
 pub struct EditDistributionResponse {
     /// Unique database identifier for this distribution.
@@ -109,7 +111,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -129,7 +131,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -164,9 +166,9 @@ pub async fn handler(
     )
     .fetch_one(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     Ok(Json(
         EditDistributionResponse::builder()

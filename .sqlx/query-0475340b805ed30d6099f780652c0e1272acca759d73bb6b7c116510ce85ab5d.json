@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT setval('attune_tenant_id_seq', (SELECT MAX(id) FROM attune_tenant))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "setval",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0475340b805ed30d6099f780652c0e1272acca759d73bb6b7c116510ce85ab5d"
+}

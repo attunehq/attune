@@ -16,7 +16,8 @@ pub struct CreateArgs {
     ///
     /// Releases have a primary name, called the "distribution".
     /// This defines their URL path under `/dists` within the repository.
-    /// Generally, this should either be the suite (e.g., "stable") or codename (e.g., "bullseye").
+    /// Generally, this should either be the suite (e.g., "stable") or codename
+    /// (e.g., "bullseye").
     #[arg(long)]
     name: String,
 
@@ -41,7 +42,8 @@ pub struct DistMetadata {
     #[arg(long)]
     description: Option<String>,
 
-    /// The distribution's origin (e.g., "Debian", "Ubuntu", your organization name).
+    /// The distribution's origin (e.g., "Debian", "Ubuntu", your organization
+    /// name).
     #[arg(long)]
     origin: Option<String>,
 

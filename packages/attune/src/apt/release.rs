@@ -4,7 +4,10 @@ use sqlx::{FromRow, Postgres, Transaction};
 use tabwriter::{Alignment, TabWriter};
 use time::{OffsetDateTime, format_description::well_known::Rfc2822};
 
-use crate::{api::TenantID, apt::PackagesIndexMeta};
+use crate::{
+    api::{ErrorResponse, TenantID},
+    apt::PackagesIndexMeta,
+};
 
 #[derive(FromRow, Debug)]
 pub struct ReleaseMeta {
@@ -22,7 +25,7 @@ impl ReleaseMeta {
         tenant_id: &TenantID,
         repository: &str,
         distribution: &str,
-    ) -> Option<Self> {
+    ) -> Result<Option<Self>, ErrorResponse> {
         sqlx::query_as!(Self, r#"
             SELECT
                 debian_repository_release.origin,
@@ -46,7 +49,7 @@ impl ReleaseMeta {
         )
         .fetch_optional(&mut **tx)
         .await
-        .unwrap()
+        .map_err(Into::into)
     }
 }
 

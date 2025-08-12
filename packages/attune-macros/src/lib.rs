@@ -4,15 +4,16 @@ use std::path::Path;
 use std::{fs, path::PathBuf};
 use syn::{parse_macro_input, LitStr};
 
-/// Generate a static migrator from Prisma migrations directory.
+/// Generate a static migrator from Prisma migrations directory. The provided
+/// path should be relative to the workspace root.
 ///
 /// Usage:
 /// ```ignore
 /// prisma_migrate!("path/to/prisma/migrations")
 /// ```
 ///
-/// This generates a `pub static MIGRATOR: sqlx::migrate::Migrator` that can be used
-/// with sqlx's migration system.
+/// This generates a `pub static MIGRATOR: sqlx::migrate::Migrator` that can be
+/// used with sqlx's migration system.
 #[proc_macro]
 pub fn prisma_migrate(input: TokenStream) -> TokenStream {
     let input_lit = parse_macro_input!(input as LitStr);
@@ -104,7 +105,20 @@ fn collect_migrations(dir: &Path) -> Result<Vec<PrismaMigration>, std::io::Error
             Err(_) => continue,
         };
 
-        let path = format!("../../../{}", path.to_string_lossy());
+        // TODO: This is the path from the macro call-site to the migration
+        // file, which we need because we retrieve the content of the migration
+        // using `include_str!` (which takes a path relative to the source file
+        // invoking the macro).
+        //
+        // Note that this is current hardcoded, and may not work if the macro is
+        // called from different modules!
+        //
+        // The right way to fix this is to adjust the path using the call-site
+        // file path. We can do this by going from the current call site path
+        // (via `proc_macro::Span::local_file`) to the workspace root (via
+        // `cargo metadata`), and then from the workspace root to the migrations
+        // directory.
+        let path = format!("../../../../{}", path.to_string_lossy());
         let description = description.to_string();
         migrations.push(PrismaMigration {
             version,

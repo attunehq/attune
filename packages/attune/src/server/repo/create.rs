@@ -47,7 +47,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     if existing.is_some() {
         return Err(ErrorResponse::new(
             axum::http::StatusCode::BAD_REQUEST,
@@ -73,22 +73,26 @@ pub async fn handler(
         req.name,
         tenant_id.0,
         state.s3_bucket_name,
-        format!(
-            "{}/{}",
-            tenant_id.0,
-            hex::encode(Sha256::digest(
-                format!("{}/{}", tenant_id.0, req.name).as_bytes()
-            ))
-        ),
+        repo_prefix(tenant_id, &req.name),
     )
     .fetch_one(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     Ok(Json(CreateRepositoryResponse {
         id: inserted.id,
         name: inserted.name,
     }))
+}
+
+pub fn repo_prefix(tenant_id: TenantID, repo_name: &str) -> String {
+    format!(
+        "{}/{}",
+        tenant_id.0,
+        hex::encode(Sha256::digest(
+            format!("{}/{}", tenant_id.0, repo_name).as_bytes()
+        ))
+    )
 }

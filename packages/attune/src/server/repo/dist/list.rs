@@ -11,10 +11,11 @@ use crate::{
     server::{ServerState, repo::decode_repo_name},
 };
 
-/// A distribution within a package repository, representing a release channel or version.
+/// A distribution within a package repository, representing a release channel
+/// or version.
 ///
-/// Contains both required identifiers (name, suite, codename) and optional metadata
-/// that provides additional context for package managers and users.
+/// Contains both required identifiers (name, suite, codename) and optional
+/// metadata that provides additional context for package managers and users.
 #[derive(Serialize, Deserialize, Debug, Builder)]
 pub struct Distribution {
     /// Unique database identifier for this distribution.
@@ -31,14 +32,14 @@ pub struct Distribution {
     pub description: Option<String>,
 
     /// The organization or entity that produces this distribution.
-    /// This appears in package manager output and helps users identify the source.
-    /// Examples: "Debian", "Ubuntu", "ACME Corp"
+    /// This appears in package manager output and helps users identify the
+    /// source. Examples: "Debian", "Ubuntu", "ACME Corp"
     #[builder(into)]
     pub origin: Option<String>,
 
     /// A label for categorizing the distribution.
-    /// Often the same as origin, but can differ for sub-projects or specialized channels.
-    /// Examples: "Debian", "Debian-Security", "Ubuntu"
+    /// Often the same as origin, but can differ for sub-projects or specialized
+    /// channels. Examples: "Debian", "Debian-Security", "Ubuntu"
     #[builder(into)]
     pub label: Option<String>,
 
@@ -50,14 +51,16 @@ pub struct Distribution {
     /// The suite name indicates the stability level or release channel.
     /// Common patterns include stability tiers (stable, testing, unstable) or
     /// update channels (release, updates, security).
-    /// APT examples: "stable", "testing", "unstable", "oldstable", "experimental"
+    /// APT examples: "stable", "testing", "unstable", "oldstable",
+    /// "experimental"
     #[builder(into)]
     pub suite: String,
 
     /// The codename is a unique identifier for a specific release version.
     /// This provides version stability - tools can reference a specific release
     /// regardless of its current stability status.
-    /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal", "jammy"
+    /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal",
+    /// "jammy"
     #[builder(into)]
     pub codename: String,
 }
@@ -93,7 +96,7 @@ pub async fn handler(
     )
     .fetch_optional(&state.db)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -121,7 +124,7 @@ pub async fn handler(
     )
     .fetch_all(&state.db)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .into_iter()
     .map(|row| {
         Distribution::builder()

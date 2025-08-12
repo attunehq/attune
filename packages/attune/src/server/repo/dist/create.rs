@@ -23,24 +23,26 @@ use crate::{
 /// where "bookworm" is the distribution name.
 #[derive(Serialize, Deserialize, Debug, Builder)]
 pub struct CreateDistributionRequest {
-    /// The distribution identifier that will appear in the repository structure.
-    /// For APT repositories, this appears in the URL path under `/dists/`.
-    /// This is typically either the suite name (e.g., "stable") or codename (e.g., "bullseye").
-    /// Example usage: `deb https://example.com/debian {name} main`
+    /// The distribution identifier that will appear in the repository
+    /// structure. For APT repositories, this appears in the URL path under
+    /// `/dists/`. This is typically either the suite name (e.g., "stable")
+    /// or codename (e.g., "bullseye"). Example usage: `deb https://example.com/debian {name} main`
     #[builder(into)]
     pub name: String,
 
     /// The suite name indicates the stability level or release channel.
     /// Common patterns include stability tiers (stable, testing, unstable) or
     /// update channels (release, updates, security).
-    /// APT examples: "stable", "testing", "unstable", "oldstable", "experimental"
+    /// APT examples: "stable", "testing", "unstable", "oldstable",
+    /// "experimental"
     #[builder(into)]
     pub suite: String,
 
     /// The codename is a unique identifier for a specific release version.
     /// This provides version stability - tools can reference a specific release
     /// regardless of its current stability status.
-    /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal", "jammy"
+    /// APT examples: Debian uses "bullseye", "bookworm"; Ubuntu uses "focal",
+    /// "jammy"
     #[builder(into)]
     pub codename: String,
 
@@ -50,14 +52,14 @@ pub struct CreateDistributionRequest {
     pub description: Option<String>,
 
     /// The organization or entity that produces this distribution.
-    /// This appears in package manager output and helps users identify the source.
-    /// Examples: "Debian", "Ubuntu", "ACME Corp"
+    /// This appears in package manager output and helps users identify the
+    /// source. Examples: "Debian", "Ubuntu", "ACME Corp"
     #[builder(into)]
     pub origin: Option<String>,
 
     /// A label for categorizing the distribution.
-    /// Often the same as origin, but can differ for sub-projects or specialized channels.
-    /// Examples: "Debian", "Debian-Security", "Ubuntu"
+    /// Often the same as origin, but can differ for sub-projects or specialized
+    /// channels. Examples: "Debian", "Debian-Security", "Ubuntu"
     #[builder(into)]
     pub label: Option<String>,
 
@@ -70,16 +72,19 @@ pub struct CreateDistributionRequest {
 /// Response after successfully creating a new distribution.
 ///
 /// Returns the assigned database ID and the distribution name for confirmation.
-/// The distribution is immediately available for adding packages, though it won't
-/// appear in the repository until packages are added and the repository index is generated.
+/// The distribution is immediately available for adding packages, though it
+/// won't appear in the repository until packages are added and the repository
+/// index is generated.
 #[derive(Serialize, Deserialize, Debug, Builder)]
 pub struct CreateDistributionResponse {
     /// Unique database identifier for this distribution.
-    /// Use this ID for subsequent operations like editing or deleting the distribution.
+    /// Use this ID for subsequent operations like editing or deleting the
+    /// distribution.
     pub id: i64,
 
     /// The distribution name as stored, matching the request.
-    /// This confirms the exact identifier that will appear in the repository structure.
+    /// This confirms the exact identifier that will appear in the repository
+    /// structure.
     #[builder(into)]
     pub distribution: String,
 }
@@ -106,7 +111,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -126,7 +131,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     if existing.is_some() {
         return Err(ErrorResponse::builder()
             .status(axum::http::StatusCode::BAD_REQUEST)
@@ -165,9 +170,9 @@ pub async fn handler(
     )
     .fetch_one(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     Ok(Json(
         CreateDistributionResponse::builder()

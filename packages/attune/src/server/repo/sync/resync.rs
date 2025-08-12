@@ -44,9 +44,9 @@ pub async fn handler(
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .unwrap();
+        .map_err(ErrorResponse::from)?;
     let repo = query_repository_state(&mut tx, &tenant_id, repo_name, release_name).await?;
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
     debug!(?repo, "loaded repository state");
 
     // Check which S3 objects are inconsistent.

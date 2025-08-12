@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    debian_repository_component_package.package_id,\n                    debian_repository_component_package.component_id\n                FROM\n                    debian_repository\n                    JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n                    JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n                    JOIN debian_repository_component_package ON debian_repository_component_package.component_id = debian_repository_component.id\n                    JOIN debian_repository_package ON debian_repository_package.id = debian_repository_component_package.package_id\n                WHERE\n                    debian_repository.tenant_id = $1\n                    AND debian_repository.name = $2\n                    AND debian_repository_release.distribution = $3\n                    AND debian_repository_component.name = $4\n                    AND debian_repository_package.package = $5\n                    AND debian_repository_package.version = $6\n                    AND debian_repository_package.architecture = $7::debian_repository_architecture\n                LIMIT 1\n                ",
+  "query": "\n        SELECT\n            debian_repository_component_package.package_id,\n            debian_repository_component_package.component_id\n        FROM\n            debian_repository\n            JOIN debian_repository_release ON debian_repository_release.repository_id = debian_repository.id\n            JOIN debian_repository_component ON debian_repository_component.release_id = debian_repository_release.id\n            JOIN debian_repository_component_package ON debian_repository_component_package.component_id = debian_repository_component.id\n            JOIN debian_repository_package ON debian_repository_package.id = debian_repository_component_package.package_id\n        WHERE\n            debian_repository.tenant_id = $1\n            AND debian_repository.name = $2\n            AND debian_repository_release.distribution = $3\n            AND debian_repository_component.name = $4\n            AND debian_repository_package.package = $5\n            AND debian_repository_package.version = $6\n            AND debian_repository_package.architecture = $7::debian_repository_architecture\n        LIMIT 1\n        ",
   "describe": {
     "columns": [
       {
@@ -72,5 +72,5 @@
       false
     ]
   },
-  "hash": "4d6f3b99eec43cdf4f9a20c7c1c46f663d15d8b80dfb5cd9a6e25890118dfb8c"
+  "hash": "9086287eccfd862f7b92a9a9c519797efd0195faea158b599fb21262d1811780"
 }

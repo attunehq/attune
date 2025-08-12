@@ -39,6 +39,7 @@ struct PackageChangeResult {
     release_file: ReleaseFile,
     changed_packages_index: PackagesIndex,
     changed_package: PublishedPackage,
+    orphaned_pool_filename: bool,
 }
 
 /// Given a single package change, generate the new release file and the changed
@@ -58,7 +59,7 @@ async fn generate_release_file_with_change(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or(ErrorResponse::not_found("repository"))?;
 
     // Load the Release metadata. If the Release has never been created
@@ -69,7 +70,7 @@ async fn generate_release_file_with_change(
         &change.repository,
         &change.distribution,
     )
-    .await
+    .await?
     .unwrap_or(ReleaseMeta {
         description: None,
         origin: None,
@@ -83,7 +84,7 @@ async fn generate_release_file_with_change(
     let changed_package = match &change.action {
         PackageChangeAction::Add { package_sha256sum } => {
             let package = Package::query_from_sha256sum(&mut *tx, tenant_id, package_sha256sum)
-                .await
+                .await?
                 .ok_or(ErrorResponse::not_found("package"))?;
             PublishedPackage::from_package(package, &change.component)
         }
@@ -101,7 +102,7 @@ async fn generate_release_file_with_change(
             version,
             architecture,
         )
-        .await
+        .await?
         .ok_or(ErrorResponse::not_found("package"))?,
     };
 
@@ -119,7 +120,7 @@ async fn generate_release_file_with_change(
         &change.component,
         &changed_package.package.architecture,
     )
-    .await;
+    .await?;
     let mut changed_packages_index = PackagesIndex::from_packages(
         &change.component,
         &changed_package.package.architecture,
@@ -143,7 +144,7 @@ async fn generate_release_file_with_change(
         &change.repository,
         &change.distribution,
     )
-    .await;
+    .await?;
 
     // Update the set of Packages indexes in the Release file.
     let packages_indexes =
@@ -152,10 +153,41 @@ async fn generate_release_file_with_change(
     // Construct the new Release file.
     let release_file = ReleaseFile::from_indexes(release, release_ts, &packages_indexes);
 
+    // Determine whether there exist other component-packages with the same
+    // filename. In the case of removals, this is used to clean up orphaned pool
+    // files.
+    //
+    // Note that it is NOT sufficient to examine whether the resulting index has
+    // been deleted, because each index is specific to (distribution, component,
+    // architecture), and pool objects are shared between distributions!
+    let remaining_component_packages = sqlx::query!(
+        r#"
+        SELECT COUNT(*) AS "count!: i64"
+        FROM
+            debian_repository_package
+            JOIN debian_repository_component_package ON debian_repository_package.id = debian_repository_component_package.package_id
+        WHERE
+            debian_repository_package.tenant_id = $1
+            AND debian_repository_package.package = $2
+            AND debian_repository_package.version = $3
+            AND debian_repository_package.architecture = $4::debian_repository_architecture
+            AND debian_repository_component_package.filename = $5
+        "#,
+        tenant_id.0,
+        &changed_package.package.name,
+        &changed_package.package.version,
+        &changed_package.package.architecture as _,
+        &changed_package.filename,
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .unwrap();
+
     Ok(PackageChangeResult {
         release_file,
         changed_packages_index,
         changed_package,
+        orphaned_pool_filename: remaining_component_packages.count == 0,
     })
 }
 
@@ -172,13 +204,11 @@ fn update_release_package_indexes(
 
     // There are three cases to handle here:
     //
-    // 1. If the index didn't previously exist, it should be added to the
-    //    Release file.
-    // 2. If the index previously existed, it should be updated in the Release
+    // 1. If the index didn't previously exist, it should be added to the Release
     //    file.
+    // 2. If the index previously existed, it should be updated in the Release file.
     // 3. If the index previously existed, but is now empty (i.e. this change
-    //    removed all packages in it), it should be removed from the Release
-    //    file.
+    //    removed all packages in it), it should be removed from the Release file.
     //
     // To do this, we first remove any existing Packages index for the same
     // component and architecture (notice that this is a no-op if the index
@@ -206,7 +236,7 @@ mod tests {
     /// indexes.
     ///
     /// This is a regression test for #105.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn packages_separated_by_architecture(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);
@@ -278,7 +308,7 @@ mod tests {
     }
 
     /// Removing all packages from an architecture results in an empty index.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn remove_all_packages_for_architecture(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);
@@ -326,7 +356,7 @@ mod tests {
     }
 
     /// The release file should list all architecture indexes.
-    #[sqlx::test(migrator = "crate::MIGRATOR", fixtures("setup_multi_arch"))]
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR", fixtures("setup_multi_arch"))]
     async fn release_file_lists_all_architectures(pool: sqlx::PgPool) {
         let mut tx = pool.begin().await.unwrap();
         let tenant_id = crate::api::TenantID(1);

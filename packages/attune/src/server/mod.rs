@@ -76,6 +76,19 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         }
     }
 
+    // If this was the first user set, we need to make sure that the sequence
+    // for tenant IDs gets incremented, because SERIAL sequences don't get
+    // incremented if you insert an explicit ID! This is because they are
+    // implemented as `DEFAULT nextval(...)` behind the scenes. See, for
+    // example: https://dba.stackexchange.com/a/210599.
+    //
+    // If we don't do this, the next time that we create a tenant, the next
+    // allocated key will still be 1.
+    sqlx::query!("SELECT setval('attune_tenant_id_seq', (SELECT MAX(id) FROM attune_tenant))")
+        .fetch_one(&state.db)
+        .await
+        .expect("could not update tenant ID sequence");
+
     // Configure routes.
     let api = Router::new()
         .route("/compatibility", get(compatibility::handler))
@@ -112,8 +125,10 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         .route("/packages/{package_sha256sum}", get(pkg::info::handler));
 
     // The intention of error handling middleware here is that:
-    // - `handle_non_success` handles responses from handlers and axum itself, converting errors to `ErrorResponse`.
-    // - `handle_middleware_error` handles errors from the middleware stack, converting them to `ErrorResponse`.
+    // - `handle_non_success` handles responses from handlers and axum itself,
+    //   converting errors to `ErrorResponse`.
+    // - `handle_middleware_error` handles errors from the middleware stack,
+    //   converting them to `ErrorResponse`.
     // - `handle_panic` handles panics, converting them to `ErrorResponse`.
     Router::new()
         .nest("/api/v0", api)
@@ -136,11 +151,13 @@ async fn handle_non_success(request: Request, next: Next) -> Response {
         return response;
     }
 
-    // The intention here is to check if the response body is an `ErrorResponse` and, if so, return it as-is.
-    // If not, we convert the body to a string and use that as the error message, so long as it's not empty.
+    // The intention here is to check if the response body is an `ErrorResponse`
+    // and, if so, return it as-is. If not, we convert the body to a string and
+    // use that as the error message, so long as it's not empty.
     //
-    // Note that the response body should only fail to be read if it's larger than the limit we provide `to_bytes`.
-    // Since we're using `usize::MAX` as the limit, this should never happen, but may if the limit is changed.
+    // Note that the response body should only fail to be read if it's larger than
+    // the limit we provide `to_bytes`. Since we're using `usize::MAX` as the
+    // limit, this should never happen, but may if the limit is changed.
     let (parts, body) = response.into_parts();
     let body = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(body) if !body.is_empty() => {

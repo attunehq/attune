@@ -38,7 +38,7 @@ pub async fn handler(
     )
     .fetch_optional(&state.db)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     match repo {
         Some(repo) => Ok(Json(RepositoryInfoResponse { name: repo.name })),
         None => Err(ErrorResponse::new(

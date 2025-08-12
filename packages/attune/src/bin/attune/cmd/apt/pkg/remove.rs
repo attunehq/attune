@@ -1,4 +1,4 @@
-use std::{iter::once, process::ExitCode};
+use std::{iter::once, process::ExitCode, time::Duration};
 
 use axum::http::StatusCode;
 use clap::Args;
@@ -46,6 +46,32 @@ pub struct PkgRemoveCommand {
 pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
     // Remove the package from the index, retrying if needed.
     debug!("removing package from index");
+    const STATIC_RETRY_DELAY_MS: u64 = 2000;
+    loop {
+        match remove_package(&ctx, &command).await {
+            Ok(_) => {
+                tracing::info!(?command.package, "package removed from index");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => match error.error.as_str() {
+                "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
+                    let delay = Duration::from_millis(
+                        STATIC_RETRY_DELAY_MS + rand::random_range(0..STATIC_RETRY_DELAY_MS),
+                    );
+                    tracing::warn!(?delay, ?error, "retrying: concurrent index change");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                _ => {
+                    eprintln!("Error removing package from index: {}", error.message);
+                    return ExitCode::FAILURE;
+                }
+            },
+        }
+    }
+}
+
+async fn remove_package(ctx: &Config, command: &PkgRemoveCommand) -> Result<(), ErrorResponse> {
     let generate_index_request = GenerateIndexRequest {
         change: PackageChange {
             repository: command.repo.clone(),
@@ -89,8 +115,7 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
             debug!(?body, ?status, "error response");
             let error = serde_json::from_str::<ErrorResponse>(&body)
                 .expect("Could not parse error response");
-            eprintln!("Error removing package from index: {}", error.message);
-            return ExitCode::FAILURE;
+            return Err(error);
         }
     };
 
@@ -128,8 +153,6 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
     debug!(?public_key_cert, "public key cert");
 
     // Submit signatures.
-    //
-    // TODO(#84): Implement retries on conflict.
     debug!("submitting signatures");
     let res = ctx
         .client
@@ -161,16 +184,14 @@ pub async fn run(ctx: Config, command: PkgRemoveCommand) -> ExitCode {
                 .await
                 .expect("Could not parse response");
             debug!("signed index");
-            ExitCode::SUCCESS
+            Ok(())
         }
-        // TODO(#84): Handle 409 status code to signal retry.
         status => {
             let body = res.text().await.expect("Could not read response");
             debug!(?body, ?status, "error response");
             let error = serde_json::from_str::<ErrorResponse>(&body)
                 .expect("Could not parse error response");
-            eprintln!("Error signing index: {}", error.message);
-            ExitCode::FAILURE
+            Err(error)
         }
     }
 }
