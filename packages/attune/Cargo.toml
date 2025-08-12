@@ -47,4 +47,5 @@ uuid.workspace = true
 [dev-dependencies]
 async-tempfile.workspace = true
 axum-test.workspace = true
+indoc.workspace = true
 test-log.workspace = true
