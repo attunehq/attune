@@ -90,6 +90,7 @@ jobs:
         with:
           cache-workspace-crates: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Migrate database
         working-directory: ./docker/migrate

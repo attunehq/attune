@@ -55,3 +55,4 @@ tar.workspace = true
 test-log.workspace = true
 tokio-util.workspace = true
 xshell.workspace = true
+dotenv = "0.15.0"

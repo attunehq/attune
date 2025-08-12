@@ -1,6 +1,9 @@
-use std::{boxed::Box, env, fs, path::PathBuf, convert::identity};
+use std::{convert::identity, fs, path::PathBuf};
 
-use bollard::query_parameters::{BuildImageOptions, CreateContainerOptions, StartContainerOptions};
+use bollard::query_parameters::{
+    BuildImageOptions, CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
+};
+use bollard::secret::{ContainerStateStatusEnum, HealthStatusEnum};
 use bollard::{
     Docker,
     exec::{CreateExecOptions, StartExecResults},
@@ -8,7 +11,10 @@ use bollard::{
 };
 use futures_util::stream::StreamExt;
 use indoc::indoc;
+use tokio::task::JoinSet;
 use tokio_util::io::ReaderStream;
+use tracing::{debug, info, trace};
+use uuid::{ContextV7, Timestamp, Uuid};
 use xshell::{Shell, cmd};
 
 #[sqlx::test(migrator = "attune::testing::MIGRATOR")]
@@ -39,619 +45,189 @@ struct TestConfig {
     gpg_key_id: String,
 }
 
+/// Simulate a `docker compose up` to check that the control plane comes up
+/// properly with all Docker services. Then use the CLI to add many packages
+/// concurrently. Then start a Debian container and `apt install` the packages
+/// to show that the repository works.
 #[tokio::test]
-async fn smoke() {
-    println!("\n========== RUNNING ATTUNE CLI SMOKE TESTS ==========");
-
-    // Check for attune-ee directory existence before proceeding
-    println!("\n========== SMOKE TEST: Check Enterprise Edition Directory ==========");
-    const ATTUNE_EE_PATH: &str = "packages/attune-ee";
-
-    if fs::metadata(ATTUNE_EE_PATH).is_ok() {
-        eprintln!(indoc! {
-            "❌ Enterprise Edition directory 'packages/attune-ee' exists!
-                Please remove the 'packages/attune-ee' directory before running smoke tests.
-                Run: rm -rf packages/attune-ee"
-        });
-        panic!("Enterprise Edition directory must be removed for open-source testing");
-    }
-    println!("✅ No Enterprise Edition directory found - proceeding with tests");
-
-    // Set up shared shell and configuration upfront.
+#[test_log::test]
+async fn e2e() {
+    // Set up dependencies.
     let sh = Shell::new().unwrap();
+    debug!(docker_host = ?std::env::var("DOCKER_HOST"), "connecting to Docker daemon");
+    let docker = Docker::connect_with_defaults().unwrap();
+    docker.ping().await.unwrap();
 
-    // Default values for API configuration
-    const DEFAULT_API_ENDPOINT: &str = "http://localhost:3000";
-    const DEFAULT_API_TOKEN: &str = "INSECURE_TEST_TOKEN";
+    // Check that the CLI is built and executable.
+    const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
+    cmd!(sh, "{ATTUNE_CLI_PATH} --help").quiet().run().unwrap();
+    debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
-    // Get API configuration and set environment variables once
-    let api_endpoint =
-        env::var("ATTUNE_API_ENDPOINT").unwrap_or_else(|_| DEFAULT_API_ENDPOINT.to_string());
-    let api_token = env::var("ATTUNE_API_TOKEN").unwrap_or_else(|_| DEFAULT_API_TOKEN.to_string());
-    sh.set_var("ATTUNE_API_ENDPOINT", &api_endpoint);
-    sh.set_var("ATTUNE_API_TOKEN", &api_token);
+    // Run `docker compose up -d` to bring up the Docker services.
+    cmd!(sh, "docker compose up -d").run().unwrap();
 
-    const CLI_PATH_HELP: &str = indoc! {
-        "ATTUNE_CLI_PATH environment variable is required. Set it to the path of your CLI binary.
-         Example: export ATTUNE_CLI_PATH=/target/release/attune"
-    };
+    // Monitor control plane for readiness.
+    debug!("waiting for control plane");
+    loop {
+        let status = docker
+            .inspect_container("attune-controlplane-1", None::<InspectContainerOptions>)
+            .await
+            .unwrap();
+        trace!(?status, "inspected control plane container status");
+        if status.state.unwrap().status.unwrap() == ContainerStateStatusEnum::RUNNING {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
 
-    // Get CLI binary path.
-    let cli_path = env::var("ATTUNE_CLI_PATH").expect(CLI_PATH_HELP);
-
-    // Set up GPG key for testing.
-    println!("\n========== SMOKE TEST: Set Up GPG Key =========");
-    let gpg_key_id = set_up_gpg_key(&sh);
-
-    // Create test configuration
-    let config = TestConfig {
-        api_endpoint,
-        api_token,
-        cli_path,
-        gpg_key_id,
-    };
-
-    println!(
-        indoc! {
-            "Test configuration:
-              API Endpoint: {}
-              API Token: {}
-              CLI Path: {}
-              GPG Key ID: {}"
-        },
-        config.api_endpoint, config.api_token, config.cli_path, config.gpg_key_id
+    // Create a repository.
+    let repo_name = format!(
+        "e2e-test-{}",
+        Uuid::new_v7(Timestamp::now(ContextV7::new()))
     );
+    cmd!(sh, "{ATTUNE_CLI_PATH} apt repository create {repo_name}")
+        .run()
+        .unwrap();
 
-    // Set up MinIO bucket permissions for APT access
-    println!("\n========== SMOKE TEST: Configure MinIO Bucket Permissions =========");
+    // Add packages concurrently.
+    let gpg_key = GpgKey::new();
+    let key_id = &gpg_key.key_id;
 
-    // Set up MinIO alias
-    println!("Setting up MinIO alias...");
-    let alias_result = cmd!(
-        sh,
-        "mc alias set attune http://127.0.0.1:9000 attuneminio attuneminio"
-    )
-    .run();
-    match alias_result {
-        Ok(_) => println!("✅ MinIO alias configured"),
-        Err(e) => {
-            eprintln!("❌ Failed to configure MinIO alias: {e}");
-            panic!("MinIO alias configuration failed");
-        }
-    }
-
-    // Set bucket permissions with recursive flag
-    println!("Setting bucket permissions...");
-    let permissions_result = cmd!(sh, "mc anonymous set download attune/attune-dev-0 -r").run();
-    match permissions_result {
-        Ok(_) => {
-            println!("✅ MinIO bucket permissions configured for anonymous downloads");
-        }
-        Err(e) => {
-            eprintln!("❌ Failed to configure MinIO bucket permissions: {e}");
-            panic!("MinIO bucket permission configuration failed");
-        }
-    }
-
-    // Run tests in order and ensure GPG key cleanup happens regardless of test outcome.
-    let test_result = std::panic::catch_unwind(|| {
-        println!("\n========== SMOKE TEST: Check Attune CLI Exists =========");
-        test_cli_binary_exists(&sh, &config);
-        println!("\n========== SMOKE TEST: Repository Create (2 repos) =========");
-        test_repo_create_multiple(&sh, &config);
-        println!("\n========== SMOKE TEST: Repository List (verify both repos) =========");
-        test_repo_list_multiple(&sh, &config);
-        println!("\n========== SMOKE TEST: Repository Delete =========");
-        test_repo_delete(&sh, &config);
-        println!("\n========== SMOKE TEST: Verify Repository Deleted =========");
-        test_repo_delete_verification(&sh, &config);
-        println!("\n========== SMOKE TEST: Package Add =========");
-        test_pkg_add(&sh, &config);
-        println!("\n========== SMOKE TEST: Package Delete =========");
-        test_pkg_delete(&sh, &config);
-        // println!("\n========== SMOKE TEST: Concurrent Package Add =========");
-        // test_concurrent_package_add(&sh, &config);
-        println!("\n========== SMOKE TEST: Ubuntu Container APT Install =========");
-        test_apt_package_install_ubuntu(&sh, &config);
-    });
-
-    // Clean up repositories, packages, and GPG key regardless of test outcome.
-    println!("\n========== SMOKE TEST: Test Cleanup =========");
-    cleanup_test_resources(&sh, &config);
-
-    // Check if tests passed and report final result.
-    // TODO: Here and elsewhere, wrap in a declarative macro: https://doc.rust-lang.org/reference/macros-by-example.html.
-    match test_result {
-        Ok(_) => println!("\n========== ALL SMOKE TESTS COMPLETED SUCCESSFULLY =========="),
-        Err(_) => {
-            eprintln!("\n========== SMOKE TESTS FAILED - RESOURCES CLEANED UP ==========");
-            std::panic::resume_unwind(Box::new("Smoke tests failed"));
-        }
-    }
-}
-
-/// Helper function to clean up all test resources: repositories, packages, and GPG key.
-fn cleanup_test_resources(sh: &Shell, config: &TestConfig) {
-    // Clean up any remaining repositories.
-    cleanup_repositories(sh, config);
-
-    // Clean up GPG key.
-    cleanup_gpg_key(sh, &config.gpg_key_id);
-}
-
-/// Helper function to clean up any remaining test repositories.
-fn cleanup_repositories(sh: &Shell, config: &TestConfig) {
-    println!("Cleaning up test repositories...");
-
-    // List of all potential test repositories that may exist.
-    const TEST_REPOS: [&str; 2] = ["debian-test-repo-1", "debian-test-repo-2"];
-    let cli_path = &config.cli_path;
-
-    for repo_name in &TEST_REPOS {
-        println!("  Attempting to delete repository: {repo_name}");
-
-        let delete_result = cmd!(sh, "{cli_path} apt repository delete {repo_name} --yes").run();
-
-        match delete_result {
-            Ok(_) => {
-                println!("  ✅ Repository '{repo_name}' deleted successfully");
-            }
-            Err(e) => {
-                // It's OK if the repository doesn't exist or deletion fails during cleanup.
-                println!("  ℹ️  Repository '{repo_name}' cleanup skipped: {e}");
-            }
-        }
-    }
-
-    println!("✅ Repository cleanup completed");
-}
-
-/// Helper function to set up GPG key for testing.
-fn set_up_gpg_key(sh: &Shell) -> String {
-    println!("Setting up GPG key for testing...");
-
-    // Create GPG key configuration file.
-    let gpg_config = indoc! {"
-        Key-Type: EDDSA
-        Key-Curve: Ed25519
-        Subkey-Type: ECDH
-        Subkey-Curve: Cv25519
-        Name-Real: Attune Test
-        Name-Email: test@attunehq.com
-        Expire-Date: 0
-        %no-protection
-        %commit
-    "};
-
-    const CONFIG_PATH: &str = "/tmp/gpg_key_config.txt";
-
-    match fs::write(CONFIG_PATH, gpg_config) {
-        Ok(_) => println!("✅ GPG config file created successfully"),
-        Err(e) => {
-            eprintln!("❌ Failed to create GPG config file: {e}");
-            panic!("GPG config file creation failed");
-        }
-    }
-
-    // Generate GPG key using batch mode and capture output.
-    println!("Generating GPG key (this may take a moment)...");
-    let gpg_cmd = cmd!(sh, "gpg --batch --generate-key {CONFIG_PATH}");
-    let gpg_generate_result = gpg_cmd.output();
-
-    match gpg_generate_result {
-        Ok(output) => {
-            if !output.status.success() {
-                eprintln!(
-                    indoc! {"
-                        ❌ GPG key generation failed with exit code: {}
-                        stdout: {}
-                        stderr: {}
-                    "},
-                    output.status,
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                panic!("GPG key generation failed. Make sure GPG is installed and configured.");
-            }
-
-            println!("✅ GPG key generated successfully");
-            let combined_output = format!(
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            println!("GPG output:\n{combined_output}");
-
-            // Parse the GPG output to find the key ID from the revocation certificate message.
-            // TODO: Use nom to parse the output.
-            for line in combined_output.lines() {
-                if line.contains("revocation certificate stored as") && line.contains(".rev'") {
-                    // Extract the key ID from the filename.
-                    if let Some(start) = line.rfind('/') {
-                        if let Some(end) = line.rfind(".rev'") {
-                            let key_id = line[(start + 1)..end].to_string();
-                            println!(
-                                "✅ Extracted GPG key ID from revocation certificate: {key_id}"
-                            );
-
-                            // Clean up config file.
-                            if let Err(e) = fs::remove_file(CONFIG_PATH) {
-                                eprintln!("⚠️  Warning: Could not clean up GPG config file: {e}");
-                            }
-
-                            // Set the GPG_KEY_ID environment variable.
-                            sh.set_var("GPG_KEY_ID", &key_id);
-                            println!("✅ GPG_KEY_ID environment variable set");
-
-                            return key_id;
-                        }
-                    }
-                }
-            }
-            eprintln!(
-                "❌ Could not find GPG key ID in revocation certificate output:\n{combined_output}"
-            );
-            panic!("GPG key ID not found in generation output");
-        }
-        Err(e) => {
-            eprintln!("❌ GPG key generation failed: {e}");
-            panic!("GPG key generation failed. Make sure GPG is installed and configured.");
-        }
-    };
-}
-
-/// Helper function to clean up GPG key after testing.
-fn cleanup_gpg_key(sh: &Shell, key_id: &str) {
-    println!("Cleaning up GPG key: {key_id}");
-
-    let cleanup_result = cmd!(
-        sh,
-        "gpg --batch --yes --delete-secret-and-public-key {key_id}"
-    )
-    .run();
-
-    match cleanup_result {
-        Ok(_) => {
-            println!("✅ GPG key {key_id} deleted successfully");
-        }
-        Err(e) => {
-            eprintln!(
-                indoc! {"
-                    ⚠️  Warning: Failed to delete GPG key {}: {}
-                       You may need to manually clean up the key using:
-                       gpg --delete-secret-and-public-key --yes {}
-                "},
-                key_id, e, key_id
-            );
-        }
-    }
-}
-
-/// Test that the CLI binary exists and is executable.
-fn test_cli_binary_exists(sh: &Shell, config: &TestConfig) {
-    let cli_path = &config.cli_path;
-    let version_result = cmd!(sh, "{cli_path} --help").run();
-
-    match version_result {
-        Ok(_) => {
-            println!("CLI binary is accessible and executable");
-            println!("✅ Test completed successfully!\n");
-        }
-        Err(e) => {
-            eprintln!(
-                indoc! {"
-                    ❌ CLI binary test failed: {}
-                    Make sure the CLI is built and the path is correct.
-                    Current CLI path: {}
-                    You can set ATTUNE_CLI_PATH environment variable to specify the correct path.
-                "},
-                e, config.cli_path
-            );
-            panic!("CLI binary not accessible");
-        }
-    }
-}
-
-/// Test creating multiple repositories.
-fn test_repo_create_multiple(sh: &Shell, config: &TestConfig) {
-    // Create two different Debian repos for testing.
-    const REPO_NAMES: [&str; 2] = ["debian-test-repo-1", "debian-test-repo-2"];
-    let cli_path = &config.cli_path;
-
-    for repo_name in &REPO_NAMES {
-        println!("Creating Debian repo: {repo_name}");
-
-        let create_result = cmd!(sh, "{cli_path} apt repository create {repo_name}").run();
-
-        match create_result {
-            Ok(_) => println!("✅ Repo '{repo_name}' creation command executed successfully"),
-            Err(e) => {
-                eprintln!("❌ Repo creation failed for '{repo_name}': {e}");
-                panic!(
-                    "Repo creation failed. Check your environment variables and CLI binary path."
-                );
-            }
-        }
-    }
-
-    println!("✅ Both repositories created successfully!\n");
-}
-
-/// Test listing repositories to verify both exist.
-fn test_repo_list_multiple(sh: &Shell, config: &TestConfig) {
-    const EXPECTED_REPOS: [&str; 2] = ["debian-test-repo-1", "debian-test-repo-2"];
-    let cli_path = &config.cli_path;
-
-    println!("Listing repos to verify both repositories exist...");
-    let list_output = cmd!(sh, "{cli_path} apt repository list").read();
-
-    match list_output {
-        Ok(output) => {
-            println!("Repo list output:");
-            println!("{output}");
-
-            let mut found_repos = Vec::new();
-            for repo_name in &EXPECTED_REPOS {
-                if output.contains(repo_name) {
-                    println!("✅ Repo '{repo_name}' found in list");
-                    found_repos.push(*repo_name);
-                } else {
-                    eprintln!("❌ Repo '{repo_name}' not found in list");
-                }
-            }
-            // TODO: Here and elsewhere, use println! for machine readable output and eprintln! for human readable output.
-            if found_repos.len() == EXPECTED_REPOS.len() {
-                println!("✅ All expected repositories found in list");
-                println!("✅ Test completed successfully!\n");
-            } else {
-                eprintln!(
-                    "❌ Not all expected repositories found. Expected: {EXPECTED_REPOS:?}, Found: {found_repos:?}",
-                );
-                eprintln!("Available repos:\n{output}");
-                panic!("Not all created repos found in list");
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Failed to list repos: {e}");
-            panic!("Repo listing failed. Check your environment variables and CLI binary path.");
-        }
-    }
-}
-
-/// Test deleting a repository.
-fn test_repo_delete(sh: &Shell, config: &TestConfig) {
-    const REPO_TO_DELETE: &str = "debian-test-repo-2";
-    let cli_path = &config.cli_path;
-
-    println!("Deleting repository: {REPO_TO_DELETE}");
-
-    let delete_result = cmd!(
-        sh,
-        "{cli_path} apt repository delete {REPO_TO_DELETE} --yes"
-    )
-    .run();
-
-    match delete_result {
-        Ok(_) => {
-            println!("✅ Repo '{REPO_TO_DELETE}' deletion command executed successfully");
-            println!("✅ Test completed successfully!\n");
-        }
-        Err(e) => {
-            eprintln!("❌ Repo deletion failed for '{REPO_TO_DELETE}': {e}");
-            panic!("Repo deletion failed. Check your environment variables and CLI binary path.");
-        }
-    }
-}
-
-/// Test verifying that the deleted repository is no longer in the list.
-fn test_repo_delete_verification(sh: &Shell, config: &TestConfig) {
-    const DELETED_REPO: &str = "debian-test-repo-2";
-    const REMAINING_REPO: &str = "debian-test-repo-1";
-    let cli_path = &config.cli_path;
-
-    println!("Verifying repository deletion by listing repos...");
-    let list_output = cmd!(sh, "{cli_path} apt repository list").read();
-
-    match list_output {
-        Ok(output) => {
-            println!("Repo list output after deletion:");
-            println!("{output}");
-
-            let deleted_repo_exists = output.contains(DELETED_REPO);
-            let remaining_repo_exists = output.contains(REMAINING_REPO);
-
-            if !deleted_repo_exists && remaining_repo_exists {
-                println!("✅ Deleted repo '{DELETED_REPO}' no longer in list");
-                println!("✅ Remaining repo '{REMAINING_REPO}' still in list");
-                println!("✅ Test completed successfully!\n");
-            } else {
-                if deleted_repo_exists {
-                    eprintln!("❌ Deleted repo '{DELETED_REPO}' still appears in list");
-                }
-                if !remaining_repo_exists {
-                    eprintln!("❌ Remaining repo '{REMAINING_REPO}' not found in list");
-                }
-                eprintln!("Available repos:\n{output}");
-                panic!("Repository deletion verification failed");
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Failed to list repos for verification: {e}");
-            panic!(
-                "Repo listing failed during deletion verification. Check your environment variables and CLI binary path."
-            );
-        }
-    }
-}
-
-/// Test package addition to repository.
-fn test_pkg_add(sh: &Shell, config: &TestConfig) {
-    // Test packages to download.
-    const TEST_PACKAGES: [(&str, &str, &str, &str); 4] = [
-        (
-            "attune-test-package",
-            "2.0.0",
-            "amd64",
-            "https://github.com/attunehq/attune-test-package/releases/download/v2.0.0/attune-test-package_2.0.0_linux_amd64.deb",
-        ),
-        (
-            "attune-test-package",
-            "2.0.0",
-            "arm64",
-            "https://github.com/attunehq/attune-test-package/releases/download/v2.0.0/attune-test-package_2.0.0_linux_arm64.deb",
-        ),
-        (
-            "attune-test-package",
-            "1.0.3",
-            "amd64",
-            "https://github.com/attunehq/attune-test-package/releases/download/v1.0.3/attune-test-package_1.0.3_linux_amd64.deb",
-        ),
-        (
-            "attune-test-package",
-            "1.0.3",
-            "arm64",
-            "https://github.com/attunehq/attune-test-package/releases/download/v1.0.3/attune-test-package_1.0.3_linux_arm64.deb",
-        ),
+    const DISTRIBUTIONS: [&str; 5] = ["stable", "unstable", "testing", "dev", "canary"];
+    const COMPONENTS: [&str; 8] = [
+        "main", "contrib", "non-free", "extra", "rolling", "cloud", "oss", "ee",
+    ];
+    const PACKAGES: [&str; 10] = [
+        "attune-test-package_2.0.0_linux_amd64.deb",
+        "attune-test-package_2.0.0_linux_arm64.deb",
+        "attune-test-package_3.0.5_linux_amd64.deb",
+        "attune-test-package_3.0.5_linux_arm64.deb",
+        "cod-test-package_3.0.5_linux_amd64.deb",
+        "cod-test-package_3.0.5_linux_arm64.deb",
+        "salmon-test-package_3.0.5_linux_amd64.deb",
+        "salmon-test-package_3.0.5_linux_arm64.deb",
+        "tuna-test-package_3.0.5_linux_amd64.deb",
+        "tuna-test-package_3.0.5_linux_arm64.deb",
     ];
 
-    println!("Testing package add with {} packages", TEST_PACKAGES.len());
-
-    // Repository configuration constants
-    const REPO_NAME: &str = "debian-test-repo-1";
-    const DISTRIBUTION: &str = "stable";
-    const COMPONENT: &str = "main";
-
-    // Use the remaining repository from the delete test
-    let cli_path = &config.cli_path;
-
-    // Use the GPG key ID from config
-    let key_id = &config.gpg_key_id;
-    println!(
-        "\nUsing repository: {REPO_NAME}, distribution: {DISTRIBUTION}, component: {COMPONENT}"
-    );
-    println!("Using GPG key ID: {key_id}");
-
-    // Download and add each package.
-    for (package_name, version, arch, url) in TEST_PACKAGES.iter() {
-        println!("\nTesting package add with {package_name} {version} {arch} ({url})...");
-
-        let filename = format!("{package_name}_{version}_linux_{arch}.deb");
-        let filepath = format!("/tmp/{filename}");
-
-        // Download the package.
-        println!("  Downloading package to {filepath}...");
-        let download_result = cmd!(sh, "curl -L -o {filepath} {url}").run();
-
-        match download_result {
-            Ok(_) => {
-                println!("  ✅ Package downloaded successfully");
-
-                // Verify file exists.
-                match fs::metadata(&filepath) {
-                    Ok(metadata) => {
-                        let size = metadata.len();
-                        if size > 1000 {
-                            println!("  ✅ Package file size: {size} bytes");
-                        } else {
-                            eprintln!("  ❌ Package file too small: {size} bytes");
-                            panic!("Downloaded package file is too small");
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("  ❌ Could not read package file metadata: {e}");
-                        panic!("Package file not accessible after download");
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("  ❌ Package download failed: {e}");
-                panic!("Failed to download package from {url}");
-            }
-        }
-
-        // Add the package to the repository using the new command structure.
-        println!("  Adding package to repository...");
-        let add_result = cmd!(sh, "{cli_path} apt package add {filepath} --repo {REPO_NAME} --distribution {DISTRIBUTION} --component {COMPONENT} --key-id {key_id}").run();
-
-        match add_result {
-            Ok(_) => {
-                println!("  ✅ Package added to repository successfully");
-            }
-            Err(e) => {
-                eprintln!(
-                    indoc! {"
-                        ❌ Package add failed: {}
-                        Make sure the repository exists and the CLI command syntax is correct
-                    "},
-                    e
+    let mut uploads = JoinSet::new();
+    let mut i = 0;
+    for distribution in DISTRIBUTIONS {
+        for component in COMPONENTS {
+            for package in PACKAGES {
+                // HACK: We're using the `../../` to get to the workspace root
+                // because we know where this package is located, and the
+                // working directory is set to the package root in `cargo
+                // test`[^1].
+                //
+                // [^1]: https://github.com/rust-lang/cargo/issues/11852
+                let package = format!(
+                    "{}/../../scripts/fixtures/{}",
+                    env!("CARGO_MANIFEST_DIR"),
+                    package
                 );
-                panic!("Failed to add package {package_name} {version} {arch} to repository");
+                let sh = sh.clone();
+                let key_id = key_id.clone();
+                let repo_name = repo_name.clone();
+                uploads.spawn(async move {
+                    let result = cmd!(sh, "{ATTUNE_CLI_PATH} apt package add -k {key_id} --repo {repo_name} --distribution {distribution} --component {component} {package}")
+                        .ignore_status()
+                        .output()
+                        .unwrap();
+                    (result, i)
+                });
+                i += 1;
             }
-        }
-
-        // Clean up downloaded file.
-        if let Err(e) = fs::remove_file(&filepath) {
-            eprintln!("  ⚠️  Warning: Could not clean up downloaded file {filepath}: {e}");
         }
     }
+    let results = uploads.join_all().await;
+    for (result, i) in results {
+        debug!(
+            ?i,
+            status = ?result.status,
+            stdout = %String::from_utf8(result.stdout).unwrap(),
+            stderr = %String::from_utf8(result.stderr).unwrap(),
+            "added package"
+        );
+        assert!(result.status.success());
+    }
 
-    println!("✅ All packages added successfully - they are now available for installation!\n");
+    // Start a Debian container and install packages.
+    todo!()
 }
 
-/// Test package deletion from repository.
-fn test_pkg_delete(sh: &Shell, config: &TestConfig) {
-    // Test deleting some of the packages we added.
-    let packages_to_delete = [
-        ("attune-test-package", "2.0.0", "amd64"),
-        ("attune-test-package", "1.0.3", "arm64"),
-    ];
+struct GpgKey {
+    sh: Shell,
+    key_id: String,
+}
 
-    println!(
-        "Testing package delete with {} packages",
-        packages_to_delete.len()
-    );
+impl GpgKey {
+    fn new() -> Self {
+        let sh = Shell::new().unwrap();
 
-    // Use the same repository configuration as package add.
-    const REPO_NAME: &str = "debian-test-repo-1";
-    const DISTRIBUTION: &str = "stable";
-    const COMPONENT: &str = "main";
-    let cli_path = &config.cli_path;
+        // Create GPG key configuration file.
+        let gpg_config = indoc! {"
+            Key-Type: EDDSA
+            Key-Curve: Ed25519
+            Subkey-Type: ECDH
+            Subkey-Curve: Cv25519
+            Name-Real: Attune Test
+            Name-Email: test@attunehq.com
+            Expire-Date: 0
+            %no-protection
+            %commit
+        "};
 
-    // Use the GPG key ID from config.
-    let key_id = &config.gpg_key_id;
-    println!(
-        "\nUsing repository: {REPO_NAME}, distribution: {DISTRIBUTION}, component: {COMPONENT}"
-    );
-    println!("Using GPG key ID: {key_id}");
+        const CONFIG_PATH: &str = "/tmp/gpg_key_config.txt";
+        fs::write(CONFIG_PATH, gpg_config).unwrap();
 
-    // Delete each specified package.
-    for (package_name, version, arch) in packages_to_delete.iter() {
-        println!("\nTesting package delete with {package_name} {version} {arch}...");
+        // Generate GPG key using batch mode and capture output.
+        let generated = cmd!(sh, "gpg --batch --generate-key {CONFIG_PATH}")
+            .output()
+            .expect("GPG key generation failed. Make sure GPG is installed and configured.");
+        let stdout = String::from_utf8(generated.stdout).unwrap();
+        let stderr = String::from_utf8(generated.stderr).unwrap();
+        debug!(
+            stdout = ?stdout,
+            stderr = ?stderr,
+            "GPG key generation"
+        );
+        assert!(generated.status.success(), "GPG key generation failed");
 
-        // Delete the package from the repository using the new command structure.
-        println!("  Deleting package from repository...");
-        let delete_result = cmd!(sh, "{cli_path} apt package delete --repo {REPO_NAME} --distribution {DISTRIBUTION} --component {COMPONENT} --key-id {key_id} --package {package_name} --version {version} --architecture {arch}").run();
+        // Parse the GPG output to find the key ID from the revocation
+        // certificate message.
+        //
+        // TODO: Write a real parser with `nom`.
+        for line in stderr.lines() {
+            if line.contains("revocation certificate stored as") && line.contains(".rev'") {
+                debug!(?line, "parsing key ID");
+                // Extract the key ID from the filename.
+                if let Some(start) = line.rfind('/')
+                    && let Some(end) = line.rfind(".rev'")
+                {
+                    let key_id = line[(start + 1)..end].to_string();
 
-        match delete_result {
-            Ok(_) => {
-                println!(
-                    "  ✅ Package {package_name} {version} {arch} deleted from repository successfully"
-                );
-            }
-            Err(e) => {
-                eprintln!(
-                    indoc! {"
-                        ❌ Package delete failed: {}
-                        Make sure the repository exists, the package was added, and the CLI command syntax is correct
-                    "},
-                    e
-                );
-                panic!("Failed to delete package {package_name} {version} {arch} from repository");
+                    // Clean up configuration file.
+                    fs::remove_file(CONFIG_PATH).unwrap();
+
+                    return Self { sh, key_id };
+                }
             }
         }
+        panic!("GPG key ID not found in generation output");
     }
+}
 
-    println!("✅ Package deletion tests completed successfully!\n");
+impl Drop for GpgKey {
+    fn drop(&mut self) {
+        let key_id = &self.key_id;
+        cmd!(
+            self.sh,
+            "gpg --batch --yes --delete-secret-and-public-key {key_id}"
+        )
+        .run()
+        .unwrap();
+    }
 }
 
 /// Test concurrent package additions to simulate multiple users uploading packages simultaneously.

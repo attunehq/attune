@@ -23,31 +23,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  docker:
-    name: Test Docker image build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Remove empty EE crate
-        run: rm -r ./packages/attune-ee
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./docker/attune/Dockerfile
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build Docker Compose development images
-        run: docker compose build
-
   rust:
     name: Build, check, and test Rust
     runs-on: ubuntu-latest
@@ -113,6 +88,7 @@ jobs:
         with:
           cache-workspace-crates: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Check format
         run: cargo +nightly fmt --all --check
@@ -127,68 +103,54 @@ jobs:
           npm run migrate
           npm run diff
 
-      - name: Install sqlx-cli
-        uses: taiki-e/install-action@v2
-        with:
-          tool: sqlx-cli
-
-      - name: Check sqlx queries
-        run: cargo sqlx prepare --workspace --check -- --tests
-
-      - name: Check build
-        run: cargo check --workspace --all-targets --all-features
+      # We could use `cargo check` and `cargo sqlx prepare --check` here, but
+      # it's not actually fast enough in CI that it provides a meaningfully
+      # faster developer experience (instead of waiting 3 minutes, you just wait
+      # 2 minutes), and none of the work can be reused[^1]. So we instead opt to
+      # minimize total CI time by just running the full build first, since tests
+      # and checks can reuse the build.
+      #
+      # [^1]: https://github.com/rust-lang/cargo/issues/3501
+      - name: Run full build
+        run: cargo build --workspace --all-targets --all-features
 
       - name: Check clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features -- --skip smoke
+        run: cargo test --workspace --all-targets --all-features -- --skip it
 
-      - name: Run full build
-        run: cargo build --workspace --all-targets --all-features
-
-  dev:
-    name: Set up Attune locally and run smoke tests
+  e2e:
+    name: End-to-end test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install Rust
         run: rustup show
 
+      # These should match `../docker/attune/Dockerfile`.
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
-      - name: Install MinIO CLI
-        run: |
-          curl https://dl.min.io/client/mc/release/linux-amd64/mc -o mc
-          chmod +x mc
-          sudo mv mc /usr/local/bin/
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
 
-      - name: Set up environment
-        run: cp .env.example .env
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2.8.0
+        with:
+          cache-workspace-crates: true
+          cache-all-crates: true
+          cache-on-failure: true
 
-      - name: Start services
+      # This integration test is also functionally an end-to-end test for our
+      # Docker images. Note that we perform a build because this particular test
+      # requires the CLI binary built in release mode.
+      - name: Run tests
         run: |
-          docker compose up -d
-          # Wait for services to be healthy
-          timeout 300 bash -c 'until docker compose ps | grep -q "healthy"; do sleep 5; done'
-
-      - name: Build CLI
-        run: cargo build --release --bin attune
-
-      - name: Run smoke tests
-        env:
-          ATTUNE_CLI_PATH: ${{ github.workspace }}/target/release/attune
-          ATTUNE_API_ENDPOINT: http://localhost:3000
-          ATTUNE_API_TOKEN: INSECURE_TEST_TOKEN
-        run: cargo test --test smoke
-
-      - name: Stop services
-        if: always()
-        run: docker compose down
+          cargo build --package attune --bin attune --all-features --release
+          cargo test --package attune --test it --all-features
