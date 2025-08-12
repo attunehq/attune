@@ -1,6 +1,5 @@
 use std::process::ExitCode;
 
-use attune::cli::apt::pkg::{add::CmdAptPkgAdd, remove::CmdAptPkgRemove};
 use clap::{Args, Subcommand};
 
 use crate::config::Config;
@@ -19,13 +18,13 @@ pub struct PkgCommand {
 pub enum PkgSubCommand {
     /// Upload a new package
     #[command(visible_aliases = ["new", "upload"])]
-    Add(CmdAptPkgAdd),
+    Add(add::PkgAddCommand),
     /// Show information about packages
     #[command(visible_alias = "ls")]
     List(list::PkgListCommand),
     /// Remove a package
     #[command(visible_aliases = ["rm", "delete"])]
-    Remove(CmdAptPkgRemove),
+    Remove(remove::PkgRemoveCommand),
 }
 
 pub async fn handle_pkg(ctx: Config, command: PkgCommand) -> ExitCode {

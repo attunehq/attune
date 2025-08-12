@@ -1,4 +1,4 @@
-use std::process::ExitCode;
+use std::{process::ExitCode, time::Duration};
 
 use attune::{api::ErrorResponse, server::compatibility::CompatibilityResponse};
 use axum::http::StatusCode;
@@ -110,4 +110,38 @@ async fn main() -> ExitCode {
     match args.tool {
         ToolCommand::Apt(command) => cmd::apt::handle_apt(ctx, command).await,
     }
+}
+
+/// Infinitely retry an asynchronous function call.
+///
+/// - `operation` is the function to call.
+/// - `should_retry` evaluates whether the operation should be retried.
+/// - `retry_delay` provides the duration to wait before retrying.
+///
+/// Optionally, you can use [`retry_delay_default`] for default delay timings.
+pub async fn retry_infinite<T, E>(
+    operation: impl AsyncFn() -> Result<T, E>,
+    should_retry: impl Fn(&E) -> bool,
+    retry_delay: impl Fn(usize) -> Duration,
+) -> Result<T, E> {
+    for attempt in 0usize.. {
+        match operation().await {
+            Ok(value) => return Ok(value),
+            Err(e) => {
+                if should_retry(&e) {
+                    tokio::time::sleep(retry_delay(attempt)).await;
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    unreachable!("loop is functionally infinite");
+}
+
+/// The default retry delay is a static delay of 2 seconds
+/// plus a random jitter of up to 2 seconds.
+pub fn retry_delay_default(_: usize) -> Duration {
+    const STATIC_RETRY_DELAY_MS: u64 = 2000;
+    Duration::from_millis(STATIC_RETRY_DELAY_MS + rand::random_range(0..STATIC_RETRY_DELAY_MS))
 }
