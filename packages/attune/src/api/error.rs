@@ -57,17 +57,17 @@ impl IntoResponse for ErrorResponse {
 impl From<sqlx::Error> for ErrorResponse {
     fn from(err: sqlx::Error) -> Self {
         error!(error = ?err, "sqlx error");
-        if let Some(db) = err.as_database_error() {
-            if let Some(code) = db.code() {
-                // As we encounter other error codes, add them here.
-                // 40001: https://www.postgresql.org/docs/current/mvcc-serialization-failure-handling.html
-                if code == "40001" {
-                    return ErrorResponse::builder()
-                        .status(StatusCode::CONFLICT)
-                        .error("CONCURRENT_INDEX_CHANGE")
-                        .message("concurrent index change")
-                        .build();
-                }
+        if let Some(db) = err.as_database_error()
+            && let Some(code) = db.code()
+        {
+            // As we encounter other error codes, add them here.
+            // 40001: https://www.postgresql.org/docs/current/mvcc-serialization-failure-handling.html
+            if code == "40001" {
+                return ErrorResponse::builder()
+                    .status(StatusCode::CONFLICT)
+                    .error("CONCURRENT_INDEX_CHANGE")
+                    .message("concurrent index change")
+                    .build();
             }
         }
 

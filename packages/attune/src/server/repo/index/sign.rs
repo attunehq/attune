@@ -101,8 +101,8 @@ pub async fn handler(
     // of a concurrent index change. This should trigger the client to retry.
     //
     // Technically we should probably check for specific error codes,
-    // but the overwhelmingly most likely cause of an error here is a concurrent change
-    // so for now we just assume all errors are due to this.
+    // but the overwhelmingly most likely cause of an error here is a concurrent
+    // change so for now we just assume all errors are due to this.
     //
     // We've added logging here so that we can see the actual error code
     // and special case it in the future.
@@ -163,7 +163,8 @@ async fn apply_change_to_db(
     debug!(?result, "replayed index");
 
     // Compare the replayed index with the signed index.
-    // If the signatures match, this validates that the index signed by the client is the same as the one we replayed.
+    // If the signatures match, this validates that the index signed by the client
+    // is the same as the one we replayed.
     let (detachsigned, _headers) = StandaloneSignature::from_string(&req.detachsigned)
         .expect("could not parse detached signature");
     debug!(index = ?result.release_file.contents, ?detachsigned, "detachsigned index");
@@ -1548,7 +1549,8 @@ mod tests {
             );
         }
 
-        // Test valid component names (these should get further before failing due to dummy data)
+        // Test valid component names (these should get further before failing due to
+        // dummy data)
         let valid_components = [
             "main",
             "contrib",
@@ -1579,7 +1581,8 @@ mod tests {
                 .json(&sign_request)
                 .await;
 
-            // These should not fail with INVALID_COMPONENT_NAME (although they will fail due to dummy data)
+            // These should not fail with INVALID_COMPONENT_NAME (although they will fail
+            // due to dummy data)
             let body = response.json::<ErrorResponse>();
             assert_ne!(
                 body.error, "INVALID_COMPONENT_NAME",

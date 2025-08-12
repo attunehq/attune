@@ -315,3 +315,77 @@ where
     .await?;
     Ok(inserted.id)
 }
+
+#[cfg(test)]
+mod tests {
+    use debian_packaging::{
+        control::ControlParagraph, debian_source_control::DebianSourceControlFile,
+    };
+    use indoc::indoc;
+
+    use crate::testing::{AttuneTestServer, AttuneTestServerConfig};
+
+    use super::*;
+
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    #[test_log::test]
+    async fn cannot_insert_same_headers_different_content(pool: sqlx::PgPool) {
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+        const REPO_NAME: &str = "resync_mitigates_partial_upload";
+        let (tenant_id, _api_token) = server.create_test_tenant(REPO_NAME).await;
+
+        let mut tx = server.db.begin().await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+
+        let control_file = {
+            let contents = indoc! {"
+                Package: attune-test-package
+                Version: 1.0.0
+                Architecture: amd64
+                Maintainer: Attune <attune@example.com>
+                Description: A test package
+            "};
+            let dsc = DebianSourceControlFile::from_reader(contents.as_bytes()).unwrap();
+            let para = ControlParagraph::from(dsc);
+            BinaryPackageControlFile::from(para)
+        };
+        insert_package(
+            &mut *tx,
+            tenant_id,
+            "attune-dev-0",
+            control_file.clone(),
+            &HashesHex {
+                sha256sum: String::from("the CI is red"),
+                sha1sum: String::from("but no one around to see"),
+                md5sum: String::from("i need faster tests"),
+            },
+            42,
+        )
+        .await
+        .unwrap();
+
+        let result = insert_package(
+            &mut *tx,
+            tenant_id,
+            "attune-dev-0",
+            control_file,
+            &HashesHex {
+                sha256sum: String::from("this is different"),
+                sha1sum: String::from("test data should be haikus"),
+                md5sum: String::from("hopefully this fails"),
+            },
+            42,
+        )
+        .await
+        .map_err(ErrorResponse::from);
+        assert!(result.is_err())
+    }
+}

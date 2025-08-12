@@ -49,5 +49,6 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+indoc.workspace = true
 test-log.workspace = true
 workspace_root.workspace = true
