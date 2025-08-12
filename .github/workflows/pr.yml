@@ -68,14 +68,13 @@ jobs:
         ports:
           - "5432:5432"
       minio:
-        image: minio/minio:RELEASE.2025-04-08T15-41-24Z-cpuv1
+        image: ghcr.io/attunehq/minio:sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
         env:
           MINIO_ROOT_USER: attuneminio
           MINIO_ROOT_PASSWORD: attuneminio
           MINIO_DOMAIN: localhost
         ports:
           - "9000:9000"
-          - "9001:9001"
         volumes:
           - "${{ github.workspace }}/minio-data:/data"
     steps:
