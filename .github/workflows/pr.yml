@@ -152,5 +152,7 @@ jobs:
       # requires the CLI binary built in release mode.
       - name: Run tests
         run: |
+          cp .env.example .env
+          source .env
           cargo build --package attune --bin attune --all-features --release
           cargo test --package attune --test it --all-features
