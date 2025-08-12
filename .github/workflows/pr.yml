@@ -87,7 +87,10 @@ jobs:
       # If you decide to make this change, make sure to benchmark whether it's
       # actually faster.
       - name: Install Rust
-        run: rustup show
+        run: |
+          rustup toolchain install nightly
+          rustup component add --toolchain nightly rustfmt
+          rustup show
 
       # These should match `../docker/attune/Dockerfile`.
       - name: Install system dependencies
@@ -112,7 +115,7 @@ jobs:
           cache-all-crates: true
 
       - name: Check format
-        run: cargo fmt --all --check
+        run: cargo +nightly fmt --all --check
 
       - name: Migrate and check database
         working-directory: ./docker/migrate

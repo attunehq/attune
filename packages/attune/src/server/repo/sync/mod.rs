@@ -19,14 +19,14 @@ pub enum Expected {
     Exists {
         /// The S3 key of the object.
         key: String,
-        /// The expected contents of the object, used to restore the object if it is
-        /// inconsistent.
+        /// The expected contents of the object, used to restore the object if
+        /// it is inconsistent.
         ///
         /// For packages, this is the CopyObject key (which includes the bucket
         /// name) to the canonical package object.
         contents: String,
-        /// The SHA256 sum of the object, used to determine whether the object has
-        /// changed.
+        /// The SHA256 sum of the object, used to determine whether the object
+        /// has changed.
         #[derivative(Debug(format_with = "display_hex"))]
         sha256sum: Vec<u8>,
     },

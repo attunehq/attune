@@ -14,7 +14,8 @@ pub struct AttuneTestServer {
     ///
     /// This is configured to listen to an open port on the system.
     /// - You can use e.g. `get` or `post` methods to test as a client directly.
-    /// - You can use `server_url` to get an external URL for passing to e.g. a CLI.
+    /// - You can use `server_url` to get an external URL for passing to e.g. a
+    ///   CLI.
     pub http: TestServer,
 
     /// The API token for the test server.

@@ -204,13 +204,11 @@ fn update_release_package_indexes(
 
     // There are three cases to handle here:
     //
-    // 1. If the index didn't previously exist, it should be added to the
-    //    Release file.
-    // 2. If the index previously existed, it should be updated in the Release
+    // 1. If the index didn't previously exist, it should be added to the Release
     //    file.
+    // 2. If the index previously existed, it should be updated in the Release file.
     // 3. If the index previously existed, but is now empty (i.e. this change
-    //    removed all packages in it), it should be removed from the Release
-    //    file.
+    //    removed all packages in it), it should be removed from the Release file.
     //
     // To do this, we first remove any existing Packages index for the same
     // component and architecture (notice that this is a no-op if the index
