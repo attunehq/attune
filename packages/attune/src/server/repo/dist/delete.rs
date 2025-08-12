@@ -44,7 +44,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -73,7 +73,7 @@ pub async fn handler(
     )
     .fetch_all(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
     // Cascade will handle related records when deleting the distribution.
     let result = sqlx::query!(
@@ -86,7 +86,7 @@ pub async fn handler(
     )
     .execute(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
     // If no rows were affected, the distribution was already deleted or never existed.
     if result.rows_affected() == 0 {
@@ -112,11 +112,11 @@ pub async fn handler(
     )
     .fetch_all(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
     // Database state is correct, so we can commit the transaction.
     // Now all we need to do is clean up S3 objects.
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     // Clean up S3 objects for this distribution based on known paths.
     let prefix = format!("{}/dists/{}", repo.s3_prefix, distribution_name);

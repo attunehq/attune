@@ -98,7 +98,7 @@ pub async fn query_repository_state(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or(ErrorResponse::new(
         StatusCode::NOT_FOUND,
         "REPOSITORY_NOT_FOUND".to_string(),
@@ -116,7 +116,7 @@ pub async fn query_repository_state(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or(ErrorResponse::new(
         StatusCode::NOT_FOUND,
         "RELEASE_NOT_FOUND".to_string(),
@@ -167,7 +167,7 @@ pub async fn query_repository_state(
     )
     .fetch_all(&mut **tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     let packages_indexes = packages_indexes
         .into_iter()
         .flat_map(|packages_index| {
@@ -219,7 +219,7 @@ pub async fn query_repository_state(
     )
     .fetch_all(&mut **tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     let packages = packages
         .into_iter()
         .map(|package| Expected::Exists {

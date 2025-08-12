@@ -16,7 +16,7 @@ use time::OffsetDateTime;
 use tracing::{debug, instrument};
 
 use crate::{
-    api::{ErrorResponse, TenantID, translate_psql_error},
+    api::{ErrorResponse, TenantID},
     server::{
         ServerState,
         repo::{
@@ -72,11 +72,11 @@ pub async fn handler(
     }
 
     // Start a Serializable database transaction.
-    let mut tx = state.db.begin().await.map_err(translate_psql_error)?;
+    let mut tx = state.db.begin().await.map_err(ErrorResponse::from)?;
     sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         .execute(&mut *tx)
         .await
-        .map_err(translate_psql_error)?;
+        .map_err(ErrorResponse::from)?;
 
     // Load the repository. If it does not exist, return an error.
     let repo = sqlx::query_as!(
@@ -91,7 +91,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .map_err(translate_psql_error)?
+    .map_err(ErrorResponse::from)?
     .ok_or(ErrorResponse::not_found("repository"))?;
 
     // Apply the change to the database.
@@ -106,7 +106,7 @@ pub async fn handler(
     //
     // We've added logging here so that we can see the actual error code
     // and special case it in the future.
-    tx.commit().await.map_err(translate_psql_error)?;
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     // Save the new index state to S3. This must occur after the transaction
     // commits so that we are sure that we are not incorrectly overwriting a
@@ -236,7 +236,7 @@ async fn add_package_to_db(
     )
     .fetch_optional(&mut **tx)
     .await
-    .map_err(translate_psql_error)? {
+    .map_err(ErrorResponse::from)? {
         Some(release) => {
             // If the release already exists, check whether any fields need to
             // be updated. If so, update them.
@@ -282,7 +282,7 @@ async fn add_package_to_db(
                 )
                 .execute(&mut **tx)
                 .await
-                .map_err(translate_psql_error)?;
+                .map_err(ErrorResponse::from)?;
             }
             release.id
         },
@@ -340,7 +340,7 @@ async fn add_package_to_db(
             )
             .fetch_one(&mut **tx)
             .await
-            .map_err(translate_psql_error)?;
+            .map_err(ErrorResponse::from)?;
             release.id
         }
     };
@@ -358,7 +358,7 @@ async fn add_package_to_db(
     )
     .fetch_optional(&mut **tx)
     .await
-    .map_err(translate_psql_error)?
+    .map_err(ErrorResponse::from)?
     {
         Some(component) => component.id,
         None => {
@@ -383,7 +383,7 @@ async fn add_package_to_db(
             )
             .fetch_one(&mut **tx)
             .await
-            .map_err(translate_psql_error)?
+            .map_err(ErrorResponse::from)?
             .id
         }
     };
@@ -404,7 +404,7 @@ async fn add_package_to_db(
     )
     .fetch_optional(&mut **tx)
     .await
-    .map_err(translate_psql_error)?
+    .map_err(ErrorResponse::from)?
     {
         Some(index) => {
             // Before we do an update, we need to capture the hashes of the
@@ -439,7 +439,7 @@ async fn add_package_to_db(
             )
             .execute(&mut **tx)
             .await
-            .map_err(translate_psql_error)?;
+            .map_err(ErrorResponse::from)?;
             Some(previous_by_hash_indexes)
         }
         None => {
@@ -482,7 +482,7 @@ async fn add_package_to_db(
             )
             .execute(&mut **tx)
             .await
-            .map_err(translate_psql_error)?;
+            .map_err(ErrorResponse::from)?;
             None
         }
     };
@@ -525,7 +525,7 @@ async fn add_package_to_db(
     )
     .execute(&mut **tx)
     .await
-    .map_err(translate_psql_error)?;
+    .map_err(ErrorResponse::from)?;
 
     Ok(previous_by_hash_indexes)
 }
@@ -571,7 +571,7 @@ async fn remove_package_from_db(
     )
     .fetch_one(&mut **tx)
     .await
-    .map_err(translate_psql_error)?;
+    .map_err(ErrorResponse::from)?;
 
     // Delete the component-package.
     sqlx::query!(
@@ -586,7 +586,7 @@ async fn remove_package_from_db(
     )
     .execute(&mut **tx)
     .await
-    .map_err(translate_psql_error)?;
+    .map_err(ErrorResponse::from)?;
 
     // Load the current state of the changed Packages index. We need to record
     // its hashes so that we can delete the by-hash files after we update this
@@ -609,7 +609,7 @@ async fn remove_package_from_db(
     )
     .fetch_one(&mut **tx)
     .await
-    .map_err(translate_psql_error)?;
+    .map_err(ErrorResponse::from)?;
     let previous_by_hash_indexes = PreviousByHashIndexes {
         md5sum: previous_by_hash_indexes.md5sum,
         sha1sum: previous_by_hash_indexes.sha1sum,
@@ -630,7 +630,7 @@ async fn remove_package_from_db(
         )
         .execute(&mut **tx)
         .await
-        .map_err(translate_psql_error)?;
+        .map_err(ErrorResponse::from)?;
     } else {
         sqlx::query!(
             r#"
@@ -657,7 +657,7 @@ async fn remove_package_from_db(
         )
         .execute(&mut **tx)
         .await
-        .map_err(translate_psql_error)?;
+        .map_err(ErrorResponse::from)?;
     }
 
     // Delete the Component if it's orphaned.
@@ -671,7 +671,7 @@ async fn remove_package_from_db(
     )
     .fetch_one(&mut **tx)
     .await
-    .map_err(translate_psql_error)?;
+    .map_err(ErrorResponse::from)?;
     if remaining_component_packages.count == 0 {
         sqlx::query!(
             r#"
@@ -682,7 +682,7 @@ async fn remove_package_from_db(
         )
         .execute(&mut **tx)
         .await
-        .map_err(translate_psql_error)?;
+        .map_err(ErrorResponse::from)?;
     }
 
     // We do not delete the Release even if it's orphaned, because

@@ -86,7 +86,7 @@ pub async fn handler(
     )
     .fetch_all(&state.db)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .into_iter()
     .map(|pkg| Package {
         repository: pkg.repository,

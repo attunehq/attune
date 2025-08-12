@@ -93,7 +93,7 @@ pub async fn handler(
     )
     .fetch_optional(&state.db)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -121,7 +121,7 @@ pub async fn handler(
     )
     .fetch_all(&state.db)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .into_iter()
     .map(|row| {
         Distribution::builder()

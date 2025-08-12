@@ -1,7 +1,7 @@
 use derivative::Derivative;
 use sqlx::{FromRow, Postgres, Transaction, types::JsonValue};
 
-use crate::api::TenantID;
+use crate::api::{ErrorResponse, TenantID};
 
 #[derive(FromRow, Clone, Debug)]
 pub struct Package {
@@ -26,7 +26,7 @@ impl Package {
         package: &str,
         version: &str,
         architecture: &str,
-    ) -> Option<Self> {
+    ) -> Result<Option<Self>, ErrorResponse> {
         sqlx::query_as!(
             Self,
             r#"
@@ -54,14 +54,14 @@ impl Package {
         )
         .fetch_optional(&mut **tx)
         .await
-        .unwrap()
+        .map_err(Into::into)
     }
 
     pub async fn query_from_sha256sum<'a>(
         tx: &mut Transaction<'a, Postgres>,
         tenant_id: &TenantID,
         sha256sum: &str,
-    ) -> Option<Self> {
+    ) -> Result<Option<Self>, ErrorResponse> {
         sqlx::query_as!(
             Self,
             r#"
@@ -85,7 +85,7 @@ impl Package {
         )
         .fetch_optional(&mut **tx)
         .await
-        .unwrap()
+        .map_err(Into::into)
     }
 
     pub fn pool_filename_in_component(&self, component: &str) -> String {
@@ -147,7 +147,7 @@ impl PublishedPackage {
         package: &str,
         version: &str,
         architecture: &str,
-    ) -> Option<Self> {
+    ) -> Result<Option<Self>, ErrorResponse> {
         // Note that we don't use `query_as!` here because the macros (which
         // have compile-time query checking) don't actually work with `FromRow`
         // instances and annotations like `flatten`. Otherwise, we would be able
@@ -192,22 +192,24 @@ impl PublishedPackage {
         )
         .fetch_optional(&mut **tx)
         .await
-        .unwrap()
+        .map_err(Into::into)
         .map(|row| {
-            PublishedPackage {
-                package: Package {
-                    name: row.package,
-                    version: row.version,
-                    architecture: row.architecture,
-                    paragraph: row.paragraph,
-                    size: row.size,
-                    s3_bucket: row.s3_bucket,
-                    md5sum: row.md5sum,
-                    sha1sum: row.sha1sum,
-                    sha256sum: row.sha256sum,
-                },
-                filename: row.filename,
-            }
+            row.map(|row| {
+                PublishedPackage {
+                    package: Package {
+                        name: row.package,
+                        version: row.version,
+                        architecture: row.architecture,
+                        paragraph: row.paragraph,
+                        size: row.size,
+                        s3_bucket: row.s3_bucket,
+                        md5sum: row.md5sum,
+                        sha1sum: row.sha1sum,
+                        sha256sum: row.sha256sum,
+                    },
+                    filename: row.filename,
+                }
+            })
         })
     }
 
@@ -218,7 +220,7 @@ impl PublishedPackage {
         release: &str,
         component: &str,
         architecture: &str,
-    ) -> Vec<Self> {
+    ) -> Result<Vec<Self>, ErrorResponse> {
         // Note that we don't use `query_as!` here because the macros (which
         // have compile-time query checking) don't actually work with `FromRow`
         // instances and annotations like `flatten`. Otherwise, we would be able
@@ -269,7 +271,7 @@ impl PublishedPackage {
         })
         .fetch_all(&mut **tx)
         .await
-        .unwrap()
+        .map_err(Into::into)
     }
 }
 
