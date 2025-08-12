@@ -5,7 +5,7 @@ use sha2::{Digest as _, Sha256};
 use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::{
-    api::TenantID,
+    api::{ErrorResponse, TenantID},
     apt::{Package, PublishedPackage},
 };
 
@@ -27,7 +27,7 @@ impl PackagesIndexMeta {
         tenant_id: &TenantID,
         repository: &str,
         release: &str,
-    ) -> Vec<Self> {
+    ) -> Result<Vec<Self>, ErrorResponse> {
         sqlx::query_as!(PackagesIndexMeta, r#"
             SELECT
                 debian_repository_component.name AS component,
@@ -52,7 +52,7 @@ impl PackagesIndexMeta {
         )
         .fetch_all(&mut **tx)
         .await
-        .unwrap()
+        .map_err(Into::into)
     }
 }
 

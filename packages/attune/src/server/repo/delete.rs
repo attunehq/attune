@@ -38,7 +38,7 @@ pub async fn handler(
     )
     .execute(&state.db)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     if deleted.rows_affected() > 0 {
         Ok(Json(DeleteRepositoryResponse {}))
     } else {

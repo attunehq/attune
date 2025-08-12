@@ -40,7 +40,7 @@ pub async fn handler(
     )
     .fetch_optional(&state.db)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
     match pkg {
         Some(pkg) => Ok(Json(PackageInfoResponse {
             package: pkg.package,

@@ -58,7 +58,7 @@ async fn generate_release_file_with_change(
     )
     .fetch_optional(&mut **tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or(ErrorResponse::not_found("repository"))?;
 
     // Load the Release metadata. If the Release has never been created
@@ -69,7 +69,7 @@ async fn generate_release_file_with_change(
         &change.repository,
         &change.distribution,
     )
-    .await
+    .await?
     .unwrap_or(ReleaseMeta {
         description: None,
         origin: None,
@@ -83,7 +83,7 @@ async fn generate_release_file_with_change(
     let changed_package = match &change.action {
         PackageChangeAction::Add { package_sha256sum } => {
             let package = Package::query_from_sha256sum(&mut *tx, tenant_id, package_sha256sum)
-                .await
+                .await?
                 .ok_or(ErrorResponse::not_found("package"))?;
             PublishedPackage::from_package(package, &change.component)
         }
@@ -101,7 +101,7 @@ async fn generate_release_file_with_change(
             version,
             architecture,
         )
-        .await
+        .await?
         .ok_or(ErrorResponse::not_found("package"))?,
     };
 
@@ -119,7 +119,7 @@ async fn generate_release_file_with_change(
         &change.component,
         &changed_package.package.architecture,
     )
-    .await;
+    .await?;
     let mut changed_packages_index = PackagesIndex::from_packages(
         &change.component,
         &changed_package.package.architecture,
@@ -143,7 +143,7 @@ async fn generate_release_file_with_change(
         &change.repository,
         &change.distribution,
     )
-    .await;
+    .await?;
 
     // Update the set of Packages indexes in the Release file.
     let packages_indexes =

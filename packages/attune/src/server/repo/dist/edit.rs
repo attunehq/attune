@@ -109,7 +109,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -129,7 +129,7 @@ pub async fn handler(
     )
     .fetch_optional(&mut *tx)
     .await
-    .unwrap()
+    .map_err(ErrorResponse::from)?
     .ok_or_else(|| {
         ErrorResponse::builder()
             .status(axum::http::StatusCode::NOT_FOUND)
@@ -164,9 +164,9 @@ pub async fn handler(
     )
     .fetch_one(&mut *tx)
     .await
-    .unwrap();
+    .map_err(ErrorResponse::from)?;
 
-    tx.commit().await.unwrap();
+    tx.commit().await.map_err(ErrorResponse::from)?;
 
     Ok(Json(
         EditDistributionResponse::builder()
