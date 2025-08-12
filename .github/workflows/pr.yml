@@ -76,7 +76,7 @@ jobs:
         ports:
           - "9000:9000"
         volumes:
-          - "${{ github.workspace }}/minio-data:/data"
+          - "/tmp/minio-data:/data"
     steps:
       # Since these installation steps don't require checkout, technically we
       # could do them ahead of time and just cache the resulting image.
@@ -95,21 +95,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
-      # Checkout tries to clean the workspace directory, including the
-      # `minio-data` directory that is mounted as root (because Docker). First,
-      # we need to chown this folder so the checkout action can delete it and
-      # won't throw an error.
-      - name: Fix MinIO mount permissions
-        run: sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/minio-data
+      - name: Create MinIO bucket
+        run: mkdir -p /tmp/minio-data/attune-dev-0
 
       - uses: actions/checkout@v4
         with:
           lfs: true
-
-      # Once the checkout is completed, now we can add the folder back in for
-      # MinIO to work.
-      - name: Create MinIO bucket
-        run: mkdir -p ${{ github.workspace }}/minio-data/attune-dev-0
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
