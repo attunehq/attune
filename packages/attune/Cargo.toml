@@ -45,4 +45,6 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+async-tempfile.workspace = true
 axum-test.workspace = true
+test-log.workspace = true

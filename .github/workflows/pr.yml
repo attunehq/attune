@@ -53,6 +53,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+      # These values are from Minio, which is used in integration tests.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: attuneminio
+      AWS_SECRET_ACCESS_KEY: attuneminio
+      AWS_ENDPOINT_URL_S3: http://localhost:9000
     services:
       postgres:
         image: postgres:17.4-bookworm
@@ -62,6 +67,16 @@ jobs:
           POSTGRES_DB: attune
         ports:
           - "5432:5432"
+      minio:
+        image: ghcr.io/attunehq/minio:latest@sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
+        env:
+          MINIO_ROOT_USER: attuneminio
+          MINIO_ROOT_PASSWORD: attuneminio
+          MINIO_DOMAIN: localhost
+        ports:
+          - "9000:9000"
+        volumes:
+          - "/tmp/minio-data:/data"
     steps:
       # Since these installation steps don't require checkout, technically we
       # could do them ahead of time and just cache the resulting image.
@@ -80,7 +95,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
+      - name: Create MinIO bucket
+        run: mkdir -p /tmp/minio-data/attune-dev-0
+
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee

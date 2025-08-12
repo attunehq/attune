@@ -76,6 +76,19 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         }
     }
 
+    // If this was the first user set, we need to make sure that the sequence
+    // for tenant IDs gets incremented, because SERIAL sequences don't get
+    // incremented if you insert an explicit ID! This is because they are
+    // implemented as `DEFAULT nextval(...)` behind the scenes. See, for
+    // example: https://dba.stackexchange.com/a/210599.
+    //
+    // If we don't do this, the next time that we create a tenant, the next
+    // allocated key will still be 1.
+    sqlx::query!("SELECT setval('attune_tenant_id_seq', (SELECT MAX(id) FROM attune_tenant))")
+        .fetch_one(&state.db)
+        .await
+        .expect("could not update tenant ID sequence");
+
     // Configure routes.
     let api = Router::new()
         .route("/compatibility", get(compatibility::handler))

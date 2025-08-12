@@ -6,6 +6,7 @@ members = ["packages/*"]
 attune = { path = "packages/attune" }
 attune-macros = { path = "packages/attune-macros" }
 
+async-tempfile = "0.7.0"
 aws-config = "1.6.1"
 aws-credential-types = "1.2.3"
 aws-sdk-s3 = "1.82.0"
@@ -40,6 +41,7 @@ sha2 = "0.10.8"
 sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio", "time", "tls-native-tls"] }
 tabled = "0.20.0"
 tabwriter = "1.4.1"
+test-log = "0.2.18"
 time = { version = "0.3.41", features = ["formatting", "serde"] }
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "signal", "tracing"] }
 tower = "0.5.2"
@@ -47,4 +49,4 @@ tower-http = { version = "0.6.2", features = ["auth", "catch-panic", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
-uuid = { version = "1.17.0", features = ["v4"] }
+uuid = { version = "1.17.0", features = ["v4", "v7"] }

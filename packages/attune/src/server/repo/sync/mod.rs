@@ -3,15 +3,18 @@ pub mod resync;
 
 use aws_sdk_s3::types::ChecksumMode;
 use base64::Engine;
+use derivative::Derivative;
+use hex;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Transaction};
-use tracing::{Level, instrument};
+use tracing::{Level, debug, instrument};
 
 use crate::api::{ErrorResponse, TenantID};
 
-#[derive(Debug, Clone)]
+#[derive(Derivative)]
+#[derivative(Debug, Clone)]
 pub enum Expected {
     Exists {
         /// The S3 key of the object.
@@ -24,11 +27,16 @@ pub enum Expected {
         contents: String,
         /// The SHA256 sum of the object, used to determine whether the object has
         /// changed.
+        #[derivative(Debug(format_with = "display_hex"))]
         sha256sum: Vec<u8>,
     },
     DoesNotExist {
         key: String,
     },
+}
+
+fn display_hex(hex: &Vec<u8>, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{:?}", hex::encode(hex))
 }
 
 impl Expected {
@@ -145,6 +153,8 @@ pub async fn query_repository_state(
         SELECT
             debian_repository_component.name AS "component",
             debian_repository_index_packages.architecture::TEXT AS "architecture!: String",
+            debian_repository_index_packages.md5sum,
+            debian_repository_index_packages.sha1sum,
             debian_repository_index_packages.sha256sum,
             debian_repository_index_packages.contents
         FROM
@@ -160,17 +170,34 @@ pub async fn query_repository_state(
     .map_err(ErrorResponse::from)?;
     let packages_indexes = packages_indexes
         .into_iter()
-        .map(|packages_index| Expected::Exists {
-            key: format!(
-                "{}/dists/{}/{}/binary-{}/Packages",
-                &repo.s3_prefix,
+        .flat_map(|packages_index| {
+            let by_hash_prefix = format!(
+                "{}/dists/{}/{}/binary-{}/by-hash",
+                repo.s3_prefix,
                 &release_name,
                 &packages_index.component,
                 &packages_index.architecture
-            ),
-            sha256sum: hex::decode(&packages_index.sha256sum)
-                .expect("could not decode Packages index SHA256 sum"),
-            contents: String::from_utf8(packages_index.contents).unwrap(),
+            );
+            let sha256sum = hex::decode(&packages_index.sha256sum)
+                .expect("could not decode Packages index SHA256 sum");
+            let contents = String::from_utf8(packages_index.contents).unwrap();
+            [
+                format!(
+                    "{}/dists/{}/{}/binary-{}/Packages",
+                    &repo.s3_prefix,
+                    &release_name,
+                    &packages_index.component,
+                    &packages_index.architecture
+                ),
+                format!("{}/SHA256/{}", by_hash_prefix, packages_index.sha256sum),
+                format!("{}/SHA1/{}", by_hash_prefix, packages_index.sha1sum),
+                format!("{}/MD5Sum/{}", by_hash_prefix, packages_index.md5sum),
+            ]
+            .map(|key| Expected::Exists {
+                key,
+                sha256sum: sha256sum.clone(),
+                contents: contents.clone(),
+            })
         })
         .collect::<Vec<_>>();
 
@@ -230,11 +257,19 @@ async fn s3_object_consistent(
             .map(|head| {
                 head.checksum_sha256()
                     .map(|checksum| {
-                        checksum == base64::engine::general_purpose::STANDARD.encode(sha256sum)
+                        let expected = base64::engine::general_purpose::STANDARD.encode(sha256sum);
+                        debug!(actual = ?checksum, ?expected, "checking object sha256 checksum");
+                        checksum == expected
                     })
-                    .unwrap_or(false)
+                    .unwrap_or_else(|| {
+                        debug!("could not read object sha256 checksum");
+                        false
+                    })
             })
-            .unwrap_or(false),
+            .unwrap_or_else(|err| {
+                debug!(?err, "could not get object");
+                false
+            }),
         Expected::DoesNotExist { key } => s3
             .head_object()
             .bucket(s3_bucket)
