@@ -13,7 +13,7 @@ use gpgme::{Context, CreateKeyFlags, Protocol};
 // if you're reading this in the future where we're adding windows support
 // you'll need to handle the `/tmp` path differently.
 #[cfg(not(target_os = "windows"))]
-pub async fn emphemeral_gpg_key_id() -> Result<(String, Context, TempDir)> {
+pub async fn gpg_key_id() -> Result<(String, Context, TempDir)> {
     // Use /tmp directly to avoid socket path length issues on macOS.
     // In the future we may want to check `$TMPDIR` first, but then we have to
     // make sure it's not too long and fall back to something like `/tmp`

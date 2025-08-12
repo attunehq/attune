@@ -73,7 +73,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         }
     }
 
-    let sha256sum = match upsert_file_content(&ctx, &command).await {
+    let sha256sum = match upload_file_content(&ctx, &command).await {
         Ok(sha256sum) => sha256sum,
         Err(error) => {
             eprintln!("Unable to upsert file content: {error:#?}");
@@ -183,7 +183,7 @@ pub async fn validate_repository_exists(ctx: &Config, cmd: &PkgAddCommand) -> Re
 // TODO(#48): Add an `--overwrite` flag to allow the user to deliberately upload
 // a package with a different SHA256sum.
 #[instrument(fields(sha256sum))]
-pub async fn upsert_file_content(ctx: &Config, cmd: &PkgAddCommand) -> Result<String> {
+pub async fn upload_file_content(ctx: &Config, cmd: &PkgAddCommand) -> Result<String> {
     debug!("upserting file content");
 
     debug!("calculating SHA256 sum");
@@ -353,18 +353,14 @@ pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str)
 mod tests {
     use std::fs::read_dir;
 
-    use attune::testing::{
-        AttuneTestServer, AttuneTestServerConfig, MIGRATOR, emphemeral_gpg_key_id,
-    };
+    use attune::testing::{AttuneTestServer, AttuneTestServerConfig, MIGRATOR, gpg_key_id};
     use workspace_root::get_workspace_root;
 
     use super::*;
 
     #[test_log::test(sqlx::test(migrator = "MIGRATOR"))]
     async fn abort_on_concurrent_index_change(pool: sqlx::PgPool) {
-        let (key_id, _gpg, gpg_home_dir) = emphemeral_gpg_key_id()
-            .await
-            .expect("failed to create GPG key");
+        let (key_id, _gpg, gpg_home_dir) = gpg_key_id().await.expect("failed to create GPG key");
 
         let server = AttuneTestServer::new(AttuneTestServerConfig {
             db: pool,
@@ -402,7 +398,7 @@ mod tests {
                     .package_file(fixture.to_string_lossy())
                     .build();
                 set.spawn(async move {
-                    let sha = upsert_file_content(&ctx, &command).await?;
+                    let sha = upload_file_content(&ctx, &command).await?;
                     add_package(&ctx, &command, &sha).await
                 });
                 set

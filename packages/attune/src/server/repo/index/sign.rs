@@ -924,7 +924,7 @@ mod tests {
                 sync::check::CheckConsistencyResponse,
             },
         },
-        testing::{AttuneTestServer, AttuneTestServerConfig, emphemeral_gpg_key_id},
+        testing::{AttuneTestServer, AttuneTestServerConfig, gpg_key_id},
     };
 
     const TEST_PACKAGE_AMD64: &[u8] =
@@ -933,9 +933,7 @@ mod tests {
         include_bytes!("./fixtures/attune-test-package_2.0.0_linux_arm64.deb");
 
     async fn sign_index(index: &str) -> (String, String, String) {
-        let (key_id, mut gpg, _dir) = emphemeral_gpg_key_id()
-            .await
-            .expect("failed to create GPG key");
+        let (key_id, mut gpg, _dir) = gpg_key_id().await.expect("failed to create GPG key");
         let key = gpg
             .find_secret_keys(vec![key_id])
             .unwrap()

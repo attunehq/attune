@@ -192,20 +192,16 @@ pub async fn remove_package(ctx: &Config, command: &PkgRemoveCommand) -> Result<
 mod tests {
     use std::fs::read_dir;
 
-    use attune::testing::{
-        AttuneTestServer, AttuneTestServerConfig, MIGRATOR, emphemeral_gpg_key_id,
-    };
+    use attune::testing::{AttuneTestServer, AttuneTestServerConfig, MIGRATOR, gpg_key_id};
     use workspace_root::get_workspace_root;
 
     use super::*;
-    use crate::cmd::apt::pkg::add::{PkgAddCommand, add_package, upsert_file_content};
+    use crate::cmd::apt::pkg::add::{PkgAddCommand, add_package, upload_file_content};
     use attune::server::pkg::list::{PackageListParams, PackageListResponse};
 
     #[test_log::test(sqlx::test(migrator = "MIGRATOR"))]
     async fn abort_on_concurrent_index_change(pool: sqlx::PgPool) {
-        let (key_id, _gpg, gpg_home_dir) = emphemeral_gpg_key_id()
-            .await
-            .expect("failed to create GPG key");
+        let (key_id, _gpg, gpg_home_dir) = gpg_key_id().await.expect("failed to create GPG key");
 
         let server = AttuneTestServer::new(AttuneTestServerConfig {
             db: pool,
@@ -246,7 +242,7 @@ mod tests {
                 .package_file(fixture.to_string_lossy())
                 .build();
 
-            let sha = upsert_file_content(&ctx, &command)
+            let sha = upload_file_content(&ctx, &command)
                 .await
                 .expect("failed to upsert file content");
             add_package(&ctx, &command, &sha)
