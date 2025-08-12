@@ -179,3 +179,149 @@ pub async fn remove_package(ctx: &Config, command: &PkgRemoveCommand) -> Result<
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs::read_dir;
+
+    use attune::testing::{
+        AttuneTestServer, AttuneTestServerConfig, MIGRATOR, emphemeral_gpg_key_id,
+    };
+    use workspace_root::get_workspace_root;
+
+    use super::*;
+    use crate::cmd::apt::pkg::add::{PkgAddCommand, add_package, upsert_file_content};
+    use attune::server::pkg::list::{PackageListParams, PackageListResponse};
+
+    #[test_log::test(sqlx::test(migrator = "MIGRATOR"))]
+    async fn abort_on_concurrent_index_change(pool: sqlx::PgPool) {
+        let (key_id, _gpg, gpg_home_dir) = emphemeral_gpg_key_id()
+            .await
+            .expect("failed to create GPG key");
+
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+
+        const REPO_NAME: &str = "abort_on_concurrent_removal";
+        let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
+        server.create_repository(tenant_id, REPO_NAME).await;
+
+        let fixtures_dir = get_workspace_root().join("scripts/fixtures");
+        let fixtures = read_dir(&fixtures_dir)
+            .unwrap_or_else(|err| panic!("failed to read fixtures at {fixtures_dir:?}: {err:#?}"))
+            .filter_map(|entry| {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("deb") {
+                    Some(path)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let ctx = Config::new(api_token, server.base_url);
+        let gpg_home_dir_str = gpg_home_dir.dir_path().to_string_lossy().to_string();
+
+        // The point of the test is to validate that concurrently removing
+        // packages trigger the concurrent index change error;
+        // in order to do that we need to add all the packages first.
+        for fixture in &fixtures {
+            let command = PkgAddCommand::builder()
+                .repo(REPO_NAME)
+                .distribution("test")
+                .component("test")
+                .key_id(&key_id)
+                .gpg_home_dir(&gpg_home_dir_str)
+                .package_file(fixture.to_string_lossy())
+                .build();
+
+            let sha = upsert_file_content(&ctx, &command)
+                .await
+                .expect("failed to upsert file content");
+            add_package(&ctx, &command, &sha)
+                .await
+                .expect("failed to add package");
+        }
+
+        let res = ctx
+            .client
+            .get(ctx.endpoint.join("/api/v0/packages").unwrap())
+            .query(&PackageListParams {
+                repository: Some(REPO_NAME.to_string()),
+                distribution: Some("test".to_string()),
+                component: Some("test".to_string()),
+                name: None,
+                version: None,
+                architecture: None,
+            })
+            .send()
+            .await
+            .expect("failed to list packages");
+
+        let packages = res
+            .json::<PackageListResponse>()
+            .await
+            .expect("failed to parse package list response")
+            .packages;
+
+        // Concurrently remove all packages.
+        // This is the actual point of the test.
+        let set = packages
+            .into_iter()
+            .fold(tokio::task::JoinSet::new(), |mut set, pkg| {
+                let ctx = ctx.clone();
+                let gpg_home_dir = gpg_home_dir_str.clone();
+                let key_id = key_id.clone();
+                let command = PkgRemoveCommand {
+                    repo: REPO_NAME.to_string(),
+                    distribution: "test".to_string(),
+                    component: "test".to_string(),
+                    key_id,
+                    gpg_home_dir: Some(gpg_home_dir),
+                    package: pkg.name,
+                    version: pkg.version,
+                    architecture: pkg.architecture,
+                };
+                set.spawn(async move { remove_package(&ctx, &command).await });
+                set
+            });
+
+        // Since we aren't retrying these, we expect at least one to
+        // fail with concurrent index change or detached signature.
+        let (failures, successes) = set
+            .join_all()
+            .await
+            .into_iter()
+            .inspect(|res| debug!("join result: {res:#?}"))
+            .fold(
+                (Vec::new(), Vec::new()),
+                |(mut failures, mut successes), res| {
+                    match res {
+                        Ok(res) => successes.push(res),
+                        Err(res) => failures.push(res),
+                    }
+                    (failures, successes)
+                },
+            );
+
+        // Of course, if a bunch fail, at least one needs to succeed.
+        // If this doesn't happen it's an issue, because users
+        // won't be able to actually use the service.
+        assert!(!failures.is_empty(), "at least one failure expected");
+        assert!(!successes.is_empty(), "at least one success expected");
+        assert!(
+            failures.iter().any(|error| {
+                error.downcast_ref::<ErrorResponse>().is_some_and(|res| {
+                    res.error == "CONCURRENT_INDEX_CHANGE"
+                        || res.error == "DETACHED_SIGNATURE_VERIFICATION_FAILED"
+                })
+            }),
+            "at least one concurrent index change or detached signature verification error expected",
+        );
+    }
+}
