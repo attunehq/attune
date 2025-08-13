@@ -2,13 +2,17 @@ use attune::server::compatibility::{API_VERSION_HEADER, API_VERSION_HEADER_V0_2_
 use reqwest::{Client, Url};
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
 pub struct Config {
     pub client: Client,
     pub endpoint: Url,
 }
 
 impl Config {
-    pub fn new(api_token: String, endpoint: String) -> Self {
+    pub fn new(api_token: impl Into<String>, endpoint: impl Into<String>) -> Self {
+        let api_token = api_token.into();
+        let endpoint = endpoint.into();
+
         // Parse server API endpoint.
         let endpoint = Url::parse(&endpoint).expect("Invalid Attune API endpoint");
 
