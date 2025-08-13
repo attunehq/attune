@@ -1,6 +1,8 @@
 use std::{convert::identity, fs};
 
 use bollard::Docker;
+use bollard::query_parameters::InspectContainerOptions;
+use bollard::secret::ContainerStateStatusEnum;
 use indoc::indoc;
 use testcontainers::core::{CmdWaitFor, ExecCommand};
 use testcontainers::runners::{AsyncBuilder, AsyncRunner};
@@ -72,22 +74,22 @@ async fn e2e() {
     cmd!(sh, "{ATTUNE_CLI_PATH} --help").quiet().run().unwrap();
     debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
-    // // Run `docker compose up -d` to bring up the Docker services.
-    // cmd!(sh, "docker compose up -d").run().unwrap();
+    // Run `docker compose up -d` to bring up the Docker services.
+    cmd!(sh, "docker compose up -d").run().unwrap();
 
-    // // Monitor control plane for readiness.
-    // debug!("waiting for control plane");
-    // loop {
-    //     let status = docker
-    //         .inspect_container("attune-controlplane-1",
-    // None::<InspectContainerOptions>)         .await
-    //         .unwrap();
-    //     trace!(?status, "inspected control plane container status");
-    //     if status.state.unwrap().status.unwrap() ==
-    // ContainerStateStatusEnum::RUNNING {         break;
-    //     }
-    //     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    // }
+    // Monitor control plane for readiness.
+    debug!("waiting for control plane");
+    loop {
+        let status = docker
+            .inspect_container("attune-controlplane-1", None::<InspectContainerOptions>)
+            .await
+            .unwrap();
+        trace!(?status, "inspected control plane container status");
+        if status.state.unwrap().status.unwrap() == ContainerStateStatusEnum::RUNNING {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
 
     // Create a repository.
     let repo = AttuneRepository::new(sh.clone(), ATTUNE_CLI_PATH.to_string());
@@ -203,7 +205,7 @@ async fn e2e() {
         ?exit_code,
         "apt-get update"
     );
-    assert_eq!(result.exit_code().await.unwrap().unwrap(), 0);
+    assert_eq!(exit_code, 0);
 
     debug!("installing attune-test-package");
     let mut result = container
