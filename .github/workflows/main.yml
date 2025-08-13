@@ -103,7 +103,7 @@ jobs:
       # because the E2E tests bring up their own Docker Compose service
       # dependencies that will clash with the job's service containers.
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features --release -- --skip it
+        run: cargo test --workspace --all-targets --all-features --release
 
       # Build binaries.
       - name: Build binaries

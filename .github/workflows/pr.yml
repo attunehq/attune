@@ -118,7 +118,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace --all-targets --all-features -- --skip it
+        run: cargo test --workspace --all-targets --all-features
 
   e2e:
     name: End-to-end test
@@ -155,4 +155,4 @@ jobs:
           cp .env.example .env
           source .env
           cargo build --package attune --bin attune --all-features --release
-          RUST_LOG=it=trace cargo test --package attune --test it --all-features -- --nocapture
+          RUST_LOG=it=trace cargo test --package attune --test it --all-features --release -- --ignored --nocapture
