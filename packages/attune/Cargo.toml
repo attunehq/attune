@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# HACK: See note in workspace Cargo.toml.
+crc-fast.workspace = true
+
 aws-config.workspace = true
 aws-sdk-s3.workspace = true
 axum.workspace = true
@@ -48,11 +51,12 @@ uuid.workspace = true
 async-tempfile.workspace = true
 axum-test.workspace = true
 bollard.workspace = true
+dotenv.workspace = true
 http-body-util.workspace = true
 http-body.workspace = true
 indoc.workspace = true
 tar.workspace = true
 test-log.workspace = true
+testcontainers.workspace = true
 tokio-util.workspace = true
 xshell.workspace = true
-dotenv = "0.15.0"

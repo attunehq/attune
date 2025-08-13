@@ -2,6 +2,7 @@ use attune::server::compatibility::{API_VERSION_HEADER, API_VERSION_HEADER_V0_2_
 use reqwest::{Client, Url};
 use uuid::Uuid;
 
+#[derive(Debug)]
 pub struct Config {
     pub client: Client,
     pub endpoint: Url,

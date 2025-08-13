@@ -13,6 +13,10 @@ use attune::{
 pub struct RepoCreateCommand {
     /// A name that uniquely identifies this repository.
     name: String,
+
+    /// Output in JSON format.
+    #[arg(long)]
+    json: bool,
 }
 
 pub async fn run(ctx: Config, command: RepoCreateCommand) -> ExitCode {
@@ -25,11 +29,20 @@ pub async fn run(ctx: Config, command: RepoCreateCommand) -> ExitCode {
         .expect("Could not send API request");
     match res.status() {
         StatusCode::OK => {
-            let repo = res
+            let res = res
                 .json::<CreateRepositoryResponse>()
                 .await
                 .expect("Could not parse response");
-            println!("Repository created: {}", repo.name);
+            // TODO: In the managed cloud version of this CLI, we should hide
+            // the S3 bucket and prefix fields because they're irrelevant.
+            if command.json {
+                println!("{}", serde_json::to_string_pretty(&res).unwrap());
+                return ExitCode::SUCCESS;
+            }
+            println!(
+                "Repository {:?} created in bucket {:?} at prefix {:?}",
+                res.name, res.s3_bucket, res.s3_prefix
+            );
             ExitCode::SUCCESS
         }
         _ => {

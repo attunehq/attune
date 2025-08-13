@@ -6,7 +6,7 @@ use gpgme::{Context, ExportMode, Protocol};
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
-use tracing::debug;
+use tracing::{Level, debug, instrument};
 
 use crate::config::Config;
 use attune::{
@@ -208,6 +208,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     }
 }
 
+#[instrument(level = Level::DEBUG)]
 async fn add_package(
     ctx: &Config,
     command: &PkgAddCommand,

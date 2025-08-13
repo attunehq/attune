@@ -11,28 +11,44 @@ use attune::{
 };
 
 #[derive(Args, Debug)]
-pub struct RepoListCommand {}
+pub struct RepoListCommand {
+    /// Output in JSON format.
+    #[arg(long)]
+    json: bool,
 
-pub async fn run(ctx: Config, _command: RepoListCommand) -> ExitCode {
+    /// Filter repositories by name (substring match).
+    #[arg(long)]
+    name: Option<String>,
+}
+
+pub async fn run(ctx: Config, cmd: RepoListCommand) -> ExitCode {
     let res = ctx
         .client
         .get(ctx.endpoint.join("/api/v0/repositories").unwrap())
-        .json(&ListRepositoryRequest {})
+        .json(&ListRepositoryRequest { name: cmd.name })
         .send()
         .await
         .expect("Could not send API request");
     match res.status() {
         StatusCode::OK => {
-            let repo = res
+            let res = res
                 .json::<ListRepositoryResponse>()
                 .await
                 .expect("Could not parse response");
+            // TODO: In the managed cloud version of this CLI, we should hide
+            // the S3 bucket and prefix fields because they're irrelevant.
+            if cmd.json {
+                println!("{}", serde_json::to_string_pretty(&res).unwrap());
+                return ExitCode::SUCCESS;
+            }
             let mut builder = tabled::builder::Builder::new();
-            // TODO: For EE or self-hosted users, should we display the
-            // repository S3 bucket and prefix as well?
-            builder.push_record(["Name".to_string()]);
-            for repo in repo.repositories {
-                builder.push_record([&repo.name]);
+            builder.push_record([
+                String::from("Name"),
+                String::from("S3 bucket"),
+                String::from("S3 prefix"),
+            ]);
+            for repo in res.repositories {
+                builder.push_record([&repo.name, &repo.s3_bucket, &repo.s3_prefix]);
             }
             let mut table = builder.build();
             table.with(Style::modern());

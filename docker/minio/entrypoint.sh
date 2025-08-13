@@ -4,5 +4,11 @@
 # Attune.
 #
 # See: https://github.com/minio/minio/issues/4769
-mkdir /data/attune-dev-0
-exec minio server /data --console-address ":9001"
+set -euxo pipefail
+minio server /data --console-address ":9001" &
+MINIO_SERVER_PID=$!
+sleep 1
+mc alias set attune http://127.0.0.1:9000 attuneminio attuneminio
+mc mb --ignore-existing attune/attune-dev-0
+mc anonymous set download attune/attune-dev-0
+wait $MINIO_SERVER_PID
