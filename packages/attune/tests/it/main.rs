@@ -6,7 +6,7 @@ use bollard::secret::ContainerStateStatusEnum;
 use indoc::indoc;
 use testcontainers::core::{CmdWaitFor, ExecCommand};
 use testcontainers::runners::{AsyncBuilder, AsyncRunner};
-use testcontainers::{GenericBuildableImage, ImageExt};
+use testcontainers::{ContainerAsync, GenericBuildableImage, GenericImage, ImageExt};
 use tokio::task::JoinSet;
 use tracing::{debug, trace};
 use tracing_subscriber::{
@@ -34,13 +34,54 @@ async fn migrations_applied(pool: sqlx::PgPool) {
     );
 }
 
+macro_rules! sh_exec {
+    ($sh: expr, $cmd: literal) => {
+        {
+            let result = cmd!($sh, $cmd).quiet().output().unwrap();
+            let stdout = String::from_utf8(result.stdout).unwrap();
+            let stderr = String::from_utf8(result.stderr).unwrap();
+            debug!(
+                stdout = ?stdout,
+                stderr = ?stderr,
+                $cmd
+            );
+            (stdout, stderr, result.status)
+        }
+    };
+}
+
+async fn container_exec(
+    container: &ContainerAsync<GenericImage>,
+    cmd: &Vec<&str>,
+) -> (Vec<u8>, Vec<u8>, i64) {
+    let mut result = container
+        .exec(ExecCommand::new(cmd.clone()).with_cmd_ready_condition(CmdWaitFor::exit()))
+        .await
+        .unwrap();
+    let stdout = result.stdout_to_vec().await.unwrap();
+    let stderr = result.stderr_to_vec().await.unwrap();
+    let exit_code = result.exit_code().await.unwrap().unwrap();
+
+    debug!(
+        stdout = %String::from_utf8_lossy(&stdout),
+        stderr = %String::from_utf8_lossy(&stderr),
+        ?exit_code,
+        "{}",
+        cmd.join(" ")
+    );
+    (stdout, stderr, exit_code)
+}
+
 /// Simulate a `docker compose up` to check that the control plane comes up
 /// properly with all Docker services. Then use the CLI to add many packages
 /// concurrently. Then start a Debian container and `apt install` the packages
 /// to show that the repository works.
+#[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn e2e() {
-    // Initialize tracing.
+    // We use this instead of `test_log` for this specific test because the
+    // extra diagnostic information (e.g. event timestamps) is very helpful for
+    // debugging a test of this complexity.
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
@@ -71,11 +112,13 @@ async fn e2e() {
 
     // Check that the CLI is built and executable.
     const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
-    cmd!(sh, "{ATTUNE_CLI_PATH} --help").quiet().run().unwrap();
+    let (_, _, exit_code) = sh_exec!(&sh, "{ATTUNE_CLI_PATH} --help");
+    assert!(exit_code.success());
     debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
     // Run `docker compose up -d` to bring up the Docker services.
-    cmd!(sh, "docker compose up -d").run().unwrap();
+    let (_, _, exit_code) = sh_exec!(&sh, "docker compose up -d");
+    assert!(exit_code.success());
 
     // Monitor control plane for readiness.
     debug!("waiting for control plane");
@@ -97,7 +140,8 @@ async fn e2e() {
     // Add packages concurrently.
     let gpg_key = GpgKey::new();
     let key_id = &gpg_key.key_id;
-    let pubkey = cmd!(sh, "gpg --armor --export {key_id}").read().unwrap();
+    let (pubkey, _, exit_code) = sh_exec!(&sh, "gpg --armor --export {key_id}");
+    assert!(exit_code.success());
 
     const DISTRIBUTIONS: [&str; 5] = ["stable", "unstable", "testing", "dev", "canary"];
     const COMPONENTS: [&str; 8] = [
@@ -129,7 +173,6 @@ async fn e2e() {
                     trace!(?i, "started upload");
                     let result = cmd!(sh, "{ATTUNE_CLI_PATH} apt package add -k {key_id} --repo {repo_name} --distribution {distribution} --component {component} {package}")
                         .env("RUST_LOG", "attune=debug")
-                        .ignore_status()
                         .output()
                         .unwrap();
                     (result, i)
@@ -188,63 +231,20 @@ async fn e2e() {
     }
 
     debug!("running apt-get update");
-    let mut result = container
-        .exec(
-            ExecCommand::new(vec!["apt-get", "update"])
-                .with_cmd_ready_condition(CmdWaitFor::exit()),
-        )
-        .await
-        .unwrap();
-    let stdout = result.stdout_to_vec().await.unwrap();
-    let stderr = result.stderr_to_vec().await.unwrap();
-    let exit_code = result.exit_code().await.unwrap().unwrap();
-
-    debug!(
-        stdout = %String::from_utf8_lossy(&stdout),
-        stderr = %String::from_utf8_lossy(&stderr),
-        ?exit_code,
-        "apt-get update"
-    );
+    let (_, _, exit_code) = container_exec(&container, &vec!["apt-get", "update"]).await;
     assert_eq!(exit_code, 0);
 
     debug!("installing attune-test-package");
-    let mut result = container
-        .exec(
-            ExecCommand::new(vec!["apt-get", "install", "-y", "attune-test-package"])
-                .with_cmd_ready_condition(CmdWaitFor::exit()),
-        )
-        .await
-        .unwrap();
-    let stdout = result.stdout_to_vec().await.unwrap();
-    let stderr = result.stderr_to_vec().await.unwrap();
-    let exit_code = result.exit_code().await.unwrap().unwrap();
-
-    debug!(
-        stdout = %String::from_utf8_lossy(&stdout),
-        stderr = %String::from_utf8_lossy(&stderr),
-        ?exit_code,
-        "apt-get install attune-test-package"
-    );
+    let (_, _, exit_code) = container_exec(
+        &container,
+        &vec!["apt-get", "install", "-y", "attune-test-package"],
+    )
+    .await;
     assert_eq!(exit_code, 0);
 
     debug!("verifying installed package");
-    let mut result = container
-        .exec(
-            ExecCommand::new(vec!["attune-test-package", "--version"])
-                .with_cmd_ready_condition(CmdWaitFor::exit()),
-        )
-        .await
-        .unwrap();
-    let stdout = result.stdout_to_vec().await.unwrap();
-    let stderr = result.stderr_to_vec().await.unwrap();
-    let exit_code = result.exit_code().await.unwrap().unwrap();
-
-    debug!(
-        stdout = %String::from_utf8_lossy(&stdout),
-        stderr = %String::from_utf8_lossy(&stderr),
-        ?exit_code,
-        "attune-test-package --version"
-    );
+    let (_, _, exit_code) =
+        container_exec(&container, &vec!["attune-test-package", "--version"]).await;
     assert_eq!(exit_code, 0);
 }
 
@@ -274,17 +274,8 @@ impl GpgKey {
         fs::write(CONFIG_PATH, gpg_config).unwrap();
 
         // Generate GPG key using batch mode and capture output.
-        let generated = cmd!(sh, "gpg --batch --generate-key {CONFIG_PATH}")
-            .output()
-            .expect("GPG key generation failed. Make sure GPG is installed and configured.");
-        let stdout = String::from_utf8(generated.stdout).unwrap();
-        let stderr = String::from_utf8(generated.stderr).unwrap();
-        debug!(
-            stdout = ?stdout,
-            stderr = ?stderr,
-            "GPG key generation"
-        );
-        assert!(generated.status.success(), "GPG key generation failed");
+        let (_, stderr, exit_code) = sh_exec!(&sh, "gpg --batch --generate-key {CONFIG_PATH}");
+        assert!(exit_code.success(), "GPG key generation failed");
 
         // Parse the GPG output to find the key ID from the revocation
         // certificate message.
@@ -313,12 +304,10 @@ impl GpgKey {
 impl Drop for GpgKey {
     fn drop(&mut self) {
         let key_id = &self.key_id;
-        cmd!(
-            self.sh,
+        sh_exec!(
+            &self.sh,
             "gpg --batch --yes --delete-secret-and-public-key {key_id}"
-        )
-        .run()
-        .unwrap();
+        );
     }
 }
 
@@ -337,11 +326,9 @@ impl AttuneRepository {
             "e2e-test-{}",
             Uuid::new_v7(Timestamp::now(ContextV7::new()))
         );
-        let result = cmd!(sh, "{cli_path} apt repository create --json {name}")
-            .output()
-            .unwrap();
+        let (stdout, _, _) = sh_exec!(&sh, "{cli_path} apt repository create --json {name}");
         let res = serde_json::from_slice::<attune::server::repo::create::CreateRepositoryResponse>(
-            &result.stdout,
+            stdout.as_bytes(),
         )
         .unwrap();
         Self {
@@ -358,8 +345,6 @@ impl Drop for AttuneRepository {
     fn drop(&mut self) {
         let cli_path = &self.cli_path;
         let repo_name = &self.name;
-        cmd!(self.sh, "{cli_path} apt repository delete -y {repo_name}")
-            .run()
-            .unwrap();
+        sh_exec!(&self.sh, "{cli_path} apt repository delete -y {repo_name}");
     }
 }
