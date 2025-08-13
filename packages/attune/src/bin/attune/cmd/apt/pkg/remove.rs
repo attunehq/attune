@@ -275,11 +275,12 @@ mod tests {
         // This is the actual point of the test.
         //
         // Obligatory reminder: concurrency is not parallelism.
-        // There is a (very slim) possibility that these actually accidentally execute sequentially,
-        // leading to flakes where _no_ concurrent index change errors are observed.
+        // There is a (very slim) possibility that these actually accidentally execute
+        // sequentially, leading to flakes where _no_ concurrent index change
+        // errors are observed.
         //
-        // If we end up encountering this problem we'll need to refactor the test to do something with more
-        // control in the handler, e.g. this: https://github.com/attunehq/attune/pull/129#discussion_r2268821158
+        // If we end up encountering this problem we'll need to refactor the test to do
+        // something with more control in the handler, e.g. this: https://github.com/attunehq/attune/pull/129#discussion_r2268821158
         let set = packages
             .into_iter()
             .fold(tokio::task::JoinSet::new(), |mut set, pkg| {

@@ -384,11 +384,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         // Obligatory reminder: concurrency is not parallelism.
-        // There is a (very slim) possibility that these actually accidentally execute sequentially,
-        // leading to flakes where _no_ concurrent index change errors are observed.
+        // There is a (very slim) possibility that these actually accidentally execute
+        // sequentially, leading to flakes where _no_ concurrent index change
+        // errors are observed.
         //
-        // If we end up encountering this problem we'll need to refactor the test to do something with more
-        // control in the handler, e.g. this: https://github.com/attunehq/attune/pull/129#discussion_r2268821158
+        // If we end up encountering this problem we'll need to refactor the test to do
+        // something with more control in the handler, e.g. this: https://github.com/attunehq/attune/pull/129#discussion_r2268821158
         let ctx = Config::new(api_token, server.base_url);
         let set = fixtures
             .into_iter()
