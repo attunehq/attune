@@ -932,6 +932,7 @@ mod tests {
     const TEST_PACKAGE_ARM64: &[u8] =
         include_bytes!("./fixtures/attune-test-package_2.0.0_linux_arm64.deb");
 
+    // TODO: Replace with thge new centralized gpg_sign function.
     async fn sign_index(index: &str) -> (String, String, String) {
         let (key_id, mut gpg, _dir) = gpg_key_id().await.expect("failed to create GPG key");
         let key = gpg
