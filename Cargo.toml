@@ -26,6 +26,7 @@ bon = "3.6.5"
 bytes = "1.10.1"
 chrono = "0.4.41"
 clap = { version = "4.5.35", features = ["derive", "env", "wrap_help"] }
+color-eyre = "0.6.5"
 colored = "3.0.0"
 debian-packaging = "0.18.0"
 derivative = "2.2.0"
@@ -56,6 +57,7 @@ tabwriter = "1.4.1"
 tar = "0.4.44"
 test-log = "0.2.18"
 testcontainers = "0.25.0"
+thiserror = "2.0.12"
 time = { version = "0.3.41", features = ["formatting", "serde"] }
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "signal", "tracing"] }
 tokio-util = "0.7.16"
@@ -66,3 +68,4 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
 uuid = { version = "1.17.0", features = ["v4", "v7"] }
 xshell = "0.2.7"
+workspace_root = "0.1.2"
