@@ -79,12 +79,12 @@ async fn e2e() {
     // debug!("waiting for control plane");
     // loop {
     //     let status = docker
-    //         .inspect_container("attune-controlplane-1", None::<InspectContainerOptions>)
-    //         .await
+    //         .inspect_container("attune-controlplane-1",
+    // None::<InspectContainerOptions>)         .await
     //         .unwrap();
     //     trace!(?status, "inspected control plane container status");
-    //     if status.state.unwrap().status.unwrap() == ContainerStateStatusEnum::RUNNING {
-    //         break;
+    //     if status.state.unwrap().status.unwrap() ==
+    // ContainerStateStatusEnum::RUNNING {         break;
     //     }
     //     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     // }

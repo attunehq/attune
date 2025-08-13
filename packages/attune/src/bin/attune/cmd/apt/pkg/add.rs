@@ -9,7 +9,7 @@ use http::StatusCode;
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
-use tracing::{Span, Level, debug, instrument};
+use tracing::{Level, Span, debug, instrument};
 
 use attune::{
     api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
@@ -253,11 +253,7 @@ pub async fn upload_file_content(ctx: &Config, cmd: &PkgAddCommand) -> Result<St
 
 /// Generate an index for the package, and sign it.
 #[instrument(level = Level::DEBUG)]
-pub async fn add_package(
-    ctx: &Config,
-    command: &PkgAddCommand,
-    sha256sum: &str,
-) -> Result<()> {
+pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str) -> Result<()> {
     debug!(?sha256sum, repo = ?command.repo, distribution = ?command.distribution, component = ?command.component, "adding package to index");
     let generate_index_request = GenerateIndexRequest {
         change: PackageChange {
