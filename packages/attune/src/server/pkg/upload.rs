@@ -59,6 +59,7 @@ pub async fn handler(
     let value = field.bytes().await.unwrap();
     let control_file = parse_debian_package(&value).await;
     let hashes = Hashes::from_bytes(&value);
+    let hex_hashes = hashes.hex();
     let size = value.len() as i64;
 
     // Check that there are no more fields.
@@ -77,9 +78,48 @@ pub async fn handler(
         .await
         .map_err(ErrorResponse::from)?;
 
+    // Check if a package with the same (name, version, architecture) already
+    // exists.
+    //
+    // If such a package exists AND the sha256sum is the same, we can skip the
+    // rest of the handler. If such a package exists AND the sha256sum is NOT
+    // the same, then an error has occurred.
+    let existing = sqlx::query!(
+        r#"
+        SELECT id, sha256sum
+        FROM debian_repository_package
+        WHERE
+            tenant_id = $1
+            AND package = $2
+            AND version = $3
+            AND architecture = $4
+        "#,
+        tenant_id.0,
+        control_file.package().unwrap(),
+        control_file.version().unwrap().to_string(),
+        control_file.architecture().unwrap() as _,
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ErrorResponse::from)?;
+    if let Some(existing) = existing {
+        if existing.sha256sum == hex_hashes.sha256sum {
+            tx.commit().await.map_err(ErrorResponse::from)?;
+            return Ok(Json(PackageUploadResponse {
+                sha256sum: existing.sha256sum,
+            }));
+        } else {
+            tx.commit().await.map_err(ErrorResponse::from)?;
+            return Err(ErrorResponse::new(
+                StatusCode::CONFLICT,
+                "PACKAGE_ALREADY_EXISTS",
+                "package already exists",
+            ));
+        }
+    }
+
     // Insert the package row into the database. At this point, integrity checks
     // may cause the upload to fail (e.g. if this package already exists).
-    let hex_hashes = hashes.hex();
     insert_package(
         &mut *tx,
         tenant_id,

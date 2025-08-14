@@ -9,7 +9,7 @@ use http::StatusCode;
 use percent_encoding::percent_encode;
 use reqwest::multipart::{self, Part};
 use sha2::{Digest as _, Sha256};
-use tracing::{Span, debug, instrument};
+use tracing::{debug, instrument};
 
 use attune::{
     api::{ErrorResponse, PATH_SEGMENT_PERCENT_ENCODE_SET},
@@ -60,6 +60,7 @@ pub struct PkgAddCommand {
     pub package_file: String,
 }
 
+#[instrument]
 pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     match validate_repository_exists(&ctx, &command).await {
         Ok(true) => {}
@@ -76,7 +77,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     let sha256sum = match upload_file_content(&ctx, &command).await {
         Ok(sha256sum) => sha256sum,
         Err(error) => {
-            eprintln!("Unable to upsert file content: {error:#?}");
+            eprintln!("Unable to upload file content: {error:#?}");
             return ExitCode::FAILURE;
         }
     };
@@ -129,7 +130,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
 }
 
 /// Ensure that the specified repository exists.
-#[instrument]
+#[instrument(skip(ctx, cmd))]
 pub async fn validate_repository_exists(ctx: &Config, cmd: &PkgAddCommand) -> Result<bool> {
     debug!("checking whether repository exists");
     let res = ctx
@@ -182,15 +183,14 @@ pub async fn validate_repository_exists(ctx: &Config, cmd: &PkgAddCommand) -> Re
 //
 // TODO(#48): Add an `--overwrite` flag to allow the user to deliberately upload
 // a package with a different SHA256sum.
-#[instrument(fields(sha256sum))]
+#[instrument(skip(ctx, cmd))]
 pub async fn upload_file_content(ctx: &Config, cmd: &PkgAddCommand) -> Result<String> {
-    debug!("upserting file content");
+    debug!("uploading file content");
 
     debug!("calculating SHA256 sum");
     let content = std::fs::read(&cmd.package_file).context("read package file")?;
     let sha256sum = hex::encode(Sha256::digest(&content).as_slice());
-    Span::current().record("sha256sum", &sha256sum);
-    debug!("calculated SHA256 sum");
+    debug!(?sha256sum, "calculated SHA256 sum");
 
     let res = ctx
         .client
