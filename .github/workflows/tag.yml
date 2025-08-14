@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install macOS dependencies
-        run: brew install gpgme pkgconf
+        run: brew install gpgme
 
       - name: Install Rust
         run: rustup show
@@ -57,6 +57,11 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_CERTIFICATE_PASSWORD" $RUNNER_TEMP/build.keychain
           rm $RUNNER_TEMP/certificate.p12
 
+      # We include the com.apple.security.cs.disable-library-validation entitlement
+      # because attune dynamically loads libgpgme from Homebrew (/opt/homebrew/...).
+      # Without this, Hardened Runtime's library validation would reject the dylib
+      # since it's signed with a different Team ID. This entitlement allows the app
+      # to load third-party signed libraries while still enabling Hardened Runtime.
       - name: Sign binary
         env:
           APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
@@ -64,6 +69,7 @@ jobs:
           codesign --sign "$APPLE_DEVELOPER_ID" \
                    --timestamp \
                    --options=runtime \
+                   --entitlements ./macos/entitlements.plist \
                    --force \
                    target/release/attune
 
