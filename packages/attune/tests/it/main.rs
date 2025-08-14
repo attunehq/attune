@@ -72,7 +72,7 @@ async fn container_exec(
 /// concurrently. Then start a Debian container and `apt install` the packages
 /// to show that the repository works.
 #[ignore]
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn e2e() {
     // We use this instead of `test_log` for this specific test because the
     // extra diagnostic information (e.g. event timestamps) is very helpful for
