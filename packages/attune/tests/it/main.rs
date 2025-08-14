@@ -37,7 +37,7 @@ async fn migrations_applied(pool: sqlx::PgPool) {
 macro_rules! sh_exec {
     ($sh: expr, $cmd: literal) => {
         {
-            let result = cmd!($sh, $cmd).output().unwrap();
+            let result = cmd!($sh, $cmd).ignore_status().output().unwrap();
             let stdout = String::from_utf8(result.stdout).unwrap();
             let stderr = String::from_utf8(result.stderr).unwrap();
             debug!(
