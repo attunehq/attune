@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, sha256sum\n        FROM debian_repository_package\n        WHERE\n            tenant_id = $1\n            AND package = $2\n            AND version = $3\n            AND architecture = $4\n        ",
+  "query": "\n        SELECT id, sha256sum\n        FROM debian_repository_package\n        WHERE\n            tenant_id = $1\n            AND package = $2\n            AND version = $3\n            AND architecture = $4::debian_repository_architecture\n        ",
   "describe": {
     "columns": [
       {
@@ -69,5 +69,5 @@
       false
     ]
   },
-  "hash": "1d0e82db91f11df7328dc54b2fdd12a1948f8dfedd627cf5a720ce4624536f20"
+  "hash": "1b12f5e75d3ae71b277af63964e4ff4cf69ca74b85dc94802d7ef3641ec0e09a"
 }
