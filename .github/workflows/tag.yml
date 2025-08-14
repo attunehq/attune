@@ -26,6 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install macOS dependencies
+        run: brew install gpgme pkgconf
+
       - name: Install Rust
         run: rustup show
 
