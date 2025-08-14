@@ -92,7 +92,7 @@ pub async fn handler(
             tenant_id = $1
             AND package = $2
             AND version = $3
-            AND architecture = $4
+            AND architecture = $4::debian_repository_architecture
         "#,
         tenant_id.0,
         control_file.package().unwrap(),
