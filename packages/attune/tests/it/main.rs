@@ -3,6 +3,7 @@ use std::{convert::identity, fs};
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
 use bollard::secret::ContainerStateStatusEnum;
+use dotenv::dotenv;
 use indoc::indoc;
 use testcontainers::core::{CmdWaitFor, ExecCommand};
 use testcontainers::runners::{AsyncBuilder, AsyncRunner};
@@ -35,19 +36,13 @@ async fn migrations_applied(pool: sqlx::PgPool) {
 }
 
 macro_rules! sh_exec {
-    ($sh: expr, $cmd: literal) => {
-        {
-            let result = cmd!($sh, $cmd).ignore_status().output().unwrap();
-            let stdout = String::from_utf8(result.stdout).unwrap();
-            let stderr = String::from_utf8(result.stderr).unwrap();
-            debug!(
-                stdout = ?stdout,
-                stderr = ?stderr,
-                $cmd
-            );
-            (stdout, stderr, result.status)
-        }
-    };
+    ($sh: expr, $cmd: literal) => {{
+        let result = cmd!($sh, $cmd).ignore_status().output().unwrap();
+        let stdout = String::from_utf8(result.stdout).unwrap();
+        let stderr = String::from_utf8(result.stderr).unwrap();
+        debug!(stdout, stderr, $cmd);
+        (stdout, stderr, result.status)
+    }};
 }
 
 async fn container_exec(
@@ -98,6 +93,7 @@ async fn e2e() {
         .init();
 
     // Set up dependencies.
+    dotenv().ok();
     let sh = Shell::new().unwrap();
     debug!(docker_host = ?std::env::var("DOCKER_HOST"), "connecting to Docker daemon");
     let docker = Docker::connect_with_defaults().unwrap();
@@ -117,6 +113,11 @@ async fn e2e() {
     debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
     // Run `docker compose up -d` to bring up the Docker services.
+    //
+    // TODO: This is extremely slow in CI, because CI is really slow to build
+    // Docker images. But we've already built these images locally to test, so
+    // maybe we should push these up to a shared cache registry? Can we do that
+    // transparently?
     let (_, _, exit_code) = sh_exec!(&sh, "docker compose up -d");
     assert!(exit_code.success());
 
@@ -173,26 +174,24 @@ async fn e2e() {
                     trace!(?i, "started upload");
                     let result = cmd!(sh, "{ATTUNE_CLI_PATH} apt package add -k {key_id} --repo {repo_name} --distribution {distribution} --component {component} {package}")
                         .env("RUST_LOG", "attune=debug")
+                        .ignore_status()
                         .output()
                         .unwrap();
-                    (result, i)
+                    debug!(
+                        ?i,
+                        status = ?result.status,
+                        stdout = %String::from_utf8(result.stdout).unwrap(),
+                        stderr = %String::from_utf8(result.stderr).unwrap(),
+                        "apt pkg add"
+                    );
+                    assert!(result.status.success());
                 });
                 i += 1;
                 trace!(?i, "scheduled upload");
             }
         }
     }
-    let results = uploads.join_all().await;
-    for (result, i) in results {
-        debug!(
-            ?i,
-            status = ?result.status,
-            stdout = %String::from_utf8(result.stdout).unwrap(),
-            stderr = %String::from_utf8(result.stderr).unwrap(),
-            "added package"
-        );
-        assert!(result.status.success());
-    }
+    uploads.join_all().await;
 
     // Start a Debian container and install packages.
     let image = GenericBuildableImage::new("attune-testinstall", "latest")
