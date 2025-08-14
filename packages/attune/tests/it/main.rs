@@ -40,7 +40,7 @@ macro_rules! sh_exec {
         let result = cmd!($sh, $cmd).ignore_status().output().unwrap();
         let stdout = String::from_utf8(result.stdout).unwrap();
         let stderr = String::from_utf8(result.stderr).unwrap();
-        debug!(stdout, stderr, $cmd);
+        debug!(%stdout, %stderr, $cmd);
         (stdout, stderr, result.status)
     }};
 }

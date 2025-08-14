@@ -188,10 +188,10 @@ fn gpg_sign_blocking(
     gpg.set_armor(true);
     let key = gpg
         .find_secret_keys([&key_id])
-        .context("find secret key")?
+        .context("list secret keys")?
         .next()
-        .ok_or_eyre("find secret key")?
-        .context("find secret key")?;
+        .ok_or_eyre("get next key in list")?
+        .context("get secret key from list")?;
     debug!(?key, "using public key");
     gpg.add_signer(&key).context("add signer")?;
     // TODO: Configure passphrase provider?
