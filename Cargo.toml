@@ -18,6 +18,7 @@ bon = "3.6.5"
 bytes = "1.10.1"
 chrono = "0.4.41"
 clap = { version = "4.5.35", features = ["derive", "env", "wrap_help"] }
+color-eyre = "0.6.5"
 colored = "3.0.0"
 debian-packaging = "0.18.0"
 derivative = "2.2.0"
@@ -43,6 +44,7 @@ sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio", "time", "tl
 tabled = "0.20.0"
 tabwriter = "1.4.1"
 test-log = "0.2.18"
+thiserror = "2.0.12"
 time = { version = "0.3.41", features = ["formatting", "serde"] }
 tokio = { version = "1.44.1", features = ["macros", "rt-multi-thread", "signal", "tracing"] }
 tower = "0.5.2"
@@ -51,3 +53,4 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
 uuid = { version = "1.17.0", features = ["v4", "v7"] }
+workspace_root = "0.1.2"
