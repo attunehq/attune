@@ -19,6 +19,78 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  macos-notarize:
+    name: Build and notarize Attune CLI macOS binary
+    runs-on: macos-latest # macOS 14 ARM64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Remove empty EE crate
+        run: rm -r ./packages/attune-ee
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2.8.0
+        with:
+          cache-workspace-crates: true
+          cache-all-crates: true
+
+      - name: Build macOS binary
+        run: cargo build --bin attune --release
+
+      - name: Import signing certificate
+        env:
+          APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo -n "$APPLE_SIGNING_CERTIFICATE" | base64 --decode -o $RUNNER_TEMP/certificate.p12
+          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" $RUNNER_TEMP/build.keychain
+          security default-keychain -s $RUNNER_TEMP/build.keychain
+          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" $RUNNER_TEMP/build.keychain
+          security import $RUNNER_TEMP/certificate.p12 -k $RUNNER_TEMP/build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_CERTIFICATE_PASSWORD" $RUNNER_TEMP/build.keychain
+          rm $RUNNER_TEMP/certificate.p12
+
+      - name: Sign binary
+        env:
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+        run: |
+          codesign --sign "$APPLE_DEVELOPER_ID" \
+                   --timestamp \
+                   --options=runtime \
+                   --force \
+                   target/release/attune
+
+      - name: Store notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials "notarytool-password" \
+                  --apple-id "$APPLE_ID" \
+                  --team-id "$APPLE_DEVELOPER_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD"
+
+      - name: Create ZIP for notarization
+        run: zip $RUNNER_TEMP/attune-macos.zip target/release/attune
+
+      # Can add --wait to tell notarytool to exit only after the Notary service finishes processing the submission.
+      - name: Submit for notarization
+        run: |
+          xcrun notarytool submit $RUNNER_TEMP/attune-macos.zip \
+                  --keychain-profile "notarytool-password"
+
+      # TODO: Add xcrun stapler step in the future so the binary can be validated without internet access.
+
+      - name: Upload notarized binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: target/release/attune
+
   publish:
     name: Production build and publish draft release
     runs-on: ubuntu-latest
@@ -49,12 +121,20 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release
 
+      # Download notarized macOS binary
+      - name: Download notarized macOS binary
+        uses: actions/download-artifact@v4
+        with:
+          name: attune-macos-notarized
+          path: /tmp/macos-binary
+
       # Publish GitHub pre-release.
       - name: Copy and rename release assets
         run: |
           mkdir -p /tmp/release
           cp target/release/attune /tmp/release/attune-${{ github.ref_name }}_${{ runner.os }}-${{ runner.arch }}
           cp target/release/attune-server /tmp/release/attune-server-${{ github.ref_name }}_${{ runner.os }}-${{ runner.arch }}
+          cp /tmp/macos-binary/attune /tmp/release/attune-${{ github.ref_name }}_macOS-ARM64
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
