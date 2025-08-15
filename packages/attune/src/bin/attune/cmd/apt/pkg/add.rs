@@ -77,9 +77,9 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
     let sha256sum = match retry_infinite(
         || upload_file_content(&ctx, &command),
         |error| match error.downcast_ref::<ErrorResponse>() {
-            Some(res) => match res.error.as_str() {
-                "CONCURRENT_INDEX_CHANGE" => {
-                    tracing::warn!(error = ?res, "retrying upload: concurrent index change");
+            Some(res) => match res.status {
+                StatusCode::CONFLICT => {
+                    tracing::warn!(error = ?res, "retrying upload");
                     true
                 }
                 _ => false,
