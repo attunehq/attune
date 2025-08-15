@@ -114,7 +114,7 @@ async fn e2e() {
     // Docker images. But we've already built these images locally to test, so
     // maybe we should push these up to a shared cache registry? Can we do that
     // transparently?
-    let (_, _, exit_code) = sh_exec!(&sh, "docker compose up -d");
+    let (_, _, exit_code) = sh_exec!(&sh, "docker compose up --build --force-recreate --detach");
     assert!(exit_code.success());
 
     // Monitor control plane for readiness.
@@ -183,14 +183,29 @@ async fn e2e() {
             }
         }
     }
+    debug!("waiting for uploads to complete");
+
     let results = uploads.join_all().await;
-    for (i, result) in results {
+    debug!("all uploads completed");
+
+    // First, emit server logs for debugging.
+    let (stdout, _, exit_code) = sh_exec!(&sh, "docker compose logs --timestamps controlplane");
+    debug!(%stdout, "controlplane logs");
+    assert!(exit_code.success());
+
+    // Then, check the upload results.
+    for (i, result) in results.clone() {
+        // We log every result out first and _then_ check for success, so that
+        // we can see all the logs and piece together what happened on failure.
         debug!(
             ?i,
             status = ?result.status,
             stdout = %String::from_utf8(result.stdout).unwrap(),
             stderr = %String::from_utf8(result.stderr).unwrap(),
-            "apt pkg add result");
+            "apt pkg add logs");
+    }
+    for (i, result) in results {
+        debug!(?i, success = result.status.success(), "apt pkg add success");
         assert!(result.status.success());
     }
 

@@ -93,6 +93,7 @@ pub async fn handler(
             AND package = $2
             AND version = $3
             AND architecture = $4::debian_repository_architecture
+        LIMIT 1
         "#,
         tenant_id.0,
         control_file.package().unwrap(),
@@ -363,6 +364,7 @@ mod tests {
         control::ControlParagraph, debian_source_control::DebianSourceControlFile,
     };
     use indoc::indoc;
+    use tracing::debug;
 
     use crate::testing::{AttuneTestServer, AttuneTestServerConfig, fixtures};
 
@@ -427,6 +429,7 @@ mod tests {
         )
         .await
         .map_err(ErrorResponse::from);
+        debug!(?result, "result from uploading duplicate");
         assert!(result.is_err())
     }
 
