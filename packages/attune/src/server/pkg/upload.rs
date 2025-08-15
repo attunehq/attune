@@ -84,11 +84,10 @@ pub async fn handler(
     // If such a package exists AND the sha256sum is the same, we can skip the
     // rest of the handler. If such a package exists AND the sha256sum is NOT
     // the same, then an error has occurred.
-    match check_package_exists(&mut *tx, tenant_id, &control_file, &hex_hashes).await? {
-        Some(shortcircuit) => {
-            return Ok(shortcircuit);
-        }
-        None => {}
+    if let Some(shortcircuit) =
+        check_package_exists(&mut *tx, tenant_id, &control_file, &hex_hashes).await?
+    {
+        return Ok(shortcircuit);
     }
 
     // Insert the package row into the database. At this point, integrity checks
@@ -442,7 +441,8 @@ mod tests {
         .unwrap();
         tx.commit().await.unwrap();
 
-        // Then, we simulate inserting a package with the same control file but different hashes.
+        // Then, we simulate inserting a package with the same control file but
+        // different hashes.
         let hashes_b = HashesHex {
             sha256sum: String::from("this is different"),
             sha1sum: String::from("test data should be haikus"),

@@ -102,10 +102,11 @@ impl From<sqlx::Error> for ErrorResponse {
                 // not retriable (no amount of retries will ever make that
                 // work).
                 //
-                // This works for now because all of the retriable stuff has
-                // explicit error paths that proactively check for these unique
-                // violations and send explicit 400s rather than relying on this
-                // `From` implementation, but this feels too footgun-ey to me.
+                // This works for now because all of the non-retriable stuff has
+                // explicit error paths that proactively check for explicit
+                // non-retriable unique violations and send explicit 400s rather
+                // than relying on this `From` implementation, but this feels
+                // too footgun-ey to me.
                 return ErrorResponse::builder()
                     .status(StatusCode::CONFLICT)
                     .error("ALREADY_EXISTS")
