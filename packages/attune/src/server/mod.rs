@@ -143,18 +143,29 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
                     TraceLayer::new_for_http().make_span_with(|req: &http::Request<Body>| {
                         let request_id = Uuid::new_v7(Timestamp::now(ContextV7::new()));
                         let headers = req.headers();
-                        let invocation_id = headers.get("X-Invocation-ID").unwrap();
-                        let api_version = headers.get(API_VERSION_HEADER).unwrap();
-
-                        tracing::span!(
-                            tracing::Level::DEBUG,
-                            "request",
-                            method = %req.method(),
-                            uri = %req.uri(),
-                            invocation_id = invocation_id.to_str().unwrap(),
-                            request_id = %request_id,
-                            api_version = api_version.to_str().unwrap()
-                        )
+                        match headers.get("X-Invocation-ID") {
+                            Some(invocation_id) => {
+                                let api_version = headers.get(API_VERSION_HEADER).unwrap();
+                                tracing::span!(
+                                    tracing::Level::DEBUG,
+                                    "request",
+                                    method = %req.method(),
+                                    uri = %req.uri(),
+                                    invocation_id = %invocation_id.to_str().unwrap(),
+                                    request_id = %request_id,
+                                    api_version = %api_version.to_str().unwrap(),
+                                )
+                            }
+                            None => {
+                                tracing::span!(
+                                    tracing::Level::DEBUG,
+                                    "request",
+                                    method = %req.method(),
+                                    uri = %req.uri(),
+                                    request_id = %request_id,
+                                )
+                            }
+                        }
                     }),
                 )
                 .layer(CatchPanicLayer::custom(handle_panic))
