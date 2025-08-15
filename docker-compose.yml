@@ -17,7 +17,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    # TODO: Implement a health check.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v0/health"]
+      interval: 1s
+      timeout: 5s
     networks:
       - dev
   postgres:

@@ -1,4 +1,5 @@
 pub mod compatibility;
+pub mod health;
 pub mod pkg;
 pub mod repo;
 
@@ -92,6 +93,7 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
     // Configure routes.
     let api = Router::new()
         .route("/compatibility", get(compatibility::handler))
+        .route("/health", get(health::handler))
         .route(
             "/repositories",
             get(repo::list::handler).post(repo::create::handler),

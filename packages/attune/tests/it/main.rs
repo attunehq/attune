@@ -2,7 +2,7 @@ use std::{convert::identity, fs};
 
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
-use bollard::secret::ContainerStateStatusEnum;
+use bollard::secret::{ContainerStateStatusEnum, HealthStatusEnum};
 use dotenv::dotenv;
 use indoc::indoc;
 use testcontainers::core::{CmdWaitFor, ExecCommand};
@@ -124,12 +124,15 @@ async fn e2e() {
     // Monitor control plane for readiness.
     debug!("waiting for control plane");
     loop {
-        let status = docker
+        let inspected = docker
             .inspect_container("attune-controlplane-1", None::<InspectContainerOptions>)
             .await
             .unwrap();
-        trace!(?status, "inspected control plane container status");
-        if status.state.unwrap().status.unwrap() == ContainerStateStatusEnum::RUNNING {
+        trace!(?inspected, "inspected control plane container status");
+        let container_state = inspected.state.unwrap();
+        if container_state.status.unwrap() == ContainerStateStatusEnum::RUNNING &&
+            container_state.health.unwrap().status.unwrap() == HealthStatusEnum::HEALTHY
+        {
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -177,21 +180,18 @@ async fn e2e() {
                         .ignore_status()
                         .output()
                         .unwrap();
-                    debug!(
-                        ?i,
-                        status = ?result.status,
-                        stdout = %String::from_utf8(result.stdout).unwrap(),
-                        stderr = %String::from_utf8(result.stderr).unwrap(),
-                        "apt pkg add"
-                    );
-                    assert!(result.status.success());
+                    (i, result)
                 });
                 i += 1;
                 trace!(?i, "scheduled upload");
             }
         }
     }
-    uploads.join_all().await;
+    let results = uploads.join_all().await;
+    for (i, result) in results {
+        debug!(?i, ?result, "apt pkg add result");
+        assert!(result.status.success());
+    }
 
     // Start a Debian container and install packages.
     let image = GenericBuildableImage::new("attune-testinstall", "latest")

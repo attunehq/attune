@@ -16,11 +16,12 @@ RUN cargo build --release --bin attune-server
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update
-RUN apt-get install -y --no-install-recommends libssl3 ca-certificates libgpg-error0 libgpgme11 && rm -rf /var/lib/apt/lists/*
+RUN apt-get install -y --no-install-recommends libssl3 ca-certificates libgpg-error0 libgpgme11 curl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /target/release/attune-server /usr/local/bin/attune-server
 
 USER 1000:1000
 
 ENV RUST_LOG=attune_server=debug,attune=debug
+HEALTHCHECK --interval=1s --timeout=5s CMD curl -f http://localhost:3000/api/v0/health
 ENTRYPOINT ["attune-server"]
