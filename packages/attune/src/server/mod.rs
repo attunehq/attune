@@ -7,6 +7,7 @@ use std::{any::Any, time::Duration};
 
 use axum::{
     BoxError, Router,
+    body::Body,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, FromRef, Request},
     handler::Handler,
@@ -20,8 +21,9 @@ use sqlx::PgPool;
 use tower::ServiceBuilder;
 use tower_http::{catch_panic::CatchPanicLayer, trace::TraceLayer};
 use tracing::warn;
+use uuid::{ContextV7, Timestamp, Uuid};
 
-use crate::api::ErrorResponse;
+use crate::{api::ErrorResponse, server::compatibility::API_VERSION_HEADER};
 
 #[derive(Clone, Debug, FromRef)]
 pub struct ServerState {
@@ -137,7 +139,24 @@ pub async fn new(state: ServerState, default_api_token: Option<String>) -> Route
         .layer(axum::middleware::from_fn(handle_non_success))
         .layer(
             ServiceBuilder::new()
-                .layer(TraceLayer::new_for_http())
+                .layer(
+                    TraceLayer::new_for_http().make_span_with(|req: &http::Request<Body>| {
+                        let request_id = Uuid::new_v7(Timestamp::now(ContextV7::new()));
+                        let headers = req.headers();
+                        let invocation_id = headers.get("X-Invocation-ID").unwrap();
+                        let api_version = headers.get(API_VERSION_HEADER).unwrap();
+
+                        tracing::span!(
+                            tracing::Level::DEBUG,
+                            "request",
+                            method = %req.method(),
+                            uri = %req.uri(),
+                            invocation_id = invocation_id.to_str().unwrap(),
+                            request_id = %request_id,
+                            api_version = api_version.to_str().unwrap()
+                        )
+                    }),
+                )
                 .layer(CatchPanicLayer::custom(handle_panic))
                 .layer(HandleErrorLayer::new(handle_middleware_error))
                 .timeout(Duration::from_secs(600)),

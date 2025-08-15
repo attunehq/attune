@@ -188,9 +188,9 @@ async fn e2e() {
     let results = uploads.join_all().await;
     debug!("all uploads completed");
 
-    // First, emit server logs for debugging.
-    let (stdout, _, exit_code) = sh_exec!(&sh, "docker compose logs --timestamps controlplane");
-    debug!(%stdout, "controlplane logs");
+    // First, emit server logs for debugging. Note that the stdout is already
+    // logged by `sh_exec!`.
+    let (_, _, exit_code) = sh_exec!(&sh, "docker compose logs --timestamps controlplane");
     assert!(exit_code.success());
 
     // Then, check the upload results.
@@ -205,7 +205,7 @@ async fn e2e() {
             "apt pkg add logs");
     }
     for (i, result) in results {
-        debug!(?i, success = result.status.success(), "apt pkg add success");
+        debug!(?i, success = result.status.success(), "apt pkg add result");
         assert!(result.status.success());
     }
 
