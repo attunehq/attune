@@ -924,13 +924,8 @@ mod tests {
                 sync::check::CheckConsistencyResponse,
             },
         },
-        testing::{AttuneTestServer, AttuneTestServerConfig, gpg_key_id},
+        testing::{AttuneTestServer, AttuneTestServerConfig, fixtures, gpg_key_id},
     };
-
-    const TEST_PACKAGE_AMD64: &[u8] =
-        include_bytes!("./fixtures/attune-test-package_2.0.0_linux_amd64.deb");
-    const TEST_PACKAGE_ARM64: &[u8] =
-        include_bytes!("./fixtures/attune-test-package_2.0.0_linux_arm64.deb");
 
     // TODO: Replace with thge new centralized gpg_sign function.
     async fn sign_index(index: &str) -> (String, String, String) {
@@ -983,7 +978,7 @@ mod tests {
         info!(name = ?REPO_NAME, ?s3_prefix, "created repository");
 
         // Upload a package.
-        let package_file = TEST_PACKAGE_AMD64;
+        let package_file = fixtures::TEST_PACKAGE_AMD64;
         let upload = MultipartForm::new().add_part("file", Part::bytes(package_file.to_vec()));
 
         let res = server
@@ -1239,7 +1234,7 @@ mod tests {
         let s3_prefix = server.create_repository(tenant_id, REPO_NAME).await;
 
         // Upload packages.
-        let package_file_a = TEST_PACKAGE_AMD64;
+        let package_file_a = fixtures::TEST_PACKAGE_AMD64;
         let upload = MultipartForm::new().add_part("file", Part::bytes(package_file_a.to_vec()));
         let res = server
             .http
@@ -1255,7 +1250,7 @@ mod tests {
         let res = res.json::<PackageUploadResponse>();
         let package_a_sha256sum = res.sha256sum;
 
-        let package_file_b = TEST_PACKAGE_ARM64;
+        let package_file_b = fixtures::TEST_PACKAGE_ARM64;
         let upload = MultipartForm::new().add_part("file", Part::bytes(package_file_b.to_vec()));
         let res = server
             .http

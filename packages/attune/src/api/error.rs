@@ -12,7 +12,7 @@ use tracing::error;
 #[error("{error} ({status}): {message}")]
 pub struct ErrorResponse {
     /// The HTTP status code.
-    #[serde(skip)]
+    #[serde(with = "http_serde::status_code")]
     status: StatusCode,
     /// A short, unique error code.
     #[builder(into)]

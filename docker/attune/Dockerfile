@@ -11,6 +11,9 @@ RUN cargo build --release
 RUN rm -f packages/attune/src/main.rs && rm -f packages/attune-macros/src/lib.rs
 COPY ./.sqlx ./.sqlx
 COPY ./packages ./packages
+# This is just a gimmick of our testing libraries. Check out
+# `attune::testing::fixtures` for more details.
+COPY ./scripts/fixtures ./scripts/fixtures
 RUN cargo build --release --bin attune-server
 
 FROM debian:bookworm-slim AS runtime

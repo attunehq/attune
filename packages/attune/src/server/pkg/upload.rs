@@ -358,12 +358,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use axum_test::multipart::{MultipartForm, Part};
     use debian_packaging::{
         control::ControlParagraph, debian_source_control::DebianSourceControlFile,
     };
     use indoc::indoc;
 
-    use crate::testing::{AttuneTestServer, AttuneTestServerConfig};
+    use crate::testing::{AttuneTestServer, AttuneTestServerConfig, fixtures};
 
     use super::*;
 
@@ -427,5 +428,51 @@ mod tests {
         .await
         .map_err(ErrorResponse::from);
         assert!(result.is_err())
+    }
+
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    #[test_log::test]
+    async fn upload_dupe_is_no_op(pool: sqlx::PgPool) {
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+        const REPO_NAME: &str = "resync_mitigates_partial_upload";
+        let (tenant_id, api_token) = server.create_test_tenant(REPO_NAME).await;
+
+        // Set up an empty repository.
+        server.create_repository(tenant_id, REPO_NAME).await;
+
+        // Upload a package.
+        let package_file = fixtures::TEST_PACKAGE_AMD64;
+        let upload = MultipartForm::new().add_part("file", Part::bytes(package_file.to_vec()));
+
+        let res = server
+            .http
+            .post("/api/v0/packages")
+            .add_header("authorization", format!("Bearer {api_token}"))
+            .multipart(upload)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Package upload failed with status: {}",
+            res.status_code()
+        );
+
+        // Upload the same package again.
+        let upload = MultipartForm::new().add_part("file", Part::bytes(package_file.to_vec()));
+        let res = server
+            .http
+            .post("/api/v0/packages")
+            .add_header("authorization", format!("Bearer {api_token}"))
+            .multipart(upload)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Duplicate package upload failed with status: {}",
+            res.status_code()
+        );
     }
 }

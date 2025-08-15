@@ -74,7 +74,22 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         }
     }
 
-    let sha256sum = match upload_file_content(&ctx, &command).await {
+    let sha256sum = match retry_infinite(
+        || upload_file_content(&ctx, &command),
+        |error| match error.downcast_ref::<ErrorResponse>() {
+            Some(res) => match res.error.as_str() {
+                "CONCURRENT_INDEX_CHANGE" => {
+                    tracing::warn!(error = ?res, "retrying upload: concurrent index change");
+                    true
+                }
+                _ => false,
+            },
+            None => false,
+        },
+        retry_delay_default,
+    )
+    .await
+    {
         Ok(sha256sum) => sha256sum,
         Err(error) => {
             eprintln!("Unable to upload file content: {error:#?}");
@@ -92,7 +107,7 @@ pub async fn run(ctx: Config, command: PkgAddCommand) -> ExitCode {
         |error| match error.downcast_ref::<ErrorResponse>() {
             Some(res) => match res.error.as_str() {
                 "CONCURRENT_INDEX_CHANGE" | "DETACHED_SIGNATURE_VERIFICATION_FAILED" => {
-                    tracing::warn!(error = ?res, "retrying: concurrent index change");
+                    tracing::warn!(error = ?res, "retrying signature: concurrent index change");
                     true
                 }
                 _ => false,
@@ -173,13 +188,10 @@ pub async fn validate_repository_exists(ctx: &Config, cmd: &PkgAddCommand) -> Re
 }
 
 /// Checksum the package file, and upload if needed.
+//
 // TODO: We might want to make this streaming for sufficiently large package
 // files (ones that don't fit in memory). For small ones, I think keeping
 // the file in memory might be faster.
-//
-// TODO: We may also want to check whether a package with the same
-// identifiers (i.e. (name, version, architecture)) already exists, which
-// should be impossible, and should be an error we report to the user.
 //
 // TODO(#48): Add an `--overwrite` flag to allow the user to deliberately upload
 // a package with a different SHA256sum.

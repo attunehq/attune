@@ -16,6 +16,8 @@ use tracing_subscriber::{
 use uuid::{ContextV7, Timestamp, Uuid};
 use xshell::{Shell, cmd};
 
+use attune_macros::workspace_root;
+
 #[sqlx::test(migrator = "attune::testing::MIGRATOR")]
 async fn migrations_applied(pool: sqlx::PgPool) {
     let table_exists = sqlx::query!(
@@ -98,13 +100,7 @@ async fn e2e() {
     debug!(docker_host = ?std::env::var("DOCKER_HOST"), "connecting to Docker daemon");
     let docker = Docker::connect_with_defaults().unwrap();
     docker.ping().await.unwrap();
-
-    // HACK: We're using the `../../` to get to the workspace root because we
-    // know where this package is located, and the working directory is set to
-    // the package root in `cargo test`[^1].
-    //
-    // [^1]: https://github.com/rust-lang/cargo/issues/11852
-    let workspace_root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
+    const WORKSPACE_ROOT: &str = workspace_root!();
 
     // Check that the CLI is built and executable.
     const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
@@ -130,8 +126,8 @@ async fn e2e() {
             .unwrap();
         trace!(?inspected, "inspected control plane container status");
         let container_state = inspected.state.unwrap();
-        if container_state.status.unwrap() == ContainerStateStatusEnum::RUNNING &&
-            container_state.health.unwrap().status.unwrap() == HealthStatusEnum::HEALTHY
+        if container_state.status.unwrap() == ContainerStateStatusEnum::RUNNING
+            && container_state.health.unwrap().status.unwrap() == HealthStatusEnum::HEALTHY
         {
             break;
         }
@@ -169,7 +165,7 @@ async fn e2e() {
     for distribution in DISTRIBUTIONS {
         for component in COMPONENTS {
             for package in PACKAGES {
-                let package = format!("{}/scripts/fixtures/{}", workspace_root, package);
+                let package = format!("{}/scripts/fixtures/{}", WORKSPACE_ROOT, package);
                 let sh = sh.clone();
                 let key_id = key_id.clone();
                 let repo_name = repo.name.clone();
@@ -189,13 +185,18 @@ async fn e2e() {
     }
     let results = uploads.join_all().await;
     for (i, result) in results {
-        debug!(?i, ?result, "apt pkg add result");
+        debug!(
+            ?i,
+            status = ?result.status,
+            stdout = %String::from_utf8(result.stdout).unwrap(),
+            stderr = %String::from_utf8(result.stderr).unwrap(),
+            "apt pkg add result");
         assert!(result.status.success());
     }
 
     // Start a Debian container and install packages.
     let image = GenericBuildableImage::new("attune-testinstall", "latest")
-        .with_dockerfile(format!("{}/docker/testinstall/Dockerfile", workspace_root))
+        .with_dockerfile(format!("{}/docker/testinstall/Dockerfile", WORKSPACE_ROOT))
         .build_image()
         .await
         .unwrap();

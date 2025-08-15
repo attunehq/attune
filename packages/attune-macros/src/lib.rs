@@ -1,8 +1,30 @@
-use proc_macro::TokenStream;
+use proc_macro::{Literal, TokenStream, TokenTree};
 use quote::quote;
 use std::path::Path;
 use std::{fs, path::PathBuf};
 use syn::{parse_macro_input, LitStr};
+
+/// Return a string literal containing the absolute path of the workspace root.
+///
+/// Usage:
+/// ```ignore
+/// let workspace_root = workspace_root!();
+/// ```
+#[proc_macro]
+pub fn workspace_root(input: TokenStream) -> TokenStream {
+    assert!(
+        input.is_empty(),
+        "workspace_root!() does not take any arguments"
+    );
+
+    // HACK: We're using the `../../` to get to the workspace root because we
+    // know where this package is located, and the working directory is set to
+    // the package root in `cargo test`[^1].
+    //
+    // [^1]: https://github.com/rust-lang/cargo/issues/11852
+    let workspace_root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
+    TokenTree::Literal(Literal::string(&workspace_root)).into()
+}
 
 /// Generate a static migrator from Prisma migrations directory. The provided
 /// path should be relative to the workspace root.
