@@ -21,7 +21,7 @@ mod config;
 ///
 /// Attune is the easiest way to securely publish Linux packages.
 #[derive(Parser, Debug)]
-#[command(version = "v0.1.0", name = "attune", max_term_width = 80)]
+#[command(version = "v0.2.0", name = "attune", max_term_width = 80)]
 struct Args {
     /// Attune API token.
     #[arg(long, env = "ATTUNE_API_TOKEN")]
