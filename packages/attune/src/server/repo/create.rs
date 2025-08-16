@@ -23,6 +23,8 @@ pub struct CreateRepositoryRequest {
 pub struct CreateRepositoryResponse {
     pub id: i64,
     pub name: String,
+    pub s3_bucket: String,
+    pub s3_prefix: String,
 }
 
 #[axum::debug_handler]
@@ -57,6 +59,8 @@ pub async fn handler(
     }
 
     // Insert repository row.
+    let s3_bucket = state.s3_bucket_name;
+    let s3_prefix = repo_prefix(tenant_id, &req.name);
     let inserted = sqlx::query!(
         r#"
         INSERT INTO debian_repository (
@@ -72,8 +76,8 @@ pub async fn handler(
         "#,
         req.name,
         tenant_id.0,
-        state.s3_bucket_name,
-        repo_prefix(tenant_id, &req.name),
+        s3_bucket,
+        s3_prefix,
     )
     .fetch_one(&mut *tx)
     .await
@@ -81,9 +85,13 @@ pub async fn handler(
 
     tx.commit().await.map_err(ErrorResponse::from)?;
 
+    // TODO: In the managed cloud version of this CLI, we should hide the S3
+    // bucket and prefix fields because they're irrelevant.
     Ok(Json(CreateRepositoryResponse {
         id: inserted.id,
         name: inserted.name,
+        s3_bucket,
+        s3_prefix,
     }))
 }
 

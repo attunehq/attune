@@ -90,6 +90,7 @@ jobs:
         with:
           cache-workspace-crates: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Migrate database
         working-directory: ./docker/migrate
@@ -98,6 +99,9 @@ jobs:
           npm run migrate
           npm run diff
 
+      # We can't run the E2E test in the same job that we run the unit tests,
+      # because the E2E tests bring up their own Docker Compose service
+      # dependencies that will clash with the job's service containers.
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release
 

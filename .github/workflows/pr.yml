@@ -23,31 +23,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  docker:
-    name: Test Docker image build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Remove empty EE crate
-        run: rm -r ./packages/attune-ee
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./docker/attune/Dockerfile
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build Docker Compose development images
-        run: docker compose build
-
   rust:
     name: Build, check, and test Rust
     runs-on: ubuntu-latest
@@ -113,6 +88,7 @@ jobs:
         with:
           cache-workspace-crates: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Check format
         run: cargo +nightly fmt --all --check
@@ -127,16 +103,16 @@ jobs:
           npm run migrate
           npm run diff
 
-      - name: Install sqlx-cli
-        uses: taiki-e/install-action@v2
-        with:
-          tool: sqlx-cli
-
-      - name: Check sqlx queries
-        run: cargo sqlx prepare --workspace --check -- --tests
-
-      - name: Check build
-        run: cargo check --workspace --all-targets --all-features
+      # We could use `cargo check` and `cargo sqlx prepare --check` here, but
+      # it's not actually fast enough in CI that it provides a meaningfully
+      # faster developer experience (instead of waiting 3 minutes, you just wait
+      # 2 minutes), and none of the work can be reused[^1]. So we instead opt to
+      # minimize total CI time by just running the full build first, since tests
+      # and checks can reuse the build.
+      #
+      # [^1]: https://github.com/rust-lang/cargo/issues/3501
+      - name: Run full build
+        run: cargo build --workspace --all-targets --all-features
 
       - name: Check clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -144,13 +120,39 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features
 
-      - name: Run full build
-        run: cargo build --workspace --all-targets --all-features
+  e2e:
+    name: End-to-end test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Rust
+        run: rustup show
 
-  # TODO: Add a job (maybe called `dev`?) that spins up the Docker Compose local
-  # development environment and runs some smoke tests (maybe ideally this would
-  # be an integration testing job?) to make sure we didn't break it.
+      # These should match `../docker/attune/Dockerfile`.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
 
-  # TODO: Add a job (maybe called `setup` or `onboarding`?) that literally
-  # performs the onboarding/setup/quickstart instructions we've documented to
-  # make sure they actually work as expected.
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Remove empty EE crate
+        run: rm -r ./packages/attune-ee
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2.8.0
+        with:
+          cache-workspace-crates: true
+          cache-all-crates: true
+          cache-on-failure: true
+
+      # This integration test is also functionally an end-to-end test for our
+      # Docker images. Note that we perform a build because this particular test
+      # requires the CLI binary built in release mode.
+      - name: Run tests
+        run: |
+          cp .env.example .env
+          source .env
+          cargo build --package attune --bin attune --all-features --release
+          RUST_LOG=it=trace cargo test --package attune --test it --all-features --release -- --ignored --nocapture

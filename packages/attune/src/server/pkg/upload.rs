@@ -59,6 +59,7 @@ pub async fn handler(
     let value = field.bytes().await.unwrap();
     let control_file = parse_debian_package(&value).await;
     let hashes = Hashes::from_bytes(&value);
+    let hex_hashes = hashes.hex();
     let size = value.len() as i64;
 
     // Check that there are no more fields.
@@ -77,9 +78,20 @@ pub async fn handler(
         .await
         .map_err(ErrorResponse::from)?;
 
+    // Check if a package with the same (name, version, architecture) already
+    // exists.
+    //
+    // If such a package exists AND the sha256sum is the same, we can skip the
+    // rest of the handler. If such a package exists AND the sha256sum is NOT
+    // the same, then an error has occurred.
+    if let Some(shortcircuit) =
+        check_package_exists(&mut *tx, tenant_id, &control_file, &hex_hashes).await?
+    {
+        return Ok(shortcircuit);
+    }
+
     // Insert the package row into the database. At this point, integrity checks
     // may cause the upload to fail (e.g. if this package already exists).
-    let hex_hashes = hashes.hex();
     insert_package(
         &mut *tx,
         tenant_id,
@@ -187,6 +199,51 @@ struct HashesHex {
     sha256sum: String,
     sha1sum: String,
     md5sum: String,
+}
+
+#[instrument(skip(executor, control_file))]
+async fn check_package_exists<'c, E>(
+    executor: E,
+    tenant_id: TenantID,
+    control_file: &BinaryPackageControlFile<'static>,
+    hashes: &HashesHex,
+) -> Result<Option<Json<PackageUploadResponse>>, ErrorResponse>
+where
+    E: Executor<'c, Database = Postgres>,
+{
+    let existing = sqlx::query!(
+        r#"
+        SELECT id, sha256sum
+        FROM debian_repository_package
+        WHERE
+            tenant_id = $1
+            AND package = $2
+            AND version = $3
+            AND architecture = $4::debian_repository_architecture
+        LIMIT 1
+        "#,
+        tenant_id.0,
+        control_file.package().unwrap(),
+        control_file.version().unwrap().to_string(),
+        control_file.architecture().unwrap() as _,
+    )
+    .fetch_optional(executor)
+    .await
+    .map_err(ErrorResponse::from)?;
+    if let Some(existing) = existing {
+        if existing.sha256sum == hashes.sha256sum {
+            return Ok(Some(Json(PackageUploadResponse {
+                sha256sum: existing.sha256sum,
+            })));
+        } else {
+            return Err(ErrorResponse::new(
+                StatusCode::BAD_REQUEST,
+                "PACKAGE_ALREADY_EXISTS",
+                "package already exists",
+            ));
+        }
+    }
+    Ok(None)
 }
 
 #[instrument(skip(executor, control_file))]
@@ -318,15 +375,20 @@ where
 
 #[cfg(test)]
 mod tests {
+    use axum_test::multipart::{MultipartForm, Part};
     use debian_packaging::{
         control::ControlParagraph, debian_source_control::DebianSourceControlFile,
     };
     use indoc::indoc;
+    use tracing::debug;
 
-    use crate::testing::{AttuneTestServer, AttuneTestServerConfig};
+    use crate::testing::{AttuneTestServer, AttuneTestServerConfig, fixtures};
 
     use super::*;
 
+    /// Inserting a package with the same headers but different content should
+    /// fail in a way that does not cause the client to retry. This means it
+    /// must not fail with a 409.
     #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
     #[test_log::test]
     async fn cannot_insert_same_headers_different_content(pool: sqlx::PgPool) {
@@ -336,14 +398,8 @@ mod tests {
             http_api_token: None,
         })
         .await;
-        const REPO_NAME: &str = "resync_mitigates_partial_upload";
-        let (tenant_id, _api_token) = server.create_test_tenant(REPO_NAME).await;
-
-        let mut tx = server.db.begin().await.unwrap();
-        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *tx)
-            .await
-            .unwrap();
+        const TEST_NAME: &str = "cannot_insert_same_headers_different_content";
+        let (tenant_id, _api_token) = server.create_test_tenant(TEST_NAME).await;
 
         let control_file = {
             let contents = indoc! {"
@@ -357,35 +413,193 @@ mod tests {
             let para = ControlParagraph::from(dsc);
             BinaryPackageControlFile::from(para)
         };
+
+        // First, we simulate the database parts of a package insertion.
+        let hashes_a = HashesHex {
+            sha256sum: String::from("CI becomes red"),
+            sha1sum: String::from("twelve minutes to run the tests"),
+            md5sum: String::from("sweet release of death"),
+        };
+        let mut tx = server.db.begin().await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let existing = check_package_exists(&mut *tx, tenant_id, &control_file, &hashes_a)
+            .await
+            .unwrap();
+        assert!(existing.is_none());
         insert_package(
             &mut *tx,
             tenant_id,
             "attune-dev-0",
             control_file.clone(),
-            &HashesHex {
-                sha256sum: String::from("the CI is red"),
-                sha1sum: String::from("but no one around to see"),
-                md5sum: String::from("i need faster tests"),
-            },
+            &hashes_a,
             42,
         )
         .await
         .unwrap();
+        tx.commit().await.unwrap();
 
+        // Then, we simulate inserting a package with the same control file but
+        // different hashes.
+        let hashes_b = HashesHex {
+            sha256sum: String::from("this is different"),
+            sha1sum: String::from("test data should be haikus"),
+            md5sum: String::from("hopefully this fails"),
+        };
+        let mut tx = server.db.begin().await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let existing = check_package_exists(&mut *tx, tenant_id, &control_file, &hashes_b).await;
+        debug!(?existing, "check existing");
+        let err_status = existing.err().unwrap().status;
+        assert!(err_status != StatusCode::CONFLICT && err_status != StatusCode::OK);
+    }
+
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    #[test_log::test]
+    async fn upload_dupe_is_no_op(pool: sqlx::PgPool) {
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+        const TEST_NAME: &str = "upload_dupe_is_no_op";
+        let (_, api_token) = server.create_test_tenant(TEST_NAME).await;
+
+        // Upload a package.
+        let package_file = fixtures::TEST_PACKAGE_AMD64;
+        let upload = MultipartForm::new().add_part("file", Part::bytes(package_file.to_vec()));
+
+        let res = server
+            .http
+            .post("/api/v0/packages")
+            .add_header("authorization", format!("Bearer {api_token}"))
+            .multipart(upload)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Package upload failed with status: {}",
+            res.status_code()
+        );
+
+        // Upload the same package again.
+        let upload = MultipartForm::new().add_part("file", Part::bytes(package_file.to_vec()));
+        let res = server
+            .http
+            .post("/api/v0/packages")
+            .add_header("authorization", format!("Bearer {api_token}"))
+            .multipart(upload)
+            .await;
+        assert!(
+            res.status_code().is_success(),
+            "Duplicate package upload failed with status: {}",
+            res.status_code()
+        );
+    }
+
+    /// If a duplicate package (i.e. one with the same headers and same content)
+    /// is uploaded concurrently, the API should either not fail or fail with a
+    /// 409 Conflict status code so that the CLI properly handles the error.
+    #[sqlx::test(migrator = "crate::testing::MIGRATOR")]
+    #[test_log::test]
+    async fn concurrent_upload_dupe_is_conflict(pool: sqlx::PgPool) {
+        let server = AttuneTestServer::new(AttuneTestServerConfig {
+            db: pool,
+            s3_bucket_name: None,
+            http_api_token: None,
+        })
+        .await;
+        const TEST_NAME: &str = "concurrent_upload_dupe_is_conflict";
+        let (tenant_id, _api_token) = server.create_test_tenant(TEST_NAME).await;
+
+        // Prepare data.
+        let control_file = {
+            let contents = indoc! {"
+                Package: attune-test-package
+                Version: 1.0.0
+                Architecture: amd64
+                Maintainer: Attune <attune@example.com>
+                Description: A test package
+            "};
+            let dsc = DebianSourceControlFile::from_reader(contents.as_bytes()).unwrap();
+            let para = ControlParagraph::from(dsc);
+            BinaryPackageControlFile::from(para)
+        };
+        let hashes = HashesHex {
+            sha256sum: String::from("12345"),
+            sha1sum: String::from("567890"),
+            md5sum: String::from("abcdef"),
+        };
+
+        // Start transactions: A, then B.
+        let mut tx_a = server.db.begin().await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx_a)
+            .await
+            .unwrap();
+        let mut tx_b = server.db.begin().await.unwrap();
+        sqlx::query!("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx_b)
+            .await
+            .unwrap();
+
+        // Do concurrent SELECT queries.
+        let existing_a = check_package_exists(&mut *tx_a, tenant_id, &control_file, &hashes)
+            .await
+            .unwrap();
+        assert!(existing_a.is_none());
+        let existing_b = check_package_exists(&mut *tx_b, tenant_id, &control_file, &hashes)
+            .await
+            .unwrap();
+        assert!(existing_b.is_none());
+
+        // Insert package in transaction A.
         let result = insert_package(
-            &mut *tx,
+            &mut *tx_a,
             tenant_id,
             "attune-dev-0",
-            control_file,
-            &HashesHex {
-                sha256sum: String::from("this is different"),
-                sha1sum: String::from("test data should be haikus"),
-                md5sum: String::from("hopefully this fails"),
-            },
+            control_file.clone(),
+            &hashes,
             42,
         )
         .await
         .map_err(ErrorResponse::from);
-        assert!(result.is_err())
+        debug!(?result, "result from inserting package in A");
+        assert!(result.is_ok());
+
+        // Commit transaction A.
+        let result = tx_a.commit().await;
+        debug!(?result, "result from committing transaction A");
+        assert!(result.is_ok());
+
+        // Insert package in transaction B.
+        let result = insert_package(
+            &mut *tx_b,
+            tenant_id,
+            "attune-dev-0",
+            control_file,
+            &hashes,
+            42,
+        )
+        .await
+        .map_err(ErrorResponse::from);
+        debug!(?result, "result from inserting package in B");
+        // This needs to be something that gets the client to retry the upload.
+        // Acceptable options are 200 or 409. See the corresponding client code
+        // in `apt pkg add`.
+        assert!(match result {
+            Ok(_) => true,
+            Err(ErrorResponse { status, .. }) => status == StatusCode::CONFLICT,
+        });
+
+        // Commit transaction B.
+        let result = tx_b.commit().await;
+        debug!(?result, "result from committing transaction B");
+        assert!(result.is_ok());
     }
 }
