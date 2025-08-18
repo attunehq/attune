@@ -13,16 +13,21 @@ on:
       - "**/.gitignore"
       - "**/LICENSE"
   workflow_dispatch:
+    inputs:
+      releaseName:
+        description: "Release name"
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  RELEASE_NAME: ${{ inputs.releaseName || github.ref_name }}
 
 jobs:
   macos-notarize:
     name: Build and notarize Attune CLI macOS binary
-    runs-on: macos-latest # macOS 14 ARM64
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -57,11 +62,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_CERTIFICATE_PASSWORD" $RUNNER_TEMP/build.keychain
           rm $RUNNER_TEMP/certificate.p12
 
-      # We include the com.apple.security.cs.disable-library-validation entitlement
-      # because attune dynamically loads libgpgme from Homebrew (/opt/homebrew/...).
-      # Without this, Hardened Runtime's library validation would reject the dylib
-      # since it's signed with a different Team ID. This entitlement allows the app
-      # to load third-party signed libraries while still enabling Hardened Runtime.
+      # We include the com.apple.security.cs.disable-library-validation
+      # entitlement because attune dynamically loads libgpgme from Homebrew
+      # (/opt/homebrew/...). Without this, Hardened Runtime's library validation
+      # would reject the dylib since it's signed with a different Team ID. This
+      # entitlement allows the app to load third-party signed libraries while
+      # still enabling Hardened Runtime.
       - name: Sign binary
         env:
           APPLE_DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
@@ -187,9 +193,9 @@ jobs:
       - name: Copy and rename release assets
         run: |
           mkdir -p /tmp/release
-          cp target/release/attune /tmp/release/attune-${{ github.ref_name }}_${{ runner.os }}-${{ runner.arch }}
-          cp target/release/attune-server /tmp/release/attune-server-${{ github.ref_name }}_${{ runner.os }}-${{ runner.arch }}
-          cp /tmp/macos-binary/attune /tmp/release/attune-${{ github.ref_name }}_macOS-ARM64
+          cp target/release/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
+          cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-ARM64
+          cp target/release/attune-server /tmp/release/attune-server-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -207,25 +213,88 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # TODO: Parallelize these Docker builds?
+
       - name: Extract metadata (tags, labels) for Docker
-        id: docker-metadata
+        id: docker-metadata-attune
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      - name: Build and push Docker image
-        id: docker-build-and-push
+          images: ${{ env.REGISTRY }}/attune
+      - name: Build and push control plane image
+        id: docker-build-and-push-attune
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./docker/attune/Dockerfile
           push: true
-          tags: ${{ steps.docker-metadata.outputs.tags }}
-          labels: ${{ steps.docker-metadata.outputs.labels }}
-
+          tags: ${{ steps.docker-metadata-attune.outputs.tags }}
+          labels: ${{ steps.docker-metadata-attune.outputs.labels }}
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.docker-build-and-push.outputs.digest }}
+          subject-name: ${{ env.REGISTRY }}/attune
+          subject-digest: ${{ steps.docker-build-and-push-attune.outputs.digest }}
+          push-to-registry: true
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: docker-metadata-migrate
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/migrate
+      - name: Build and push migration image
+        id: docker-build-and-push-migrate
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/migrate
+          push: true
+          tags: ${{ steps.docker-metadata-migrate.outputs.tags }}
+          labels: ${{ steps.docker-metadata-migrate.outputs.labels }}
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/migrate
+          subject-digest: ${{ steps.docker-build-and-push-migrate.outputs.digest }}
+          push-to-registry: true
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: docker-metadata-minio
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/minio
+      - name: Build and push development Minio image
+        id: docker-build-and-push-minio
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/minio
+          push: true
+          tags: ${{ steps.docker-metadata-minio.outputs.tags }}
+          labels: ${{ steps.docker-metadata-minio.outputs.labels }}
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/minio
+          subject-digest: ${{ steps.docker-build-and-push-minio.outputs.digest }}
+          push-to-registry: true
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: docker-metadata-testinstall
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/testinstall
+      - name: Build and push development test installation image
+        id: docker-build-and-push-testinstall
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/testinstall
+          push: true
+          tags: ${{ steps.docker-metadata-testinstall.outputs.tags }}
+          labels: ${{ steps.docker-metadata-testinstall.outputs.labels }}
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/testinstall
+          subject-digest: ${{ steps.docker-build-and-push-testinstall.outputs.digest }}
           push-to-registry: true
