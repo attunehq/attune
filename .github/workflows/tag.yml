@@ -132,8 +132,9 @@ jobs:
           - "9000:9000"
         volumes:
           - "/tmp/minio-data:/data"
+    permissions:
+      contents: write
     steps:
-      
       # Build and test binaries.
       - name: Install Rust
         run: rustup show
@@ -142,22 +143,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
-      
+
       - name: Create MinIO bucket
         run: mkdir -p /tmp/minio-data/attune-dev-0
-      
+
       - uses: actions/checkout@v4
         with:
           lfs: true
 
       - name: Remove empty EE crate
         run: rm -r ./packages/attune-ee
-      
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2.8.0
         with:
           cache-workspace-crates: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Migrate and check database
         working-directory: ./docker/migrate
