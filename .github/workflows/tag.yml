@@ -140,6 +140,7 @@ jobs:
           - "/tmp/minio-data:/data"
     permissions:
       contents: write
+      packages: write
     steps:
       # Build and test binaries.
       - name: Install Rust
