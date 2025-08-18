@@ -143,9 +143,13 @@ jobs:
         volumes:
           - "/tmp/minio-data:/data"
     permissions:
+      # Required to create GitHub Release.
       contents: write
+      # Required for uploading to GHCR.
       packages: write
+      # Required for actions/attest-build-provenance.
       id-token: write
+      # Required for actions/attest-build-provenance.
       attestations: write
     steps:
       # Build and test binaries.
