@@ -141,6 +141,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write
+      attestations: write
     steps:
       # Build and test binaries.
       - name: Install Rust
