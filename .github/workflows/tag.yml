@@ -222,7 +222,7 @@ jobs:
         id: docker-metadata-attune
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/attune
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/attune
       - name: Build and push control plane image
         id: docker-build-and-push-attune
         uses: docker/build-push-action@v6
@@ -235,7 +235,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/attune
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/attune
           subject-digest: ${{ steps.docker-build-and-push-attune.outputs.digest }}
           push-to-registry: true
 
@@ -243,7 +243,7 @@ jobs:
         id: docker-metadata-migrate
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/migrate
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/migrate
       - name: Build and push migration image
         id: docker-build-and-push-migrate
         uses: docker/build-push-action@v6
@@ -255,7 +255,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/migrate
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/migrate
           subject-digest: ${{ steps.docker-build-and-push-migrate.outputs.digest }}
           push-to-registry: true
 
@@ -263,7 +263,7 @@ jobs:
         id: docker-metadata-minio
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/minio
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/minio
       - name: Build and push development Minio image
         id: docker-build-and-push-minio
         uses: docker/build-push-action@v6
@@ -275,7 +275,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/minio
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/minio
           subject-digest: ${{ steps.docker-build-and-push-minio.outputs.digest }}
           push-to-registry: true
 
@@ -283,7 +283,7 @@ jobs:
         id: docker-metadata-testinstall
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/testinstall
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/testinstall
       - name: Build and push development test installation image
         id: docker-build-and-push-testinstall
         uses: docker/build-push-action@v6
@@ -295,6 +295,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/testinstall
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/testinstall
           subject-digest: ${{ steps.docker-build-and-push-testinstall.outputs.digest }}
           push-to-registry: true
