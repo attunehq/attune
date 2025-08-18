@@ -30,9 +30,11 @@ jobs:
     name: Development build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # Required for uploading to GHCR.
       packages: write
+      # Required for actions/attest-build-provenance.
       id-token: write
+      # Required for actions/attest-build-provenance.
       attestations: write
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
