@@ -66,3 +66,18 @@ testcontainers.workspace = true
 tokio-util.workspace = true
 workspace_root.workspace = true
 xshell.workspace = true
+
+[package.metadata.deb]
+maintainer = "Attune Technologies, Inc. <team@attunehq.com>"
+copyright = "2025, Attune Technologies, Inc. <team@attunehq.com>"
+license-file = ["../../LICENSE", "0"]
+extended-description = "Attune CLI"
+homepage = "https://www.attunehq.com/"
+repository = "https://github.com/attunehq/attune"
+depends = "$auto, libgpgme11"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/attune", "usr/bin/", "755"],
+    ["../../README.md", "usr/share/doc/attune/README", "644"],
+]
