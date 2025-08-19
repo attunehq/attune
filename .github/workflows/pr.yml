@@ -155,4 +155,4 @@ jobs:
           cp .env.example .env
           source .env
           cargo build --package attune --bin attune --all-features --release
-          RUST_LOG=it=trace cargo test --package attune --test it --all-features --release -- --ignored --nocapture
+          E2E_DOCKER=true RUST_LOG=it=trace cargo test --package attune --test it --all-features --release -- --nocapture
