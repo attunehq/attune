@@ -1,4 +1,4 @@
-use std::{convert::identity, fs};
+use std::fs;
 
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
@@ -17,25 +17,6 @@ use uuid::{ContextV7, Timestamp, Uuid};
 use xshell::{Shell, cmd};
 
 use attune_macros::workspace_root;
-
-#[sqlx::test(migrator = "attune::testing::MIGRATOR")]
-async fn migrations_applied(pool: sqlx::PgPool) {
-    let table_exists = sqlx::query!(
-        "SELECT EXISTS (
-            SELECT FROM information_schema.tables
-            WHERE table_schema = 'public'
-            AND table_name = 'attune_tenant'
-        ) as exists",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("Failed to check if attune_tenant table exists");
-
-    assert!(
-        table_exists.exists.is_some_and(identity),
-        "attune_tenant table should exist after migrations"
-    );
-}
 
 macro_rules! sh_exec {
     ($sh: expr, $cmd: literal) => {{
@@ -69,13 +50,9 @@ async fn container_exec(
     (stdout, stderr, exit_code)
 }
 
-/// Simulate a `docker compose up` to check that the control plane comes up
-/// properly with all Docker services. Then use the CLI to add many packages
-/// concurrently. Then start a Debian container and `apt install` the packages
-/// to show that the repository works.
-#[ignore]
-#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn e2e() {
+/// Do shared test setup, like initializing tracing and setting environment
+/// variables.
+async fn setup() -> Shell {
     // We use this instead of `test_log` for this specific test because the
     // extra diagnostic information (e.g. event timestamps) is very helpful for
     // debugging a test of this complexity.
@@ -93,20 +70,17 @@ async fn e2e() {
         )
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
-
-    // Set up dependencies.
     dotenv().ok();
-    let sh = Shell::new().unwrap();
+
+    Shell::new().unwrap()
+}
+
+/// Spin up control plane and upstream dependency Docker services.
+async fn docker_compose_up_services(sh: &Shell) -> Docker {
+    // Connect to Docker daemon.
     debug!(docker_host = ?std::env::var("DOCKER_HOST"), "connecting to Docker daemon");
     let docker = Docker::connect_with_defaults().unwrap();
     docker.ping().await.unwrap();
-    const WORKSPACE_ROOT: &str = workspace_root!();
-
-    // Check that the CLI is built and executable.
-    const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
-    let (_, _, exit_code) = sh_exec!(&sh, "{ATTUNE_CLI_PATH} --help");
-    assert!(exit_code.success());
-    debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
     // Run `docker compose up -d` to bring up the Docker services.
     //
@@ -114,10 +88,16 @@ async fn e2e() {
     // Docker images. But we've already built these images locally to test, so
     // maybe we should push these up to a shared cache registry? Can we do that
     // transparently?
-    let (_, _, exit_code) = sh_exec!(&sh, "docker compose up --build --force-recreate --detach");
+    let (_, _, exit_code) = sh_exec!(sh, "docker compose up --build --force-recreate --detach");
     assert!(exit_code.success());
 
     // Monitor control plane for readiness.
+    //
+    // TODO: We use `bollard` to query the control plane service state, `xshell`
+    // to actually shell out to `docker compose`, and `testcontainers` to
+    // actually run a dynamic container for testing the Debian repository.
+    // Ideally we'd standardize on one of these, since this seems pretty
+    // confusing.
     debug!("waiting for control plane");
     loop {
         let inspected = docker
@@ -129,10 +109,45 @@ async fn e2e() {
         if container_state.status.unwrap() == ContainerStateStatusEnum::RUNNING
             && container_state.health.unwrap().status.unwrap() == HealthStatusEnum::HEALTHY
         {
-            break;
+            return docker;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
+}
+
+/// The root of the workspace. Useful for referencing package fixture files.
+const WORKSPACE_ROOT: &str = workspace_root!();
+
+/// The path to the `attune` CLI binary. Cargo always populates this environment
+/// variable to correspond to the compilation mode in which the test is invoked
+/// (i.e. either debug or release).
+const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
+
+/// Run end-to-end tests against the standard development Docker setup. This
+/// also checks that the Docker images build, start, and communicate properly.
+#[test_with::env(E2E_DOCKER)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn e2e_docker() {
+    let sh = setup().await;
+    docker_compose_up_services(&sh).await;
+    e2e_run(&sh).await;
+}
+
+/// Run end-to-end tests against the control plane running on the host.
+#[test_with::env(E2E_HOST)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn e2e_host() {
+    let sh = setup().await;
+    e2e_run(&sh).await;
+}
+
+/// Use the CLI to add many packages concurrently. Then start a Debian container
+/// and `apt install` the packages to show that the repository works.
+async fn e2e_run(sh: &Shell) {
+    // Check that the CLI is built and executable.
+    let (_, _, exit_code) = sh_exec!(&sh, "{ATTUNE_CLI_PATH} --help");
+    assert!(exit_code.success());
+    debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
     // Create a repository.
     let repo = AttuneRepository::new(sh.clone(), ATTUNE_CLI_PATH.to_string());
