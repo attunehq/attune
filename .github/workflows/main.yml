@@ -30,9 +30,11 @@ jobs:
     name: Development build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # Required for uploading to GHCR.
       packages: write
+      # Required for actions/attest-build-provenance.
       id-token: write
+      # Required for actions/attest-build-provenance.
       attestations: write
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
@@ -117,27 +119,90 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # TODO: Parallelize these Docker builds?
+
       - name: Extract metadata (tags, labels) for Docker
-        id: docker-metadata
+        id: docker-metadata-attune
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      - name: Build and push Docker image
-        id: docker-build-and-push
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/attune
+      - name: Build and push control plane image
+        id: docker-build-and-push-attune
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./docker/attune/Dockerfile
           push: true
-          tags: ${{ steps.docker-metadata.outputs.tags }}
-          labels: ${{ steps.docker-metadata.outputs.labels }}
-
+          tags: ${{ steps.docker-metadata-attune.outputs.tags }}
+          labels: ${{ steps.docker-metadata-attune.outputs.labels }}
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.docker-build-and-push.outputs.digest }}
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/attune
+          subject-digest: ${{ steps.docker-build-and-push-attune.outputs.digest }}
+          push-to-registry: true
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: docker-metadata-migrate
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/migrate
+      - name: Build and push migration image
+        id: docker-build-and-push-migrate
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/migrate
+          push: true
+          tags: ${{ steps.docker-metadata-migrate.outputs.tags }}
+          labels: ${{ steps.docker-metadata-migrate.outputs.labels }}
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/migrate
+          subject-digest: ${{ steps.docker-build-and-push-migrate.outputs.digest }}
+          push-to-registry: true
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: docker-metadata-minio
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/minio
+      - name: Build and push development Minio image
+        id: docker-build-and-push-minio
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/minio
+          push: true
+          tags: ${{ steps.docker-metadata-minio.outputs.tags }}
+          labels: ${{ steps.docker-metadata-minio.outputs.labels }}
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/minio
+          subject-digest: ${{ steps.docker-build-and-push-minio.outputs.digest }}
+          push-to-registry: true
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: docker-metadata-testinstall
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/testinstall
+      - name: Build and push development test installation image
+        id: docker-build-and-push-testinstall
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/testinstall
+          push: true
+          tags: ${{ steps.docker-metadata-testinstall.outputs.tags }}
+          labels: ${{ steps.docker-metadata-testinstall.outputs.labels }}
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/testinstall
+          subject-digest: ${{ steps.docker-build-and-push-testinstall.outputs.digest }}
           push-to-registry: true
 
       # Upload binaries.

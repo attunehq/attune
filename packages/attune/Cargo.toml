@@ -66,6 +66,7 @@ testcontainers.workspace = true
 tokio-util.workspace = true
 workspace_root.workspace = true
 xshell.workspace = true
+test-with = "0.15.4"
 
 [package.metadata.deb]
 maintainer = "Attune Technologies, Inc. <team@attunehq.com>"
