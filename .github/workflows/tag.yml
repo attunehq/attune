@@ -193,6 +193,14 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --all-targets --all-features --release
 
+      # Install cargo-deb for .deb package generation.
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      # Generate .deb package for attune CLI.
+      - name: Build .deb package
+        run: cargo deb -p attune
+
       # Download notarized macOS binary
       - name: Download notarized macOS binary
         uses: actions/download-artifact@v4
@@ -205,8 +213,9 @@ jobs:
         run: |
           mkdir -p /tmp/release
           cp target/release/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
-          cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-ARM64
-          cp target/release/attune-server /tmp/release/attune-server-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
+          cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-arm64
+          cp target/release/attune-server /tmp/release/attune-controlplane-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
+          cp target/debian/attune_*.deb /tmp/release/attune-${{ env.RELEASE_NAME }}.deb
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
