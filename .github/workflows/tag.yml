@@ -205,8 +205,8 @@ jobs:
         run: |
           mkdir -p /tmp/release
           cp target/release/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
-          cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-ARM64
-          cp target/release/attune-server /tmp/release/attune-server-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
+          cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-arm64
+          cp target/release/attune-server /tmp/release/attune-controlplane-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
