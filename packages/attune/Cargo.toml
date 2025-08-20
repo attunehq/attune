@@ -67,3 +67,9 @@ tokio-util.workspace = true
 workspace_root.workspace = true
 xshell.workspace = true
 test-with = "0.15.4"
+
+[package.metadata.deb]
+maintainer = "Attune Technologies, Inc. <team@attunehq.com>"
+copyright = "2025, Attune Technologies, Inc. <team@attunehq.com>"
+depends = "$auto, libgpgme11"
+priority = "optional"
