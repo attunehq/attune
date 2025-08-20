@@ -215,7 +215,7 @@ jobs:
           cp target/release/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
           cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-arm64
           cp target/release/attune-server /tmp/release/attune-controlplane-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
-          cp target/debian/attune_*.deb /tmp/release/attune-${{ env.RELEASE_NAME }}.deb
+          cp target/debian/attune_*.deb /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}.deb
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
