@@ -14,13 +14,14 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      # This action automatically updates the sha256 and version fields in the formula by default.
       - name: Update Homebrew formula
         uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: attune
           formula-path: Formula/attune.rb
           homebrew-tap: attunehq/homebrew-attune
-          download-url: | # The sha256 field is automatically updated by the action.
+          download-url: |
             https://github.com/attunehq/attune/releases/download/v${{ steps.version.outputs.version }}/attune-v${{ steps.version.outputs.version }}_macOS-ARM64
           commit-message: |
             Update attune to v${{ steps.version.outputs.version }}
