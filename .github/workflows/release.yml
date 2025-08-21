@@ -1,0 +1,36 @@
+# Workflow that runs on releases. Currently only updates the Homebrew formula.
+# Homebrew tap and formula located at github.com/attunehq/homebrew-attune/.
+name: Release
+
+on:
+  release:
+    types: [published] # Only triggers when releases are published.
+
+jobs:
+  update-homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from release tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # This action automatically updates the sha256 and version fields in the formula by default.
+      - name: Update Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: attune
+          formula-path: Formula/attune.rb
+          homebrew-tap: attunehq/homebrew-attune
+          download-url: |
+            https://github.com/attunehq/attune/releases/download/v${{ steps.version.outputs.version }}/attune-v${{ steps.version.outputs.version }}_macOS-ARM64
+          commit-message: |
+            Update attune to v${{ steps.version.outputs.version }}
+            
+            Automated update via GitHub Actions
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Verify formula syntax
+        run: |
+          brew tap attunehq/attune
+          brew audit --strict attunehq/attune/attune
