@@ -17,6 +17,30 @@ See our [pricing page](https://www.attunehq.com/pricing) for a detailed comparis
 
 We currently support publishing APT (Debian and Ubuntu) repositories, with more [coming soon](https://attunehq.com).
 
+## Installing the CLI
+
+If you only need the Attune CLI (without setting up the control plane), you can install it directly:
+
+### macOS
+
+```bash
+# Add the Attune Homebrew tap
+brew tap attunehq/attune
+
+# Install Attune CLI
+brew install attune
+```
+
+### Linux
+
+```bash
+# Download the latest .deb package from the GitHub releases page:
+# https://github.com/attunehq/attune/releases/latest
+
+# Install using apt
+sudo apt install ./attune_VERSION_linux_amd64.deb
+```
+
 ## Quick Start
 
 Here's how to set up an APT repository in about 5 minutes.

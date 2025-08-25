@@ -11,16 +11,54 @@ This guide provides detailed steps for getting started with Attune Publishing.
 Before you begin, ensure you have the following installed:
 
 - **Docker**: Required for running the Attune control plane and required services (PostgreSQL and MinIO)
-- **Go**: Required for building the Attune CLI
 
-## 1. Clone the Repository
+## 1. Install the Attune CLI
+
+You have two options for installing the Attune CLI:
+
+### Option A: Install from packages (Recommended)
+
+**macOS:**
+```bash
+# Add the Attune Homebrew tap
+brew tap attunehq/attune
+
+# Install Attune CLI
+brew install attune
+```
+
+**Linux:**
+```bash
+# Download the latest .deb package from the GitHub releases page:
+# https://github.com/attunehq/attune/releases/latest
+
+# Install using apt
+sudo apt install ./attune_VERSION_Linux_X64.deb
+```
+
+### Option B: Build from source
+
+If you prefer to build from source, you'll need **Rust** installed:
+
+```bash
+# Clone the repository first
+git clone https://github.com/attunehq/attune.git
+cd attune
+
+# Build and install from source
+cargo install --path ./packages/attune
+```
+
+## 2. Clone the Repository (if not already done)
+
+If you installed via packages, you'll still need the repository for the control plane:
 
 ```bash
 git clone https://github.com/attunehq/attune.git
 cd attune
 ```
 
-## 2. Set Up Environment Variables
+## 3. Set Up Environment Variables
 
 Copy the example environment file and modify it as needed:
 
@@ -32,7 +70,7 @@ Make sure the values in the `.env` file match your local setup. The defaults sho
 
 Consider using [direnv](https://direnv.net/) to manage environment variables.
 
-## 3. Spin Up Docker Containers
+## 4. Spin Up Docker Containers
 
 Start the Attune control plane, PostgreSQL and MinIO in the background:
 
@@ -49,27 +87,6 @@ You can check if the containers are running with:
 
 ```bash
 docker compose ps
-```
-
-## 4. Build and Install the CLI
-
-Navigate to the CLI directory and build the Go binary:
-
-```bash
-cd cli
-go build -o attune ./cmd/attune
-```
-
-Move the CLI binary to your Go path:
-
-```bash
-mv attune ~/go/bin
-```
-
-Make sure `~/go/bin` is in your PATH. If not, add it:
-
-```bash
-export PATH=$PATH:~/go/bin
 ```
 
 ## 5. Generate a GPG Key
