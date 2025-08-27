@@ -6,4 +6,5 @@ RUN npm install
 
 COPY . .
 RUN npm run build
-CMD ["npm", "run", "migrate"]
+ENTRYPOINT ["npm", "run"]
+CMD ["migrate"]
