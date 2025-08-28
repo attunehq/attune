@@ -39,4 +39,5 @@ COPY --from=build /target/release/attune-server-ee /usr/local/bin/attune-server-
 USER 1000:1000
 
 ENV RUST_LOG=attune_server_ee=debug,attune=debug
+HEALTHCHECK --interval=1s --timeout=5s CMD curl -f http://localhost:3000/api/v0/health
 ENTRYPOINT ["attune-server-ee"]
