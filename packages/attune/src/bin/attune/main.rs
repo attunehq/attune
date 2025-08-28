@@ -4,7 +4,8 @@ use attune::{api::ErrorResponse, server::compatibility::CompatibilityResponse};
 use axum::http::StatusCode;
 use clap::{Parser, Subcommand};
 use color_eyre::{
-    eyre::{bail, Context as _, OptionExt}, Result
+    Result,
+    eyre::{Context as _, OptionExt, bail},
 };
 use colored::Colorize;
 use gpgme::{Context, ExportMode, Protocol};
