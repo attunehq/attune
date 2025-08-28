@@ -40,10 +40,14 @@ pub struct PkgAddCommand {
     #[arg(long, short, default_value = "main")]
     #[builder(into)]
     pub component: String,
+
     /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
+    ///
+    /// If not set and there is only one signing key available, that key will be
+    /// used. Otherwise, the command will fail.
     #[arg(long, short)]
     #[builder(into)]
-    pub key_id: String,
+    pub key_id: Option<String>,
     /// GPG home directory to use for signing.
     ///
     /// If not set, defaults to the standard GPG home directory
@@ -51,10 +55,7 @@ pub struct PkgAddCommand {
     #[arg(long, short)]
     #[builder(into)]
     pub gpg_home_dir: Option<String>,
-    // TODO(#48): Implement.
-    // /// Overwrite existing package, even if different
-    // #[arg(long, short)]
-    // overwrite: bool,
+
     /// Path to the package to add
     #[builder(into)]
     pub package_file: String,
@@ -313,9 +314,13 @@ pub async fn add_package(ctx: &Config, command: &PkgAddCommand, sha256sum: &str)
     };
 
     // Sign index locally.
-    let sig = gpg_sign(command.gpg_home_dir.as_deref(), &command.key_id, index)
-        .await
-        .context("sign index")?;
+    let sig = gpg_sign(
+        command.gpg_home_dir.as_deref(),
+        command.key_id.as_deref(),
+        index,
+    )
+    .await
+    .context("sign index")?;
 
     // Submit signatures.
     debug!("submitting signatures");
