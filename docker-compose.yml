@@ -50,8 +50,8 @@ services:
     # If you're using IAM authentication with RDS Postgres, you can use
     # `migrate:rds` instead of `migrate` to get the database password from IMDS:
     #
-    # command: ["npm", "run", "migrate:rds"]
-    command: ["npm", "run", "migrate"]
+    # command: ["migrate:rds"]
+    command: ["migrate"]
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,58 +1,134 @@
-use std::fs;
+use std::{
+    collections::HashMap,
+    fs,
+    io::{BufRead as _, BufReader},
+    process::{Command, ExitStatus, Stdio},
+    thread::spawn,
+};
 
-use bollard::Docker;
-use bollard::query_parameters::InspectContainerOptions;
-use bollard::secret::{ContainerStateStatusEnum, HealthStatusEnum};
+use bollard::{
+    Docker,
+    query_parameters::InspectContainerOptions,
+    secret::{ContainerStateStatusEnum, HealthStatusEnum},
+};
 use dotenv::dotenv;
 use indoc::indoc;
-use testcontainers::core::{CmdWaitFor, ExecCommand};
-use testcontainers::runners::{AsyncBuilder, AsyncRunner};
-use testcontainers::{ContainerAsync, GenericBuildableImage, GenericImage, ImageExt};
+use testcontainers::{
+    core::{CmdWaitFor, ExecCommand},
+    runners::{AsyncBuilder, AsyncRunner},
+    {ContainerAsync, GenericBuildableImage, GenericImage, ImageExt},
+};
 use tokio::task::JoinSet;
 use tracing::{debug, trace};
 use tracing_subscriber::{
     fmt::format::FmtSpan, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 use uuid::{ContextV7, Timestamp, Uuid};
-use xshell::{Shell, cmd};
 
 use attune_macros::workspace_root;
 
-macro_rules! sh_exec {
-    ($sh: expr, $cmd: literal) => {{
-        let result = cmd!($sh, $cmd).ignore_status().output().unwrap();
-        let stdout = String::from_utf8(result.stdout).unwrap();
-        let stderr = String::from_utf8(result.stderr).unwrap();
-        debug!(%stdout, %stderr, $cmd);
-        (stdout, stderr, result.status)
-    }};
+#[derive(Debug)]
+struct Exec {
+    prog: String,
+    argv: Vec<String>,
+    env: HashMap<String, String>,
+    quiet: bool,
+}
+
+fn exec(cmd: impl AsRef<str>) -> (String, String, ExitStatus) {
+    let mut args = cmd.as_ref().split(' ');
+    let prog = args.next().unwrap().to_string();
+    let argv = args.map(String::from).collect();
+    exec_options(Exec {
+        prog,
+        argv,
+        env: HashMap::new(),
+        quiet: false,
+    })
+}
+
+fn exec_options(exec: Exec) -> (String, String, ExitStatus) {
+    if exec.quiet {
+        trace!(?exec, "running command");
+    } else {
+        debug!(?exec, "running command");
+    }
+    let mut cmd = Command::new(exec.prog);
+    cmd.args(exec.argv);
+    cmd.envs(exec.env);
+
+    let (stdout, stderr, status) = if exec.quiet {
+        let output = cmd.output().unwrap();
+        (
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+            output.status,
+        )
+    } else {
+        let mut child = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let child_stdout = child.stdout.take().unwrap();
+        let stdout_reader = spawn(|| {
+            let mut lines = Vec::new();
+            let lines_reader = BufReader::new(child_stdout).lines();
+            for line in lines_reader {
+                let line = line.unwrap();
+                println!("{line}");
+                lines.push(line);
+            }
+            lines.join("\n")
+        });
+        let child_stderr = child.stderr.take().unwrap();
+        let stderr_reader = spawn(|| {
+            let mut lines = Vec::new();
+            let lines_reader = BufReader::new(child_stderr).lines();
+            for line in lines_reader {
+                let line = line.unwrap();
+                eprintln!("{line}");
+                lines.push(line);
+            }
+            lines.join("\n")
+        });
+
+        let status = child.wait().unwrap();
+        let stdout = stdout_reader.join().unwrap();
+        let stderr = stderr_reader.join().unwrap();
+
+        (stdout, stderr, status)
+    };
+
+    if exec.quiet {
+        trace!(?status, "command completed");
+    } else {
+        debug!(?status, "command completed");
+        trace!(%stdout, %stderr, "command output");
+    }
+    (stdout, stderr, status)
 }
 
 async fn container_exec(
     container: &ContainerAsync<GenericImage>,
     cmd: &Vec<&str>,
-) -> (Vec<u8>, Vec<u8>, i64) {
+) -> (String, String, i64) {
     let mut result = container
         .exec(ExecCommand::new(cmd.clone()).with_cmd_ready_condition(CmdWaitFor::exit()))
         .await
         .unwrap();
-    let stdout = result.stdout_to_vec().await.unwrap();
-    let stderr = result.stderr_to_vec().await.unwrap();
+    let stdout = String::from_utf8_lossy(&result.stdout_to_vec().await.unwrap()).to_string();
+    let stderr = String::from_utf8_lossy(&result.stderr_to_vec().await.unwrap()).to_string();
     let exit_code = result.exit_code().await.unwrap().unwrap();
 
-    debug!(
-        stdout = %String::from_utf8_lossy(&stdout),
-        stderr = %String::from_utf8_lossy(&stderr),
-        ?exit_code,
-        "{}",
-        cmd.join(" ")
-    );
+    debug!(%stdout, %stderr, ?exit_code, "{}", cmd.join(" "));
     (stdout, stderr, exit_code)
 }
 
 /// Do shared test setup, like initializing tracing and setting environment
 /// variables.
-async fn setup() -> Shell {
+fn setup() {
     // We use this instead of `test_log` for this specific test because the
     // extra diagnostic information (e.g. event timestamps) is very helpful for
     // debugging a test of this complexity.
@@ -71,12 +147,10 @@ async fn setup() -> Shell {
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
     dotenv().ok();
-
-    Shell::new().unwrap()
 }
 
 /// Spin up control plane and upstream dependency Docker services.
-async fn docker_compose_up_services(sh: &Shell) -> Docker {
+async fn docker_compose_up_services() -> Docker {
     // Connect to Docker daemon.
     debug!(docker_host = ?std::env::var("DOCKER_HOST"), "connecting to Docker daemon");
     let docker = Docker::connect_with_defaults().unwrap();
@@ -88,7 +162,7 @@ async fn docker_compose_up_services(sh: &Shell) -> Docker {
     // Docker images. But we've already built these images locally to test, so
     // maybe we should push these up to a shared cache registry? Can we do that
     // transparently?
-    let (_, _, exit_code) = sh_exec!(sh, "docker compose up --build --force-recreate --detach");
+    let (_, _, exit_code) = exec("docker compose up --build --force-recreate --detach");
     assert!(exit_code.success());
 
     // Monitor control plane for readiness.
@@ -128,34 +202,34 @@ const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
 #[test_with::env(E2E_DOCKER)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn e2e_docker() {
-    let sh = setup().await;
-    docker_compose_up_services(&sh).await;
-    e2e_run(&sh).await;
+    setup();
+    docker_compose_up_services().await;
+    e2e_run().await;
 }
 
 /// Run end-to-end tests against the control plane running on the host.
 #[test_with::env(E2E_HOST)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn e2e_host() {
-    let sh = setup().await;
-    e2e_run(&sh).await;
+    setup();
+    e2e_run().await;
 }
 
 /// Use the CLI to add many packages concurrently. Then start a Debian container
 /// and `apt install` the packages to show that the repository works.
-async fn e2e_run(sh: &Shell) {
+async fn e2e_run() {
     // Check that the CLI is built and executable.
-    let (_, _, exit_code) = sh_exec!(&sh, "{ATTUNE_CLI_PATH} --help");
+    let (_, _, exit_code) = exec(format!("{ATTUNE_CLI_PATH} --help"));
     assert!(exit_code.success());
     debug!(path = ?ATTUNE_CLI_PATH, "CLI binary accessible");
 
     // Create a repository.
-    let repo = AttuneRepository::new(sh.clone(), ATTUNE_CLI_PATH.to_string());
+    let repo = AttuneRepository::new(ATTUNE_CLI_PATH.to_string());
 
     // Add packages concurrently.
     let gpg_key = GpgKey::new();
     let key_id = &gpg_key.key_id;
-    let (pubkey, _, exit_code) = sh_exec!(&sh, "gpg --armor --export {key_id}");
+    let (pubkey, _, exit_code) = exec(format!("gpg --armor --export {key_id}"));
     assert!(exit_code.success());
 
     const DISTRIBUTIONS: [&str; 5] = ["stable", "unstable", "testing", "dev", "canary"];
@@ -175,22 +249,42 @@ async fn e2e_run(sh: &Shell) {
         "tuna-test-package_3.0.5_linux_arm64.deb",
     ];
 
+    debug!("starting CLI uploads");
     let mut uploads = JoinSet::new();
     let mut i = 0;
     for distribution in DISTRIBUTIONS {
         for component in COMPONENTS {
             for package in PACKAGES {
                 let package = format!("{}/scripts/fixtures/{}", WORKSPACE_ROOT, package);
-                let sh = sh.clone();
                 let key_id = key_id.clone();
                 let repo_name = repo.name.clone();
                 uploads.spawn(async move {
                     trace!(?i, "started upload");
-                    let result = cmd!(sh, "{ATTUNE_CLI_PATH} apt package add -k {key_id} --repo {repo_name} --distribution {distribution} --component {component} {package}")
-                        .env("RUST_LOG", "attune=debug")
-                        .ignore_status()
-                        .output()
-                        .unwrap();
+                    let result = exec_options(Exec {
+                        prog: ATTUNE_CLI_PATH.to_string(),
+                        argv: vec![
+                            "apt",
+                            "package",
+                            "add",
+                            "--key-id",
+                            &key_id,
+                            "--repo",
+                            &repo_name,
+                            "--distribution",
+                            distribution,
+                            "--component",
+                            component,
+                            &package,
+                        ]
+                        .into_iter()
+                        .map(String::from)
+                        .collect(),
+                        env: HashMap::from([(
+                            String::from("RUST_LOG"),
+                            String::from("attune=debug"),
+                        )]),
+                        quiet: true,
+                    });
                     (i, result)
                 });
                 i += 1;
@@ -203,26 +297,21 @@ async fn e2e_run(sh: &Shell) {
     let results = uploads.join_all().await;
     debug!("all uploads completed");
 
-    // First, emit server logs for debugging. Note that the stdout is already
-    // logged by `sh_exec!`.
-    let (_, _, exit_code) = sh_exec!(&sh, "docker compose logs --timestamps controlplane");
+    // First, emit server logs for debugging.
+    let (_, _, exit_code) = exec("docker compose logs --timestamps controlplane");
     assert!(exit_code.success());
 
     // Then, check the upload results.
-    for (i, result) in results.clone() {
+    for (i, (stdout, stderr, status)) in results.clone() {
         // We log every result out first and _then_ check for success, so that
         // we can see all the logs and piece together what happened on failure.
-        debug!(
-            ?i,
-            status = ?result.status,
-            stdout = %String::from_utf8(result.stdout).unwrap(),
-            stderr = %String::from_utf8(result.stderr).unwrap(),
-            "apt pkg add logs");
+        trace!(?i, ?status, %stdout, %stderr, "apt pkg add logs");
     }
-    for (i, result) in results {
-        debug!(?i, success = result.status.success(), "apt pkg add result");
-        assert!(result.status.success());
+    for (i, (_, _, status)) in results {
+        trace!(?i, success = status.success(), "apt pkg add result");
+        assert!(status.success());
     }
+    debug!("all uploads successful");
 
     // Start a Debian container and install packages.
     let image = GenericBuildableImage::new("attune-testinstall", "latest")
@@ -279,13 +368,12 @@ async fn e2e_run(sh: &Shell) {
 }
 
 struct GpgKey {
-    sh: Shell,
     key_id: String,
 }
 
 impl GpgKey {
     fn new() -> Self {
-        let sh = Shell::new().unwrap();
+        debug!("creating GPG key");
 
         // Create GPG key configuration file.
         let gpg_config = indoc! {"
@@ -304,7 +392,7 @@ impl GpgKey {
         fs::write(CONFIG_PATH, gpg_config).unwrap();
 
         // Generate GPG key using batch mode and capture output.
-        let (_, stderr, exit_code) = sh_exec!(&sh, "gpg --batch --generate-key {CONFIG_PATH}");
+        let (_, stderr, exit_code) = exec(format!("gpg --batch --generate-key {CONFIG_PATH}"));
         assert!(exit_code.success(), "GPG key generation failed");
 
         // Parse the GPG output to find the key ID from the revocation
@@ -323,7 +411,8 @@ impl GpgKey {
                     // Clean up configuration file.
                     fs::remove_file(CONFIG_PATH).unwrap();
 
-                    return Self { sh, key_id };
+                    debug!(?key_id, "created GPG key");
+                    return Self { key_id };
                 }
             }
         }
@@ -333,16 +422,16 @@ impl GpgKey {
 
 impl Drop for GpgKey {
     fn drop(&mut self) {
-        let key_id = &self.key_id;
-        sh_exec!(
-            &self.sh,
+        debug!("deleting GPG key");
+        let key_id = self.key_id.clone();
+        exec(format!(
             "gpg --batch --yes --delete-secret-and-public-key {key_id}"
-        );
+        ));
+        debug!("deleted GPG key");
     }
 }
 
 struct AttuneRepository {
-    sh: Shell,
     cli_path: String,
 
     name: String,
@@ -351,18 +440,19 @@ struct AttuneRepository {
 }
 
 impl AttuneRepository {
-    fn new(sh: Shell, cli_path: String) -> Self {
+    fn new(cli_path: String) -> Self {
+        debug!("creating repository");
         let name = format!(
             "e2e-test-{}",
             Uuid::new_v7(Timestamp::now(ContextV7::new()))
         );
-        let (stdout, _, _) = sh_exec!(&sh, "{cli_path} apt repository create --json {name}");
+        let (stdout, _, _) = exec(format!("{cli_path} apt repository create --json {name}"));
         let res = serde_json::from_slice::<attune::server::repo::create::CreateRepositoryResponse>(
             stdout.as_bytes(),
         )
         .unwrap();
+        debug!(?res, "created repository");
         Self {
-            sh,
             cli_path,
             name,
             s3_bucket: res.s3_bucket,
@@ -373,8 +463,10 @@ impl AttuneRepository {
 
 impl Drop for AttuneRepository {
     fn drop(&mut self) {
-        let cli_path = &self.cli_path;
-        let repo_name = &self.name;
-        sh_exec!(&self.sh, "{cli_path} apt repository delete -y {repo_name}");
+        debug!("deleting repository");
+        let cli_path = self.cli_path.clone();
+        let repo_name = self.name.clone();
+        exec(format!("{cli_path} apt repository delete -y {repo_name}"));
+        debug!("deleted repository");
     }
 }

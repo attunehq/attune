@@ -33,11 +33,13 @@ pub struct PkgRemoveCommand {
     #[builder(into)]
     component: String,
 
-    /// GPG key ID to sign the index with (see `gpg --list-secret-keys`)
+    /// GPG key ID to sign the index with (see `gpg --list-secret-keys`).
+    ///
+    /// If not set and there is only one signing key available, that key will be
+    /// used. Otherwise, the command will fail.
     #[arg(long, short)]
     #[builder(into)]
-    key_id: String,
-
+    key_id: Option<String>,
     /// GPG home directory to use for signing.
     ///
     /// If not set, defaults to the standard GPG home directory
@@ -140,9 +142,13 @@ pub async fn remove_package(ctx: &Config, command: &PkgRemoveCommand) -> Result<
     };
 
     // Sign index locally.
-    let sig = gpg_sign(command.gpg_home_dir.as_deref(), &command.key_id, index)
-        .await
-        .context("sign index")?;
+    let sig = gpg_sign(
+        command.gpg_home_dir.as_deref(),
+        command.key_id.as_deref(),
+        index,
+    )
+    .await
+    .context("sign index")?;
 
     // Submit signatures.
     debug!("submitting signatures");

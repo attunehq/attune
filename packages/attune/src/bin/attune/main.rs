@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use clap::{Parser, Subcommand};
 use color_eyre::{
     Result,
-    eyre::{Context as _, OptionExt},
+    eyre::{Context as _, OptionExt, bail},
 };
 use colored::Colorize;
 use gpgme::{Context, ExportMode, Protocol};
@@ -163,11 +163,11 @@ pub struct SignedGpgContent {
 /// Sign content with the named GPG key ID.
 pub async fn gpg_sign(
     gpg_home_dir: Option<impl Into<String>>,
-    key_id: impl Into<String>,
+    key_id: Option<impl Into<String>>,
     content: impl Into<Vec<u8>>,
 ) -> Result<SignedGpgContent> {
     let gpg_home = gpg_home_dir.map(|p| p.into());
-    let key_id = key_id.into();
+    let key_id = key_id.map(|k| k.into());
     let content = content.into();
     tokio::task::spawn_blocking(move || gpg_sign_blocking(gpg_home, key_id, content))
         .await
@@ -176,7 +176,7 @@ pub async fn gpg_sign(
 
 fn gpg_sign_blocking(
     gpg_home: Option<String>,
-    key_id: String,
+    key_id: Option<String>,
     content: Vec<u8>,
 ) -> Result<SignedGpgContent> {
     let mut gpg = Context::from_protocol(Protocol::OpenPgp).context("create gpg context")?;
@@ -186,13 +186,27 @@ fn gpg_sign_blocking(
     }
 
     gpg.set_armor(true);
-    let key = gpg
-        .find_secret_keys([&key_id])
-        .context("list secret keys")?
-        .next()
-        .ok_or_eyre("get next key in list")?
-        .context("get secret key from list")?;
-    debug!(?key, "using public key");
+    let key = match key_id {
+        Some(key_id) => gpg
+            .find_secret_keys([&key_id])
+            .context("list secret keys")?
+            .next()
+            .ok_or_eyre("get next key in list")?
+            .context("get secret key from list")?,
+        None => {
+            let mut all_secret_keys = gpg
+                .find_secret_keys([] as [&str; 0])
+                .context("list secret keys")?
+                .collect::<Result<Vec<_>, _>>()
+                .context("get secret key from list")?;
+            if all_secret_keys.len() == 1 {
+                all_secret_keys.pop().ok_or_eyre("pop solo secret key")?
+            } else {
+                bail!("no GPG key ID specified and multiple GPG keys found")
+            }
+        }
+    };
+    debug!(?key, "using signing key");
     gpg.add_signer(&key).context("add signer")?;
     // TODO: Configure passphrase provider?
 

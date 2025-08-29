@@ -9,6 +9,16 @@ on:
       - "**/*.md"
   merge_group:
     types: [checks_requested]
+  workflow_dispatch:
+    inputs:
+      e2eLogLevel:
+        description: "E2E log level"
+        required: true
+        type: choice
+        options:
+          - trace
+          - debug
+        default: debug
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
@@ -16,6 +26,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  E2E_LOG_LEVEL: ${{ inputs.e2eLogLevel || 'debug' }}
 
 jobs:
   rust:
@@ -150,4 +161,4 @@ jobs:
           cp .env.example .env
           source .env
           cargo build --package attune --bin attune --all-features --release
-          E2E_DOCKER=true RUST_LOG=it=trace cargo test --package attune --test it --all-features --release -- --nocapture
+          E2E_DOCKER=true RUST_LOG=it=${{ env.E2E_LOG_LEVEL }} cargo test --package attune --test it --all-features --release -- --nocapture
