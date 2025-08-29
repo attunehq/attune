@@ -55,7 +55,7 @@ fn exec_options(exec: Exec) -> (String, String, ExitStatus) {
     }
     let mut cmd = Command::new(exec.prog);
     cmd.args(exec.argv);
-    cmd.envs(exec.env);
+    cmd.envs(exec.env.into_iter().chain(std::env::vars()));
 
     let (stdout, stderr, status) = if exec.quiet {
         let output = cmd.output().unwrap();
