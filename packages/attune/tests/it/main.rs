@@ -175,6 +175,7 @@ async fn e2e_run(sh: &Shell) {
         "tuna-test-package_3.0.5_linux_arm64.deb",
     ];
 
+    debug!("starting CLI uploads");
     let mut uploads = JoinSet::new();
     let mut i = 0;
     for distribution in DISTRIBUTIONS {
@@ -212,7 +213,7 @@ async fn e2e_run(sh: &Shell) {
     for (i, result) in results.clone() {
         // We log every result out first and _then_ check for success, so that
         // we can see all the logs and piece together what happened on failure.
-        debug!(
+        trace!(
             ?i,
             status = ?result.status,
             stdout = %String::from_utf8(result.stdout).unwrap(),
@@ -220,9 +221,10 @@ async fn e2e_run(sh: &Shell) {
             "apt pkg add logs");
     }
     for (i, result) in results {
-        debug!(?i, success = result.status.success(), "apt pkg add result");
+        trace!(?i, success = result.status.success(), "apt pkg add result");
         assert!(result.status.success());
     }
+    debug!("all uploads successful");
 
     // Start a Debian container and install packages.
     let image = GenericBuildableImage::new("attune-testinstall", "latest")
@@ -285,6 +287,7 @@ struct GpgKey {
 
 impl GpgKey {
     fn new() -> Self {
+        debug!("creating GPG key");
         let sh = Shell::new().unwrap();
 
         // Create GPG key configuration file.
@@ -323,6 +326,7 @@ impl GpgKey {
                     // Clean up configuration file.
                     fs::remove_file(CONFIG_PATH).unwrap();
 
+                    debug!(?key_id, "created GPG key");
                     return Self { sh, key_id };
                 }
             }
@@ -333,11 +337,13 @@ impl GpgKey {
 
 impl Drop for GpgKey {
     fn drop(&mut self) {
+        debug!("deleting GPG key");
         let key_id = &self.key_id;
         sh_exec!(
             &self.sh,
             "gpg --batch --yes --delete-secret-and-public-key {key_id}"
         );
+        debug!("deleted GPG key");
     }
 }
 
@@ -352,6 +358,7 @@ struct AttuneRepository {
 
 impl AttuneRepository {
     fn new(sh: Shell, cli_path: String) -> Self {
+        debug!("creating repository");
         let name = format!(
             "e2e-test-{}",
             Uuid::new_v7(Timestamp::now(ContextV7::new()))
@@ -361,6 +368,7 @@ impl AttuneRepository {
             stdout.as_bytes(),
         )
         .unwrap();
+        debug!(?res, "created repository");
         Self {
             sh,
             cli_path,
@@ -373,8 +381,10 @@ impl AttuneRepository {
 
 impl Drop for AttuneRepository {
     fn drop(&mut self) {
+        debug!("deleting repository");
         let cli_path = &self.cli_path;
         let repo_name = &self.name;
         sh_exec!(&self.sh, "{cli_path} apt repository delete -y {repo_name}");
+        debug!("deleted repository");
     }
 }
