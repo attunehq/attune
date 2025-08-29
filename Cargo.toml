@@ -67,5 +67,4 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.4"
 uuid = { version = "1.17.0", features = ["v4", "v7"] }
-xshell = "0.2.7"
 workspace_root = "0.1.2"
