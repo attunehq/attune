@@ -55,7 +55,7 @@ fn exec_options(exec: Exec) -> (String, String, ExitStatus) {
     }
     let mut cmd = Command::new(exec.prog);
     cmd.args(exec.argv);
-    cmd.envs(exec.env.into_iter().chain(std::env::vars()));
+    cmd.envs(exec.env);
 
     let (stdout, stderr, status) = if exec.quiet {
         let output = cmd.output().unwrap();
@@ -128,7 +128,7 @@ async fn container_exec(
 
 /// Do shared test setup, like initializing tracing and setting environment
 /// variables.
-async fn setup() {
+fn setup() {
     // We use this instead of `test_log` for this specific test because the
     // extra diagnostic information (e.g. event timestamps) is very helpful for
     // debugging a test of this complexity.
@@ -202,6 +202,7 @@ const ATTUNE_CLI_PATH: &str = env!("CARGO_BIN_EXE_attune");
 #[test_with::env(E2E_DOCKER)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn e2e_docker() {
+    setup();
     docker_compose_up_services().await;
     e2e_run().await;
 }
@@ -210,7 +211,7 @@ async fn e2e_docker() {
 #[test_with::env(E2E_HOST)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn e2e_host() {
-    setup().await;
+    setup();
     e2e_run().await;
 }
 
