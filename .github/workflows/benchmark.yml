@@ -14,12 +14,57 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             duration: ${{ steps.build.outputs.duration }}
-
+        env:
+            ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+            AWS_REGION: us-east-1
+            AWS_ACCESS_KEY_ID: attuneminio
+            AWS_SECRET_ACCESS_KEY: attuneminio
+            AWS_ENDPOINT_URL_S3: http://localhost:9000
+        services:
+            postgres:
+                image: postgres:17.4-bookworm
+                env:
+                    POSTGRES_USER: attune
+                    POSTGRES_PASSWORD: attune
+                    POSTGRES_DB: attune
+                ports:
+                    - "5432:5432"
+            minio:
+                image: ghcr.io/attunehq/minio:latest@sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
+                env:
+                    MINIO_ROOT_USER: attuneminio
+                    MINIO_ROOT_PASSWORD: attuneminio
+                    MINIO_DOMAIN: localhost
+                ports:
+                    - "9000:9000"
+                volumes:
+                    - "/tmp/minio-data:/data"
         steps:
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
+            - name: Create MinIO bucket
+              run: mkdir -p /tmp/minio-data/attune-dev-0
+
             - uses: actions/checkout@v4
-            - run: |
+
+            - name: Remove empty EE crate
+              run: rm -r ./packages/attune-ee
+
+            - name: Install Rust
+              run: |
                   rustup toolchain install stable
                   rustup show
+
+            - name: Migrate database
+              working-directory: ./docker/migrate
+              run: |
+                  npm install
+                  npm run build
+                  npm run migrate
+
             - id: build
               run: |
                   START=$(date +%s)
@@ -32,16 +77,62 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             duration: ${{ steps.build.outputs.duration }}
-
+        env:
+            ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+            AWS_REGION: us-east-1
+            AWS_ACCESS_KEY_ID: attuneminio
+            AWS_SECRET_ACCESS_KEY: attuneminio
+            AWS_ENDPOINT_URL_S3: http://localhost:9000
+        services:
+            postgres:
+                image: postgres:17.4-bookworm
+                env:
+                    POSTGRES_USER: attune
+                    POSTGRES_PASSWORD: attune
+                    POSTGRES_DB: attune
+                ports:
+                    - "5432:5432"
+            minio:
+                image: ghcr.io/attunehq/minio:latest@sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
+                env:
+                    MINIO_ROOT_USER: attuneminio
+                    MINIO_ROOT_PASSWORD: attuneminio
+                    MINIO_DOMAIN: localhost
+                ports:
+                    - "9000:9000"
+                volumes:
+                    - "/tmp/minio-data:/data"
         steps:
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
+            - name: Create MinIO bucket
+              run: mkdir -p /tmp/minio-data/attune-dev-0
+
             - uses: actions/checkout@v4
-            - run: |
+
+            - name: Remove empty EE crate
+              run: rm -r ./packages/attune-ee
+
+            - name: Install Rust
+              run: |
                   rustup toolchain install stable
                   rustup show
+
+            - name: Migrate database
+              working-directory: ./docker/migrate
+              run: |
+                  npm install
+                  npm run build
+                  npm run migrate
+
             - name: Install hurry
               run: |
                   curl -sSfL https://hurry-releases.s3.amazonaws.com/install.sh | bash
                   echo "$HOME/.hurry/bin" >> $GITHUB_PATH
+
             - id: build
               run: |
                   START=$(date +%s)
@@ -54,15 +145,61 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             duration: ${{ steps.build.outputs.duration }}
-
+        env:
+            ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+            AWS_REGION: us-east-1
+            AWS_ACCESS_KEY_ID: attuneminio
+            AWS_SECRET_ACCESS_KEY: attuneminio
+            AWS_ENDPOINT_URL_S3: http://localhost:9000
+        services:
+            postgres:
+                image: postgres:17.4-bookworm
+                env:
+                    POSTGRES_USER: attune
+                    POSTGRES_PASSWORD: attune
+                    POSTGRES_DB: attune
+                ports:
+                    - "5432:5432"
+            minio:
+                image: ghcr.io/attunehq/minio:latest@sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
+                env:
+                    MINIO_ROOT_USER: attuneminio
+                    MINIO_ROOT_PASSWORD: attuneminio
+                    MINIO_DOMAIN: localhost
+                ports:
+                    - "9000:9000"
+                volumes:
+                    - "/tmp/minio-data:/data"
         steps:
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
+            - name: Create MinIO bucket
+              run: mkdir -p /tmp/minio-data/attune-dev-0
+
             - uses: actions/checkout@v4
-            - run: |
+
+            - name: Remove empty EE crate
+              run: rm -r ./packages/attune-ee
+
+            - name: Install Rust
+              run: |
                   rustup toolchain install stable
                   rustup show
+
+            - name: Migrate database
+              working-directory: ./docker/migrate
+              run: |
+                  npm install
+                  npm run build
+                  npm run migrate
+
             - uses: Swatinem/rust-cache@v2
               with:
                   shared-key: benchmark
+
             - id: build
               run: |
                   START=$(date +%s)
@@ -75,15 +212,61 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             duration: ${{ steps.build.outputs.duration }}
-
+        env:
+            ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
+            AWS_REGION: us-east-1
+            AWS_ACCESS_KEY_ID: attuneminio
+            AWS_SECRET_ACCESS_KEY: attuneminio
+            AWS_ENDPOINT_URL_S3: http://localhost:9000
+        services:
+            postgres:
+                image: postgres:17.4-bookworm
+                env:
+                    POSTGRES_USER: attune
+                    POSTGRES_PASSWORD: attune
+                    POSTGRES_DB: attune
+                ports:
+                    - "5432:5432"
+            minio:
+                image: ghcr.io/attunehq/minio:latest@sha256:d816cb5feed54cbf1789b5cf0ed93fc7cf99809bb1018cf6781275bdc6e5e7ef
+                env:
+                    MINIO_ROOT_USER: attuneminio
+                    MINIO_ROOT_PASSWORD: attuneminio
+                    MINIO_DOMAIN: localhost
+                ports:
+                    - "9000:9000"
+                volumes:
+                    - "/tmp/minio-data:/data"
         steps:
+            - name: Install system dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgpg-error-dev libgpgme-dev pkg-config
+
+            - name: Create MinIO bucket
+              run: mkdir -p /tmp/minio-data/attune-dev-0
+
             - uses: actions/checkout@v4
-            - run: |
+
+            - name: Remove empty EE crate
+              run: rm -r ./packages/attune-ee
+
+            - name: Install Rust
+              run: |
                   rustup toolchain install stable
                   rustup show
+
+            - name: Migrate database
+              working-directory: ./docker/migrate
+              run: |
+                  npm install
+                  npm run build
+                  npm run migrate
+
             - uses: mozilla-actions/sccache-action@v0.0.9
               with:
                   disable_annotations: true
+
             - id: build
               env:
                   SCCACHE_GHA_ENABLED: "true"
