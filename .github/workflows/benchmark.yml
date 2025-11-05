@@ -1,0 +1,135 @@
+name: benchmark
+
+on:
+    pull_request:
+        branches: [main]
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-benchmark
+    cancel-in-progress: true
+
+jobs:
+    clean:
+        runs-on: ubuntu-latest
+        outputs:
+            duration: ${{ steps.build.outputs.duration }}
+
+        steps:
+            - uses: actions/checkout@v4
+            - run: |
+                  rustup toolchain install stable
+                  rustup show
+            - id: build
+              run: |
+                  START=$(date +%s)
+                  cargo build --workspace --verbose
+                  END=$(date +%s)
+                  DURATION=$((END - START))
+                  echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+    hurry:
+        runs-on: ubuntu-latest
+        outputs:
+            duration: ${{ steps.build.outputs.duration }}
+
+        steps:
+            - uses: actions/checkout@v4
+            - run: |
+                  rustup toolchain install stable
+                  rustup show
+            - name: Install hurry
+              run: |
+                  curl -sSfL https://hurry-releases.s3.amazonaws.com/install.sh | bash
+                  echo "$HOME/.hurry/bin" >> $GITHUB_PATH
+            - id: build
+              run: |
+                  START=$(date +%s)
+                  hurry cargo build --workspace --verbose
+                  END=$(date +%s)
+                  DURATION=$((END - START))
+                  echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+    swatinem:
+        runs-on: ubuntu-latest
+        outputs:
+            duration: ${{ steps.build.outputs.duration }}
+
+        steps:
+            - uses: actions/checkout@v4
+            - run: |
+                  rustup toolchain install stable
+                  rustup show
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  shared-key: benchmark
+            - id: build
+              run: |
+                  START=$(date +%s)
+                  cargo build --workspace --verbose
+                  END=$(date +%s)
+                  DURATION=$((END - START))
+                  echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+    sccache:
+        runs-on: ubuntu-latest
+        outputs:
+            duration: ${{ steps.build.outputs.duration }}
+
+        steps:
+            - uses: actions/checkout@v4
+            - run: |
+                  rustup toolchain install stable
+                  rustup show
+            - uses: mozilla-actions/sccache-action@v0.0.9
+              with:
+                  disable_annotations: true
+            - id: build
+              env:
+                  SCCACHE_GHA_ENABLED: "true"
+                  RUSTC_WRAPPER: sccache
+              run: |
+                  START=$(date +%s)
+                  cargo build --workspace --verbose
+                  END=$(date +%s)
+                  DURATION=$((END - START))
+                  echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+    summary:
+        name: Benchmark
+        runs-on: ubuntu-latest
+        needs: [clean, hurry, swatinem, sccache]
+
+        steps:
+            - run: |
+                  echo "> [!IMPORTANT]" >> $GITHUB_STEP_SUMMARY
+                  echo "> Caches are relative to the last successful benchmark." >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "## Build Time Comparison" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "| Phase | Duration |" >> $GITHUB_STEP_SUMMARY
+                  echo "| ----- | -------- |" >> $GITHUB_STEP_SUMMARY
+                  echo "| Clean build | ${{ needs.clean.outputs.duration }}s |" >> $GITHUB_STEP_SUMMARY
+                  echo "| hurry cached build | ${{ needs.hurry.outputs.duration }}s |" >> $GITHUB_STEP_SUMMARY
+                  echo "| swatinem cached build | ${{ needs.swatinem.outputs.duration }}s |" >> $GITHUB_STEP_SUMMARY
+                  echo "| sccache cached build | ${{ needs.sccache.outputs.duration }}s |" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+
+                  CLEAN=${{ needs.clean.outputs.duration }}
+                  HURRY=${{ needs.hurry.outputs.duration }}
+                  SWATINEM=${{ needs.swatinem.outputs.duration }}
+                  SCCACHE=${{ needs.sccache.outputs.duration }}
+
+                  HURRY_SPEEDUP=$(awk "BEGIN {printf \"%.2f\", $CLEAN / $HURRY}")
+                  SWATINEM_SPEEDUP=$(awk "BEGIN {printf \"%.2f\", $CLEAN / $SWATINEM}")
+                  SCCACHE_SPEEDUP=$(awk "BEGIN {printf \"%.2f\", $CLEAN / $SCCACHE}")
+                  HURRY_VS_SWATINEM=$(awk "BEGIN {printf \"%.2f\", $SWATINEM / $HURRY}")
+                  HURRY_VS_SCCACHE=$(awk "BEGIN {printf \"%.2f\", $SCCACHE / $HURRY}")
+
+                  echo "### Speedup Analysis" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- hurry cached vs clean: **${HURRY_SPEEDUP}x** faster" >> $GITHUB_STEP_SUMMARY
+                  echo "- swatinem cached vs clean: **${SWATINEM_SPEEDUP}x** faster" >> $GITHUB_STEP_SUMMARY
+                  echo "- sccache cached vs clean: **${SCCACHE_SPEEDUP}x** faster" >> $GITHUB_STEP_SUMMARY
+                  echo "- hurry vs swatinem: **${HURRY_VS_SWATINEM}x** faster" >> $GITHUB_STEP_SUMMARY
+                  echo "- hurry vs sccache: **${HURRY_VS_SCCACHE}x** faster" >> $GITHUB_STEP_SUMMARY
