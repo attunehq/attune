@@ -1,0 +1,11 @@
+[build.env]
+passthrough = ["RUSTC_BOOTSTRAP", "SQLX_OFFLINE"]
+
+[build]
+pre-build = [
+	"dpkg --add-architecture $CROSS_DEB_ARCH",
+	"apt-get update && apt-get install --assume-yes pkg-config libssl-dev:$CROSS_DEB_ARCH libssl-dev libgpg-error-dev:$CROSS_DEB_ARCH libgpgme-dev:$CROSS_DEB_ARCH"
+]
+
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:edge"
