@@ -31,7 +31,7 @@ env:
 jobs:
   rust:
     name: Build, check, and test Rust
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
       # These values are from Minio, which is used in integration tests.
@@ -128,7 +128,7 @@ jobs:
 
   e2e:
     name: End-to-end test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Install Rust
         run: rustup show
