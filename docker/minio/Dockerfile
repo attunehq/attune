@@ -12,7 +12,6 @@ WORKDIR /src
 RUN go build -o /usr/local/bin/minio .
 
 FROM alpine:3.21
-RUN adduser -D -u 1000 minio
 COPY --from=minio-builder /usr/local/bin/minio /usr/local/bin/minio
 
 # We can use the prebuilt `mc` binary from MinIO's release page, they still
@@ -21,6 +20,5 @@ ARG TARGETARCH
 RUN wget -q https://dl.min.io/client/mc/release/linux-${TARGETARCH}/mc -O /usr/local/bin/mc && \
     chmod +x /usr/local/bin/mc
 COPY --chmod=755 ./entrypoint.sh /entrypoint.sh
-USER minio
 
 ENTRYPOINT [ "/bin/sh", "/entrypoint.sh" ]
