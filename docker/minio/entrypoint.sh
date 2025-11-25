@@ -8,8 +8,12 @@ set -eux
 minio server /data --console-address ":9001" &
 MINIO_SERVER_PID=$!
 sleep 1
+
+# 'local' is used by the docker-compose healthcheck.
+mc alias set local http://127.0.0.1:9000 attuneminio attuneminio
 mc alias set attune http://127.0.0.1:9000 attuneminio attuneminio
 mc mb --ignore-existing attune/attune-dev-0
+
 # This needs to be readable for the E2E test to install packages, and writeable
 # for integration tests to upload objects.
 mc anonymous set public attune/attune-dev-0
