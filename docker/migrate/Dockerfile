@@ -1,4 +1,4 @@
-FROM node:24-bookworm
+FROM node:24-trixie
 
 WORKDIR /app
 COPY ./package.json ./package-lock.json ./

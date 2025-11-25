@@ -1,4 +1,4 @@
-FROM rust:1.89.0-bookworm AS build
+FROM rust:1.89.0-trixie AS build
 
 RUN apt-get update && apt-get install -y pkg-config libgpg-error-dev libgpgme-dev
 
@@ -29,7 +29,7 @@ COPY ./scripts ./scripts
 COPY ./docker/migrate/prisma/migrations ./docker/migrate/prisma/migrations
 RUN cargo build --release
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends libssl3 ca-certificates libgpg-error0 libgpgme11 curl && rm -rf /var/lib/apt/lists/*
