@@ -22,7 +22,7 @@ jobs:
           formula-path: Formula/attune.rb
           homebrew-tap: attunehq/homebrew-attune
           download-url: |
-            https://github.com/attunehq/attune/releases/download/v${{ steps.version.outputs.version }}/attune-v${{ steps.version.outputs.version }}_macOS-ARM64
+            https://github.com/attunehq/attune/releases/download/v${{ steps.version.outputs.version }}/attune-v${{ steps.version.outputs.version }}_macOS-arm64
           commit-message: |
             Update attune to v${{ steps.version.outputs.version }}
             
