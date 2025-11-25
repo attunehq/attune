@@ -527,6 +527,7 @@ dependencies = [
  "colored",
  "debian-packaging",
  "futures-util",
+ "git-version",
  "hex",
  "inquire",
  "md-5 0.10.6",
