@@ -23,6 +23,7 @@ debian-packaging.workspace = true
 derivative.workspace = true
 digest.workspace = true
 futures-util.workspace = true
+git-version.workspace = true
 gpgme.workspace = true
 hex.workspace = true
 http.workspace = true

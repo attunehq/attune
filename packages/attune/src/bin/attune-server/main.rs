@@ -1,5 +1,6 @@
 use aws_sdk_s3::config::BehaviorVersion;
 use clap::Parser;
+use git_version::git_version;
 use tokio::signal;
 use tracing::{info, trace};
 use tracing_subscriber::{
@@ -10,7 +11,11 @@ use tracing_subscriber::{
 ///
 /// Attune is the easiest way to securely publish Linux packages.
 #[derive(Parser)]
-#[command(name = "attune-server", max_term_width = 80)]
+#[command(
+    name = "attune-server",
+    version = git_version!(args = ["--tags", "--always", "--dirty=-modified"], fallback = "unknown"),
+    max_term_width = 80
+)]
 struct Args {
     /// Postgres database URL for Attune control plane.
     #[arg(long, env = "ATTUNE_DATABASE_URL")]

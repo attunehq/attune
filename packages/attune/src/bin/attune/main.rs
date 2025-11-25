@@ -8,6 +8,7 @@ use color_eyre::{
     eyre::{Context as _, OptionExt, bail},
 };
 use colored::Colorize;
+use git_version::git_version;
 use gpgme::{Context, ExportMode, Protocol};
 use tracing::debug;
 use tracing_subscriber::{
@@ -21,7 +22,11 @@ mod config;
 ///
 /// Attune is the easiest way to securely publish Linux packages.
 #[derive(Parser, Debug)]
-#[command(version = "v0.2.0", name = "attune", max_term_width = 80)]
+#[command(
+    name = "attune",
+    version = git_version!(args = ["--tags", "--always", "--dirty=-modified"], fallback = "unknown"),
+    max_term_width = 80
+)]
 struct Args {
     /// Attune API token.
     #[arg(long, env = "ATTUNE_API_TOKEN")]
