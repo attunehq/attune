@@ -1,4 +1,4 @@
-FROM rust:1.89.0-bookworm AS build
+FROM rust:1.91.0-bookworm AS build
 
 RUN apt-get update && apt-get install -y pkg-config libgpg-error-dev libgpgme-dev
 

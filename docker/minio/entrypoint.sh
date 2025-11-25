@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 
 # This creates a default bucket for the Minio instance, which is required by
 # Attune.
 #
 # See: https://github.com/minio/minio/issues/4769
-set -euxo pipefail
+set -eux
 minio server /data --console-address ":9001" &
 MINIO_SERVER_PID=$!
 sleep 1
