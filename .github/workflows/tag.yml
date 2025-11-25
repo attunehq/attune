@@ -114,7 +114,8 @@ jobs:
   publish:
     name: Production build and publish draft release
     runs-on: ubuntu-latest
-    needs: macos-notarize
+    # TODO: Re-enable once macOS notarization is available again
+    # needs: macos-notarize
     env:
       ATTUNE_DATABASE_URL: postgresql://attune:attune@localhost:5432/attune
       # These values are from Minio, which is used in integration tests.
@@ -201,19 +202,20 @@ jobs:
       - name: Build .deb package
         run: cargo deb -p attune
 
-      # Download notarized macOS binary
-      - name: Download notarized macOS binary
-        uses: actions/download-artifact@v4
-        with:
-          name: attune-macos-notarized
-          path: /tmp/macos-binary
+      # TODO: Re-enable once macOS notarization is available again
+      # - name: Download notarized macOS binary
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: attune-macos-notarized
+      #     path: /tmp/macos-binary
 
       # Publish GitHub pre-release.
       - name: Copy and rename release assets
         run: |
           mkdir -p /tmp/release
           cp target/release/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
-          cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-arm64
+          # TODO: Re-enable once macOS notarization is available again
+          # cp /tmp/macos-binary/attune /tmp/release/attune-${{ env.RELEASE_NAME }}_macOS-arm64
           cp target/release/attune-server /tmp/release/attune-controlplane-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}
           cp target/debian/attune_*.deb /tmp/release/attune-${{ env.RELEASE_NAME }}_${{ runner.os }}-${{ runner.arch }}.deb
 
