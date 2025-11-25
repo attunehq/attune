@@ -30,6 +30,10 @@ jobs:
         env:
           COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+  verify-homebrew:
+    runs-on: macos-latest
+    needs: update-homebrew
+    steps:
       - name: Verify formula syntax
         run: |
           brew tap attunehq/attune
