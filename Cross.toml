@@ -7,5 +7,11 @@ pre-build = [
 	"apt-get update && apt-get install --assume-yes pkg-config libssl-dev:$CROSS_DEB_ARCH libssl-dev libgpg-error-dev:$CROSS_DEB_ARCH libgpgme-dev:$CROSS_DEB_ARCH"
 ]
 
+[target.x86_64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:edge"
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:edge"
+[target.x86_64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:edge"
+[target.aarch64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-musl:edge"
